@@ -1,0 +1,45 @@
+name: Docker Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      dockerfile_directory:
+        description: 'Directory containing the Dockerfile to build'
+        required: true
+        default: '.'
+        type: string
+      image_name:
+        description: 'Docker image name (optional)'
+        required: false
+        default: 'my-docker-image'
+        type: string
+      image_tag:
+        description: 'Docker image tag (optional)'
+        required: false
+        default: 'latest'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          echo "Building Docker image from directory: \
+          ${{ inputs.dockerfile_directory }}"
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} \
+            ${{ inputs.dockerfile_directory }}
+
+      - name: Display build success
+        run: |
+          echo "✅ Docker image built successfully!"
+          echo "Image: ${{ inputs.image_name }}:${{ inputs.image_tag }}"
+          echo "Context: ${{ inputs.dockerfile_directory }}"
+          docker images | grep ${{ inputs.image_name }}

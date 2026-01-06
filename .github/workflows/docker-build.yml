@@ -101,4 +101,4 @@ jobs:
           echo "The image contains a multi-arch manifest supporting both architectures."
           echo "Docker will automatically pull the correct architecture for your platform."
           echo ""
-          echo "View in GitHub Packages: https://github.com/${{ github.repository_owner }}?tab=packages"
+          echo "View in GitHub Packages: https://github.com/${REPO_OWNER_LOWER}?tab=packages"

@@ -32,14 +32,12 @@ jobs:
 
       - name: Build Docker image
         run: |
-          echo "Building Docker image from directory: \
-          ${{ inputs.dockerfile_directory }}"
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} \
-            ${{ inputs.dockerfile_directory }}
+          echo "Building Docker image from directory: ${{ inputs.dockerfile_directory }}"
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} ${{ inputs.dockerfile_directory }}
 
       - name: Display build success
         run: |
           echo "✅ Docker image built successfully!"
           echo "Image: ${{ inputs.image_name }}:${{ inputs.image_tag }}"
           echo "Context: ${{ inputs.dockerfile_directory }}"
-          docker images | grep ${{ inputs.image_name }}
+          docker images --filter reference=${{ inputs.image_name }}

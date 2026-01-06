@@ -57,8 +57,10 @@ jobs:
           else
             IMAGE_NAME="${INPUT_IMAGE_NAME}"
           fi
-          echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "Image name set to: ${IMAGE_NAME}"
+          # Convert to lowercase for Docker/GHCR compatibility
+          IMAGE_NAME_LOWER=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          echo "name=${IMAGE_NAME_LOWER}" >> $GITHUB_OUTPUT
+          echo "Image name set to: ${IMAGE_NAME_LOWER}"
 
       - name: Build and push multi-platform Docker image
         env:
@@ -67,7 +69,9 @@ jobs:
           IMAGE_NAME: ${{ steps.image_name.outputs.name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER}/${IMAGE_NAME}"
+          # Convert owner to lowercase for Docker/GHCR compatibility
+          REPO_OWNER_LOWER=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}"
           
           echo "Building and pushing multi-platform Docker image (linux/amd64, linux/arm64)"
           echo "From directory: ${DOCKERFILE_DIR}"
@@ -86,7 +90,9 @@ jobs:
           IMAGE_TAG: ${{ inputs.image_tag }}
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
         run: |
-          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER}/${IMAGE_NAME}"
+          # Convert owner to lowercase for Docker/GHCR compatibility
+          REPO_OWNER_LOWER=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}"
           echo "✅ Multi-platform Docker image built and pushed successfully!"
           echo "Image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}"
           echo "Platforms: linux/amd64, linux/arm64"

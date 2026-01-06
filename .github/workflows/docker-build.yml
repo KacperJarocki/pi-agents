@@ -8,15 +8,6 @@ on:
         required: true
         default: '.'
         type: string
-      registry:
-        description: 'Docker registry (e.g., docker.io, ghcr.io)'
-        required: true
-        default: 'docker.io'
-        type: string
-      registry_username:
-        description: 'Docker registry username'
-        required: true
-        type: string
       image_name:
         description: 'Docker image name (optional, defaults to directory name)'
         required: false
@@ -42,24 +33,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.registry }}
-          username: ${{ inputs.registry_username }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Determine image name
         id: image_name
         env:
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
           INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           if [ -z "${INPUT_IMAGE_NAME}" ]; then
             # Use directory name as image name
             DIR_NAME=$(basename "${DOCKERFILE_DIR}")
             if [ "${DIR_NAME}" = "." ]; then
-              DIR_NAME=$(basename "$(pwd)")
+              DIR_NAME="${REPO_NAME}"
             fi
             IMAGE_NAME="${DIR_NAME}"
           else
@@ -71,12 +63,11 @@ jobs:
       - name: Build and push multi-platform Docker image
         env:
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
-          REGISTRY: ${{ inputs.registry }}
-          REGISTRY_USERNAME: ${{ inputs.registry_username }}
+          REPO_OWNER: ${{ github.repository_owner }}
           IMAGE_NAME: ${{ steps.image_name.outputs.name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          FULL_IMAGE_NAME="${REGISTRY}/${REGISTRY_USERNAME}/${IMAGE_NAME}"
+          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER}/${IMAGE_NAME}"
           
           echo "Building and pushing multi-platform Docker image (linux/amd64, linux/arm64)"
           echo "From directory: ${DOCKERFILE_DIR}"
@@ -90,13 +81,12 @@ jobs:
 
       - name: Display build success
         env:
-          REGISTRY: ${{ inputs.registry }}
-          REGISTRY_USERNAME: ${{ inputs.registry_username }}
+          REPO_OWNER: ${{ github.repository_owner }}
           IMAGE_NAME: ${{ steps.image_name.outputs.name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
         run: |
-          FULL_IMAGE_NAME="${REGISTRY}/${REGISTRY_USERNAME}/${IMAGE_NAME}"
+          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER}/${IMAGE_NAME}"
           echo "✅ Multi-platform Docker image built and pushed successfully!"
           echo "Image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}"
           echo "Platforms: linux/amd64, linux/arm64"
@@ -104,3 +94,5 @@ jobs:
           echo ""
           echo "The image contains a multi-arch manifest supporting both architectures."
           echo "Docker will automatically pull the correct architecture for your platform."
+          echo ""
+          echo "View in GitHub Packages: https://github.com/${{ github.repository_owner }}?tab=packages"

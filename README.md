@@ -2,7 +2,13 @@
 
 ## Docker Build Workflow
 
-This repository includes a GitHub Action workflow for building Docker images from any directory containing a Dockerfile.
+This repository includes a GitHub Action workflow for building multi-platform Docker images from any directory containing a Dockerfile.
+
+### Features
+
+- **Multi-platform builds**: Automatically builds for both `linux/amd64` and `linux/arm64` architectures
+- **Flexible directory selection**: Build from any directory in the repository
+- **Customizable naming**: Configure image name and tag as needed
 
 ### How to Use
 
@@ -22,4 +28,6 @@ To build a Dockerfile located in `./backend`:
 - Image name: `my-app`
 - Image tag: `v1.0.0`
 
-This will execute: `docker build -t my-app:v1.0.0 ./backend`
+This will execute: `docker buildx build --platform linux/amd64,linux/arm64 -t my-app:v1.0.0 ./backend`
+
+The image will be built for both AMD64 and ARM64 architectures.

@@ -32,14 +32,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build Docker image for multiple platforms
         env:
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
           IMAGE_NAME: ${{ inputs.image_name }}
           IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "Building Docker image from directory: ${DOCKERFILE_DIR}"
-          docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" "${DOCKERFILE_DIR}"
+          echo "Building multi-platform Docker image (linux/amd64, linux/arm64) from directory: ${DOCKERFILE_DIR}"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+            "${DOCKERFILE_DIR}"
 
       - name: Display build success
         env:
@@ -47,7 +50,7 @@ jobs:
           IMAGE_TAG: ${{ inputs.image_tag }}
           DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
         run: |
-          echo "✅ Docker image built successfully!"
+          echo "✅ Multi-platform Docker image built successfully!"
           echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "Platforms: linux/amd64, linux/arm64"
           echo "Context: ${DOCKERFILE_DIR}"
-          docker images --filter reference="${IMAGE_NAME}:${IMAGE_TAG}"

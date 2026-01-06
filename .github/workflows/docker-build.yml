@@ -48,4 +48,4 @@ jobs:
           echo "✅ Docker image built successfully!"
           echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
           echo "Context: ${DOCKERFILE_DIR}"
-          docker images --filter reference="${IMAGE_NAME}"
+          docker images --filter reference="${IMAGE_NAME}:${IMAGE_TAG}"

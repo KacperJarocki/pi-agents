@@ -7,7 +7,7 @@ This repository includes a GitHub Action workflow for building and pushing multi
 ### Features
 
 - **Multi-platform builds**: Automatically builds for both `linux/amd64` and `linux/arm64` architectures
-- **Platform-specific tags**: Creates tags with `-amd64` and `-arm64` suffixes for each platform
+- **Multi-arch manifest**: Creates a single image tag that automatically serves the correct architecture
 - **Automatic image naming**: Defaults image name to the directory name if not specified
 - **Registry push**: Pushes built images to Docker registry (Docker Hub, GHCR, etc.)
 - **Flexible directory selection**: Build from any directory in the repository
@@ -39,7 +39,6 @@ To build a Dockerfile located in `./backend`:
 
 This will execute: `docker buildx build --platform linux/amd64,linux/arm64 --push ...`
 
-The following images will be pushed:
-- `docker.io/myusername/backend:v1.0.0` (multi-arch manifest)
-- `docker.io/myusername/backend:v1.0.0-amd64` (AMD64 specific)
-- `docker.io/myusername/backend:v1.0.0-arm64` (ARM64 specific)
+The image `docker.io/myusername/backend:v1.0.0` will be pushed with a multi-arch manifest.
+
+When you pull this image, Docker automatically selects the correct architecture (AMD64 or ARM64) for your platform.

@@ -85,8 +85,6 @@ jobs:
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -t "${FULL_IMAGE_NAME}:${IMAGE_TAG}" \
-            -t "${FULL_IMAGE_NAME}:${IMAGE_TAG}-amd64" \
-            -t "${FULL_IMAGE_NAME}:${IMAGE_TAG}-arm64" \
             --push \
             "${DOCKERFILE_DIR}"
 
@@ -101,6 +99,8 @@ jobs:
           FULL_IMAGE_NAME="${REGISTRY}/${REGISTRY_USERNAME}/${IMAGE_NAME}"
           echo "✅ Multi-platform Docker image built and pushed successfully!"
           echo "Image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}"
-          echo "Platform tags: ${FULL_IMAGE_NAME}:${IMAGE_TAG}-amd64, ${FULL_IMAGE_NAME}:${IMAGE_TAG}-arm64"
           echo "Platforms: linux/amd64, linux/arm64"
           echo "Context: ${DOCKERFILE_DIR}"
+          echo ""
+          echo "The image contains a multi-arch manifest supporting both architectures."
+          echo "Docker will automatically pull the correct architecture for your platform."

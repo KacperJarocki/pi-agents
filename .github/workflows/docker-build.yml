@@ -31,13 +31,21 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
+        env:
+          DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          echo "Building Docker image from directory: ${{ inputs.dockerfile_directory }}"
-          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} ${{ inputs.dockerfile_directory }}
+          echo "Building Docker image from directory: ${DOCKERFILE_DIR}"
+          docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" "${DOCKERFILE_DIR}"
 
       - name: Display build success
+        env:
+          IMAGE_NAME: ${{ inputs.image_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
         run: |
           echo "✅ Docker image built successfully!"
-          echo "Image: ${{ inputs.image_name }}:${{ inputs.image_tag }}"
-          echo "Context: ${{ inputs.dockerfile_directory }}"
-          docker images --filter reference=${{ inputs.image_name }}
+          echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "Context: ${DOCKERFILE_DIR}"
+          docker images --filter reference="${IMAGE_NAME}"

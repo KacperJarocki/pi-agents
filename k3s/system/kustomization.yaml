@@ -15,7 +15,7 @@ configMapGenerator:
       - config/nftables.conf
 
 generatorOptions:
-  disableNameSuffixHash: false
+  disableNameSuffixHash: true
 
 images:
   - name: ghcr.io/kacperjarocki/iot-gateway

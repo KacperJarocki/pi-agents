@@ -14,7 +14,8 @@ spec:
       hostNetwork: true
       hostPID: true
       restartPolicy: Always
-
+      nodeSelector:
+        iot-role: gateway
       containers:
         - name: ap
           image: ghcr.io/kacperjarocki/iot-ap:0.1.0

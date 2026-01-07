@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: security
+
+resources:
+  - ds/namespace.yaml
+  - ds/suricata-daemonset.yaml
+  - ds/suricata-service.yaml
+
+configMapGenerator:
+  - name: suricata-config
+    files:
+      - config/suricata.yaml
+      - config/suricata.rules
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+commonLabels:
+  app.kubernetes.io/name: suricata
+  app.kubernetes.io/part-of: iot-security

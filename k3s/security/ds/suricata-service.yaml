@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: suricata-metrics
+spec:
+  selector:
+    app: suricata
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090

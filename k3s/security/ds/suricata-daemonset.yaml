@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: suricata
+spec:
+  selector:
+    matchLabels:
+      app: suricata
+  template:
+    metadata:
+      labels:
+        app: suricata
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: suricata
+          image: jasonish/suricata:7.0
+          securityContext:
+            privileged: true
+          args:
+            - -c
+            - /etc/suricata/suricata.yaml
+            - -i
+            - eth0
+          ports:
+            - name: metrics
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/suricata
+            - name: varlog
+              mountPath: /var/log/suricata
+      volumes:
+        - name: config
+          configMap:
+            name: suricata-config
+        - name: varlog
+          hostPath:
+            path: /var/log/suricata
+            type: DirectoryOrCreate

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: iot-ap
+spec:
+  selector:
+    matchLabels:
+      app: iot-ap
+  template:
+    metadata:
+      labels:
+        app: iot-ap
+    spec:
+      hostNetwork: true
+      hostPID: true
+      restartPolicy: Always
+
+      containers:
+        - name: ap
+          image: ghcr.io/kacperjarocki/iot-ap:0.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p /var/lib/dnsmasq
+              echo "[*] starting hostapd"
+              hostapd -dd /config/hostapd.conf &
+              echo "[*] starting dnsmasq"
+              exec dnsmasq -k --conf-file=/config/dnsmasq.conf
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: dnsmasq-state
+              mountPath: /var/lib/dnsmasq
+
+      volumes:
+        - name: config
+          configMap:
+            name: iot-gw-config
+            items:
+              - key: hostapd.conf
+                path: hostapd.conf
+              - key: dnsmasq.conf
+                path: dnsmasq.conf
+        - name: dnsmasq-state
+          hostPath:
+            path: /var/lib/dnsmasq
+            type: DirectoryOrCreate

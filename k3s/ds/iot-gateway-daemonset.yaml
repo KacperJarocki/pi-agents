@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: iot-gateway
+spec:
+  selector:
+    matchLabels:
+      app: iot-gateway
+  template:
+    metadata:
+      labels:
+        app: iot-gateway
+    spec:
+      hostNetwork: true
+      hostPID: true
+      restartPolicy: Always
+
+      containers:
+        - name: gateway
+          image: ghcr.io/kacperjarocki/iot-gateway:0.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: IOT_IF
+              value: "wlan0"
+            - name: WAN_IF
+              value: "eth0"
+            - name: IOT_CIDR
+              value: "10.66.0.1/24"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[*] iot-gateway: IOT_IF=$IOT_IF WAN_IF=$WAN_IF IOT_CIDR=$IOT_CIDR"
+
+              sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+              ip addr add "$IOT_CIDR" dev "$IOT_IF" 2>/dev/null || true
+              ip link set "$IOT_IF" up || true
+
+              nft -f /config/nftables.conf
+
+              echo "[+] gateway ready"
+              nft list ruleset | head -n 60 || true
+              sleep infinity
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: proc
+              mountPath: /proc
+            - name: sys
+              mountPath: /sys
+
+      volumes:
+        - name: config
+          configMap:
+            name: iot-gw-config
+            items:
+              - key: nftables.conf
+                path: nftables.conf
+        - name: proc
+          hostPath: { path: /proc }
+        - name: sys
+          hostPath: { path: /sys }

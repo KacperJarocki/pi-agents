@@ -14,7 +14,8 @@ spec:
       hostNetwork: true
       hostPID: true
       restartPolicy: Always
-
+      nodeSelector:
+        iot-role: gateway
       containers:
         - name: gateway
           image: ghcr.io/kacperjarocki/iot-gateway:0.1.0

@@ -1,0 +1,68 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "[10.0.0.0/8,192.168.0.0/16,172.16.0.0/12,10.66.0.0/24]"
+    EXTERNAL_NET: "!$HOME_NET"
+
+default-log-dir: /var/log/suricata
+
+default-rule-path: /etc/suricata/rules
+
+af-packet:
+  - interface: wlan0
+    threads: auto
+    cluster-type: cluster_flow
+    cluster-id: 98
+    defrag: yes
+
+  - interface: eth0
+    threads: auto
+    cluster-type: cluster_flow
+    cluster-id: 99
+    defrag: yes
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      community-id: true
+      types:
+        - alert
+        - dns
+        - http
+        - tls
+        - flow
+        - stats:
+            totals: yes
+            threads: no
+
+  - fast:
+      enabled: yes
+      filename: fast.log
+
+rule-files:
+  - suricata.rules
+
+detect:
+  profile: medium
+  custom-values:
+    toclient-groups: 64
+    toserver-groups: 64
+
+stream:
+  memcap: 64mb
+
+flow:
+  memcap: 64mb
+
+host:
+  memcap: 32mb
+
+app-layer:
+  protocols:
+    tls:
+      enabled: yes
+    http:
+      enabled: yes

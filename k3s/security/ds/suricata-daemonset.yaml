@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: suricata
+  namespace: security
 spec:
   selector:
     matchLabels:
@@ -13,30 +14,81 @@ spec:
     spec:
       hostNetwork: true
       hostPID: true
+      nodeSelector:
+        iot-role: gateway
       tolerations:
         - operator: Exists
+
+      initContainers:
+        - name: init-suricata-config
+          image: jasonish/suricata:7.0
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp -a /etc/suricata/. /etc-suricata-w/. || true
+              cp /config-ro/suricata.yaml /etc-suricata-w/suricata.yaml
+              mkdir -p /etc-suricata-w/rules
+              cp /config-ro/suricata.rules /etc-suricata-w/rules/suricata.rules
+
+              echo "=== interfaces ==="
+              ip -br link || true
+              echo "=== rules ==="
+              ls -lah /etc-suricata-w/rules || true
+              echo "=== suricata.yaml pointers ==="
+              grep -nE "default-rule-path|rule-files|af-packet" /etc-suricata-w/suricata.yaml || true
+          volumeMounts:
+            - name: config-ro
+              mountPath: /config-ro
+              readOnly: true
+            - name: suricata-etc
+              mountPath: /etc-suricata-w
+
       containers:
         - name: suricata
           image: jasonish/suricata:7.0
           securityContext:
             privileged: true
+
           args:
+            - --af-packet
             - -c
             - /etc/suricata/suricata.yaml
-            - -i
-            - eth0
-          ports:
-            - name: metrics
-              containerPort: 9090
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 768Mi
+
           volumeMounts:
-            - name: config
+            - name: suricata-etc
               mountPath: /etc/suricata
             - name: varlog
               mountPath: /var/log/suricata
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - test -s /var/log/suricata/eve.json
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+
       volumes:
-        - name: config
+        - name: config-ro
           configMap:
             name: suricata-config
+
+        - name: suricata-etc
+          emptyDir: {}
+
         - name: varlog
           hostPath:
             path: /var/log/suricata

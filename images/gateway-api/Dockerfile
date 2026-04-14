@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
+# Basic import smoke-test (fails build on broken entrypoints)
+RUN python -c "from app.main import app" >/dev/null
+
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 

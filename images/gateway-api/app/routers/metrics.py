@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from ..core.database import get_db
 from ..services.crud import TrafficService, DeviceService, AnomalyService
+from ..models.schemas import Device
 from ..models.schemas_pydantic import (
     TimelineResponse, TopTalkersResponse, MetricsSummary
 )
@@ -39,18 +41,19 @@ async def get_summary(
     anomaly_service = AnomalyService(db)
     traffic_service = TrafficService(db)
     
-    all_devices, _ = await device_service.list_devices(limit=1)
-    active_devices, _ = await device_service.list_devices(active_only=True, limit=1)
+    _, total_devices = await device_service.list_devices(limit=1)
+    _, active_devices_count = await device_service.list_devices(active_only=True, limit=1)
     
     anomaly_stats = await anomaly_service.get_anomaly_stats(hours=24)
     top_talkers = await traffic_service.get_top_talkers(limit=100, hours=24)
     total_traffic = sum(t.get("total_bytes", 0) for t in top_talkers) / (1024 * 1024)
-    
-    avg_risk = sum(d.risk_score for d in all_devices) / len(all_devices) if all_devices else 0.0
+
+    avg_risk_result = await db.execute(select(func.avg(Device.risk_score)))
+    avg_risk = float(avg_risk_result.scalar() or 0.0)
     
     return MetricsSummary(
-        total_devices=len(all_devices),
-        active_devices=len(active_devices),
+        total_devices=int(total_devices or 0),
+        active_devices=int(active_devices_count or 0),
         total_anomalies_24h=anomaly_stats["total"],
         critical_anomalies=anomaly_stats["critical"],
         avg_risk_score=avg_risk,

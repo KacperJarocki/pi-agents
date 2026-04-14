@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from contextlib import asynccontextmanager
@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List
 from .core.config import get_settings
 from .core.database import init_db
+from .core.database import get_db_context
 from .core.logging import log
 from .routers import devices_router, anomalies_router, metrics_router
 
@@ -94,10 +95,13 @@ app.include_router(metrics_router, prefix=settings.api_prefix)
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    try:
+        async with get_db_context() as session:
+            await session.execute("SELECT 1")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"database_unavailable: {e}")
+
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.get("/metrics")

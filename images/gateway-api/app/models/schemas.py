@@ -33,6 +33,7 @@ class TrafficFlow(Base):
     bytes_received = Column(Integer, default=0)
     packets = Column(Integer, default=0)
     duration_ms = Column(Integer, default=0)
+    dns_query = Column(String(255), nullable=True)
     flags = Column(JSON, nullable=True)
 
     __table_args__ = (

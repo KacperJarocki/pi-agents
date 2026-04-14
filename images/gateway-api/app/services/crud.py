@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import select, func, desc, and_, cast, Integer
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -174,24 +174,43 @@ class TrafficService:
 
     async def get_timeline_data(self, hours: int = 24, interval_minutes: int = 60) -> List[dict]:
         since = datetime.utcnow() - timedelta(hours=hours)
-        
-        query = select(
-            func.strftime('%Y-%m-%d %H:00:00', TrafficFlow.timestamp).label('hour'),
-            func.count(Anomaly.id).label('anomaly_count'),
-            func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_traffic'),
-        ).outerjoin(
-            Anomaly, and_(
-                Anomaly.timestamp >= since,
-                Anomaly.timestamp >= TrafficFlow.timestamp - text('interval "1 hour"'),
-                Anomaly.timestamp < TrafficFlow.timestamp
+
+        bucket_size = max(15, int(interval_minutes)) * 60
+        flow_epoch = cast(func.strftime('%s', TrafficFlow.timestamp), Integer)
+        flow_bucket_epoch = cast(flow_epoch / bucket_size, Integer) * bucket_size
+        flow_bucket = func.datetime(flow_bucket_epoch, 'unixepoch').label('bucket')
+
+        anom_epoch = cast(func.strftime('%s', Anomaly.timestamp), Integer)
+        anom_bucket_epoch = cast(anom_epoch / bucket_size, Integer) * bucket_size
+        anom_bucket = func.datetime(anom_bucket_epoch, 'unixepoch')
+
+        query = (
+            select(
+                flow_bucket,
+                func.count(func.distinct(Anomaly.id)).label('anomaly_count'),
+                func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_traffic'),
+                func.count(func.distinct(TrafficFlow.device_id)).label('active_devices'),
             )
-        ).where(
-            TrafficFlow.timestamp >= since
-        ).group_by('hour').order_by('hour')
-        
+            .outerjoin(Anomaly, anom_bucket == flow_bucket)
+            .where(TrafficFlow.timestamp >= since)
+            .group_by(flow_bucket)
+            .order_by(flow_bucket)
+        )
+
         result = await self.db.execute(query)
-        return [{"timestamp": row.hour, "anomaly_count": row.anomaly_count or 0,
-                 "total_traffic_mb": (row.total_traffic or 0) / (1024 * 1024)} for row in result]
+        data = []
+        for row in result:
+            # row.bucket is a SQLite datetime string: "YYYY-MM-DD HH:MM:SS"
+            ts = row.bucket.replace(' ', 'T') + 'Z' if row.bucket else None
+            data.append(
+                {
+                    "timestamp": ts,
+                    "anomaly_count": int(row.anomaly_count or 0),
+                    "total_traffic_mb": float((row.total_traffic or 0) / (1024 * 1024)),
+                    "active_devices": int(row.active_devices or 0),
+                }
+            )
+        return data
 
     async def get_top_talkers(self, limit: int = 10, hours: int = 24) -> List[dict]:
         since = datetime.utcnow() - timedelta(hours=hours)

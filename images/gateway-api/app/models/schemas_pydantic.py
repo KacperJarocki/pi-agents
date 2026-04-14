@@ -49,6 +49,8 @@ class TrafficFlowBase(BaseModel):
     bytes_received: int = 0
     packets: int = 0
     duration_ms: int = 0
+    dns_query: Optional[str] = None
+    flags: Optional[dict] = None
 
 
 class TrafficFlowCreate(TrafficFlowBase):

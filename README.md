@@ -87,7 +87,7 @@ Tags: `latest`, `sha-{git-sha}`
 ## Gateway Constraints (Critical)
 
 - All pods MUST have CPU/memory limits (see below)
-- hostapd runs native (not containerized) with higher priority
+- WiFi AP is managed by the `gateway-agent` container (hostNetwork + privileged)
 - ML training runs nightly at 3:00 AM with `nice +10`
 - collector uses hostNetwork mode for direct NIC access
 

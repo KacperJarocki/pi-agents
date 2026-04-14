@@ -1,0 +1,38 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile sources
+        run: python -m compileall -q images
+
+      - name: Run unit tests
+        run: python -m unittest discover -v
+
+  k8s:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.30.0
+
+      - name: Render kustomize
+        run: kubectl kustomize k8s/gateway > /tmp/rendered.yaml
+
+      - name: Client-side dry run
+        run: kubectl apply --dry-run=client -f /tmp/rendered.yaml

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Security Dashboard</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        success: '#22c55e',
+                        dark: '#1a1a2e',
+                        card: '#16213e',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+        }
+        .device-card, .anomaly-card {
+            background: rgba(22, 33, 62, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1rem;
+            transition: all 0.3s ease;
+        }
+        .device-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .risk-critical { border-left: 4px solid #ef4444; }
+        .risk-warning { border-left: 4px solid #f59e0b; }
+        .risk-ok { border-left: 4px solid #22c55e; }
+        .severity-critical { border-left: 4px solid #ef4444; }
+        .severity-warning { border-left: 4px solid #f59e0b; }
+        .risk-bar {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        .risk-fill {
+            background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444);
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+        .timeline-bar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 30px;
+        }
+        .bar-container {
+            height: 120px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            position: relative;
+        }
+        .bar-fill {
+            background: linear-gradient(180deg, #3b82f6, #1d4ed8);
+            border-radius: 4px 4px 0 0;
+            transition: height 0.3s ease;
+            width: 100%;
+        }
+        .bar-label {
+            font-size: 10px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+        .anomaly-dot {
+            position: absolute;
+            top: 0;
+            width: 8px;
+            height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .talker-row.suspicious {
+            background: rgba(239, 68, 68, 0.1);
+            border-radius: 8px;
+            padding: 0.5rem;
+            margin: -0.5rem;
+        }
+        .talker-bar {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .talker-fill {
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+        .tab-active {
+            background: rgba(59, 130, 246, 0.3);
+            border-bottom: 2px solid #3b82f6;
+        }
+        .tab-inactive:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+        }
+        .pulse-critical {
+            animation: pulse-red 2s infinite;
+        }
+    </style>
+</head>
+<body class="text-white">
+    <nav class="bg-dark/80 backdrop-blur-sm border-b border-white/10 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div id="status-indicator" class="w-3 h-3 rounded-full bg-success"></div>
+                    <h1 class="text-xl font-bold">IoT Security Dashboard</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div id="connection-status" class="text-sm text-gray-400">
+                        Connected
+                    </div>
+                    <div class="text-sm text-gray-400" id="current-time">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-card rounded-xl p-4 border border-white/10">
+                <div class="text-sm text-gray-400">Total Devices</div>
+                <div class="text-3xl font-bold" id="metric-devices">-</div>
+            </div>
+            <div class="bg-card rounded-xl p-4 border border-white/10">
+                <div class="text-sm text-gray-400">Active Devices</div>
+                <div class="text-3xl font-bold text-success" id="metric-active">-</div>
+            </div>
+            <div class="bg-card rounded-xl p-4 border border-white/10">
+                <div class="text-sm text-gray-400">Anomalies (24h)</div>
+                <div class="text-3xl font-bold text-warning" id="metric-anomalies">-</div>
+            </div>
+            <div class="bg-card rounded-xl p-4 border border-white/10">
+                <div class="text-sm text-gray-400">Critical Alerts</div>
+                <div class="text-3xl font-bold text-danger" id="metric-critical">-</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2">
+                <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
+                    <div class="flex border-b border-white/10">
+                        <button class="tab-active px-6 py-3 text-sm font-medium transition-colors"
+                                onclick="showTab('devices')">
+                            Devices
+                        </button>
+                        <button class="tab-inactive px-6 py-3 text-sm font-medium transition-colors"
+                                onclick="showTab('timeline')">
+                            Timeline
+                        </button>
+                        <button class="tab-inactive px-6 py-3 text-sm font-medium transition-colors"
+                                onclick="showTab('talkers')">
+                            Top Talkers
+                        </button>
+                    </div>
+                    
+                    <div id="tab-content" class="p-4">
+                        <div id="devices-tab" class="tab-panel">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4"
+                                 hx-get="/partial/devices"
+                                 hx-trigger="every 30s"
+                                 hx-swap="innerHTML">
+                            </div>
+                        </div>
+                        <div id="timeline-tab" class="tab-panel hidden">
+                            <div class="flex gap-2 items-end h-40"
+                                 hx-get="/partial/timeline"
+                                 hx-trigger="every 60s"
+                                 hx-swap="innerHTML">
+                            </div>
+                        </div>
+                        <div id="talkers-tab" class="tab-panel hidden">
+                            <div hx-get="/partial/top-talkers"
+                                 hx-trigger="every 60s"
+                                 hx-swap="innerHTML">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
+                    <div class="px-4 py-3 border-b border-white/10">
+                        <h2 class="font-semibold flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-danger pulse-critical"></span>
+                            Recent Anomalies
+                        </h2>
+                    </div>
+                    <div class="p-4 space-y-3 max-h-96 overflow-y-auto"
+                         hx-get="/partial/anomalies"
+                         hx-trigger="every 30s"
+                         hx-swap="innerHTML">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('button[onclick^="showTab"]').forEach(el => {
+                el.classList.remove('tab-active');
+                el.classList.add('tab-inactive');
+            });
+            
+            document.getElementById(tabName + '-tab').classList.remove('hidden');
+            document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.add('tab-active');
+            document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.remove('tab-inactive');
+        }
+
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        async function loadMetrics() {
+            try {
+                const response = await fetch('/api/metrics/summary');
+                const data = await response.json();
+                
+                document.getElementById('metric-devices').textContent = data.total_devices || 0;
+                document.getElementById('metric-active').textContent = data.active_devices || 0;
+                document.getElementById('metric-anomalies').textContent = data.total_anomalies_24h || 0;
+                document.getElementById('metric-critical').textContent = data.critical_anomalies || 0;
+                
+                if (data.critical_anomalies > 0) {
+                    document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-danger pulse-critical';
+                } else if (data.total_anomalies_24h > 0) {
+                    document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-warning';
+                } else {
+                    document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-success';
+                }
+            } catch (e) {
+                console.error('Failed to load metrics:', e);
+                document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-gray-500';
+            }
+        }
+
+        setInterval(loadMetrics, 10000);
+        loadMetrics();
+        htmx.process(document.body);
+    </script>
+</body>
+</html>

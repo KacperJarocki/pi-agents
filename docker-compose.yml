@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  gateway-api:
+    build: ./images/gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_PATH=/data/iot-security.db
+      - LOG_LEVEL=info
+    volumes:
+      - sqlite-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  collector:
+    build: ./images/collector
+    network_mode: host
+    privileged: true
+    environment:
+      - DATABASE_PATH=/data/iot-security.db
+      - INTERFACE=wlan0
+      - BATCH_SIZE=100
+      - FLUSH_INTERVAL=5
+    volumes:
+      - sqlite-data:/data
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  ml-pipeline:
+    build: ./images/ml-pipeline
+    environment:
+      - DATABASE_PATH=/data/iot-security.db
+      - MODEL_PATH=/data/models
+      - TRAINING_CRON=true
+      - INFERENCE_INTERVAL=300
+    volumes:
+      - sqlite-data:/data
+      - model-data:/data/models
+    depends_on:
+      - gateway-api
+
+  dashboard:
+    build: ./images/dashboard
+    ports:
+      - "3000:8080"
+    environment:
+      - GATEWAY_API_URL=http://gateway-api:8080
+      - REFRESH_INTERVAL=30
+    depends_on:
+      - gateway-api
+
+volumes:
+  sqlite-data:
+  model-data:

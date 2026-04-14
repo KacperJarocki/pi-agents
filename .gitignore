@@ -1,1 +1,15 @@
 *DS_**
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local artifacts
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+
+# Editor
+.idea/
+.vscode/

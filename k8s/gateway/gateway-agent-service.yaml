@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-agent
+  namespace: iot-security
+  labels:
+    app: gateway-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7000
+      targetPort: 7000
+      protocol: TCP
+      name: http
+  selector:
+    app: gateway-agent

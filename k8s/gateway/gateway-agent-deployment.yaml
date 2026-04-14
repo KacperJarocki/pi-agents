@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-agent
+  namespace: iot-security
+  labels:
+    app: gateway-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-agent
+  template:
+    metadata:
+      labels:
+        app: gateway-agent
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/gateway: "true"
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: gateway-agent
+          image: ghcr.io/kacperjarocki/gateway-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 7000
+              name: http
+          env:
+            # Safety rail: keep OFF by default.
+            - name: ENABLE_APPLY
+              value: "false"
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            - name: host-etc-hostapd
+              mountPath: /host/etc/hostapd
+              readOnly: false
+            - name: host-etc-dnsmasq-d
+              mountPath: /host/etc/dnsmasq.d
+              readOnly: false
+            - name: host-var-lib-gateway-agent
+              mountPath: /host/var/lib/gateway-agent
+              readOnly: false
+      volumes:
+        - name: host-etc-hostapd
+          hostPath:
+            path: /etc/hostapd
+            type: DirectoryOrCreate
+        - name: host-etc-dnsmasq-d
+          hostPath:
+            path: /etc/dnsmasq.d
+            type: DirectoryOrCreate
+        - name: host-var-lib-gateway-agent
+          hostPath:
+            path: /var/lib/gateway-agent
+            type: DirectoryOrCreate

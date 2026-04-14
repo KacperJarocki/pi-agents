@@ -16,5 +16,7 @@ resources:
   - dashboard-ingressroute.yaml
   - dashboard-certificate.yaml
 
-commonLabels:
-  variant: gateway
+labels:
+  - pairs:
+      variant: gateway
+    includeSelectors: true

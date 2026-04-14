@@ -25,7 +25,7 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: collector
-          image: ghcr.io/pi-agents/collector:latest
+          image: ghcr.io/kacperjarocki/collector:latest
           imagePullPolicy: Always
           securityContext:
             capabilities:

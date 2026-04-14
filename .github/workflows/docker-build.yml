@@ -1,34 +1,45 @@
 name: Docker Build
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'images/**'
+      - '.github/workflows/docker-build.yml'
+  pull_request:
+    paths:
+      - 'images/**'
   workflow_dispatch:
     inputs:
-      dockerfile_directory:
-        description: 'Directory containing the Dockerfile to build'
-        required: true
-        default: '.'
-        type: string
       image_name:
-        description: 'Docker image name (optional, defaults to directory name)'
+        description: 'Image to build (gateway-api, collector, ml-pipeline, dashboard)'
         required: false
-        default: ''
-        type: string
+        type: choice
+        options:
+          - gateway-api
+          - collector
+          - ml-pipeline
+          - dashboard
       image_tag:
-        description: 'Docker image tag (optional)'
+        description: 'Custom image tag'
         required: false
         default: 'latest'
         type: string
 
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_OWNER: kacperjarocki
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    if: github.event_name == 'workflow_dispatch' && inputs.image_name != ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -36,69 +47,78 @@ jobs:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_OWNER }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine image name
-        id: image_name
-        env:
-          DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
-          INPUT_IMAGE_NAME: ${{ inputs.image_name }}
-          REPO_NAME: ${{ github.event.repository.name }}
+      - name: Extract metadata
+        id: meta
         run: |
-          if [ -z "${INPUT_IMAGE_NAME}" ]; then
-            # Use directory name as image name
-            DIR_NAME=$(basename "${DOCKERFILE_DIR}")
-            if [ "${DIR_NAME}" = "." ]; then
-              DIR_NAME="${REPO_NAME}"
-            fi
-            IMAGE_NAME="${DIR_NAME}"
-          else
-            IMAGE_NAME="${INPUT_IMAGE_NAME}"
-          fi
-          # Convert to lowercase for Docker/GHCR compatibility
-          IMAGE_NAME_LOWER=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
-          echo "name=${IMAGE_NAME_LOWER}" >> $GITHUB_OUTPUT
-          echo "Image name set to: ${IMAGE_NAME_LOWER}"
+          IMAGE_NAME="${{ inputs.image_name }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          echo "name=${{ env.REGISTRY }}/${{ env.REGISTRY_OWNER }}/${IMAGE_NAME,,}" >> $GITHUB_OUTPUT
+          echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
-      - name: Build and push multi-platform Docker image
-        env:
-          DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          IMAGE_NAME: ${{ steps.image_name.outputs.name }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-        run: |
-          # Convert owner to lowercase for Docker/GHCR compatibility
-          REPO_OWNER_LOWER=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}"
-          
-          echo "Building and pushing multi-platform Docker image (linux/amd64, linux/arm64)"
-          echo "From directory: ${DOCKERFILE_DIR}"
-          echo "To: ${FULL_IMAGE_NAME}:${IMAGE_TAG}"
-          
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -t "${FULL_IMAGE_NAME}:${IMAGE_TAG}" \
-            --push \
-            "${DOCKERFILE_DIR}"
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: images/${{ inputs.image_name }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.name }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Display build success
-        env:
-          REPO_OWNER: ${{ github.repository_owner }}
-          IMAGE_NAME: ${{ steps.image_name.outputs.name }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-          DOCKERFILE_DIR: ${{ inputs.dockerfile_directory }}
+  build-matrix:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_dir: images/gateway-api
+            image_name: gateway-api
+          - image_dir: images/collector
+            image_name: collector
+          - image_dir: images/ml-pipeline
+            image_name: ml-pipeline
+          - image_dir: images/dashboard
+            image_name: dashboard
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_OWNER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
         run: |
-          # Convert owner to lowercase for Docker/GHCR compatibility
-          REPO_OWNER_LOWER=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
-          FULL_IMAGE_NAME="ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}"
-          echo "✅ Multi-platform Docker image built and pushed successfully!"
-          echo "Image: ${FULL_IMAGE_NAME}:${IMAGE_TAG}"
-          echo "Platforms: linux/amd64, linux/arm64"
-          echo "Context: ${DOCKERFILE_DIR}"
-          echo ""
-          echo "The image contains a multi-arch manifest supporting both architectures."
-          echo "Docker will automatically pull the correct architecture for your platform."
-          echo ""
-          echo "View in GitHub Packages: https://github.com/${REPO_OWNER_LOWER}?tab=packages"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "name=${{ env.REGISTRY }}/${{ env.REGISTRY_OWNER }}/${{ matrix.image_name }}" >> $GITHUB_OUTPUT
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.image_dir }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ steps.meta.outputs.name }}:latest
+            ${{ steps.meta.outputs.name }}:sha-${{ steps.meta.outputs.sha_short }}
+            ${{ github.event_name == 'pull_request' && format('{0}:pr-{1}', steps.meta.outputs.name, github.event.number) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

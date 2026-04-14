@@ -1,33 +1,37 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway-api
+  name: ml-inference
   namespace: iot-security
   labels:
-    app: gateway-api
+    app: ml-pipeline
+    component: inference
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: gateway-api
+      app: ml-pipeline
+      component: inference
   template:
     metadata:
       labels:
-        app: gateway-api
+        app: ml-pipeline
+        component: inference
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
+        prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
       nodeSelector:
         node-role.kubernetes.io/gateway: "true"
       containers:
-        - name: gateway-api
-          image: ghcr.io/kacperjarocki/gateway-api:latest
+        - name: ml-inference
+          image: ghcr.io/kacperjarocki/ml-pipeline:latest
           imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
-              name: http
+          command:
+            - python
+            - -m
+            - app.inference
           resources:
             requests:
               cpu: 50m
@@ -38,23 +42,31 @@ spec:
           env:
             - name: DATABASE_PATH
               value: "/data/iot-security.db"
+            - name: MODEL_PATH
+              value: "/data/models"
             - name: LOG_LEVEL
               value: "info"
+            - name: INFERENCE_INTERVAL
+              value: "300"
           volumeMounts:
             - name: sqlite-data
               mountPath: /data
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
             initialDelaySeconds: 10
             periodSeconds: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
       volumes:
         - name: sqlite-data
           persistentVolumeClaim:

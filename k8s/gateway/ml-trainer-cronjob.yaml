@@ -1,10 +1,11 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: ml-pipeline
+  name: ml-trainer
   namespace: iot-security
   labels:
     app: ml-pipeline
+    component: trainer
 spec:
   schedule: "0 3 * * *"
   successfulJobsHistoryLimit: 1
@@ -16,23 +17,19 @@ spec:
         metadata:
           labels:
             app: ml-pipeline
-            task: training
+            component: trainer
         spec:
           nodeSelector:
             node-role.kubernetes.io/gateway: "true"
           restartPolicy: OnFailure
           containers:
-            - name: ml-pipeline
-              image: ghcr.io/pi-agents/ml-pipeline:latest
+            - name: ml-trainer
+              image: ghcr.io/kacperjarocki/ml-pipeline:latest
               imagePullPolicy: Always
               command:
-                - /bin/sh
-                - -c
-                - |
-                  echo "Starting ML training at $(date)"
-                  python /app/train.py
-                  echo "Training complete, starting inference loop"
-                  python /app/inference.py
+                - python
+                - -m
+                - app.train
               resources:
                 requests:
                   cpu: 100m
@@ -47,8 +44,6 @@ spec:
                   value: "/data/models"
                 - name: LOG_LEVEL
                   value: "info"
-                - name: TRAINING_CRON
-                  value: "true"
               volumeMounts:
                 - name: sqlite-data
                   mountPath: /data

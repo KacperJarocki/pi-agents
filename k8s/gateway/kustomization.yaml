@@ -6,7 +6,9 @@ resources:
   - gateway-api-deployment.yaml
   - gateway-api-service.yaml
   - collector-deployment.yaml
-  - ml-pipeline-deployment.yaml
+  - collector-service.yaml
+  - ml-trainer-cronjob.yaml
+  - ml-inference-deployment.yaml
 
 commonLabels:
   variant: gateway

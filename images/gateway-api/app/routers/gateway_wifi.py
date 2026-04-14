@@ -44,20 +44,21 @@ async def put_config(cfg: WifiConfig, db: AsyncSession = Depends(get_db)):
 @router.post("/validate", response_model=WifiValidationResponse)
 async def validate_config(cfg: WifiConfig, db: AsyncSession = Depends(get_db)):
     client = GatewayAgentClient()
-    try:
-        res = await client.validate(cfg.model_dump())
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"gateway-agent validate failed: {e}")
-    return WifiValidationResponse(ok=bool(res.get("ok")), issues=res.get("issues") or [])
+    code, body = await client.validate(cfg.model_dump())
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=body)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=502, detail=f"unexpected response: {body}")
+    return WifiValidationResponse(ok=bool(body.get("ok")), issues=body.get("issues") or [])
 
 
 @router.get("/status")
 async def status():
     client = GatewayAgentClient()
-    try:
-        return await client.get_status()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"gateway-agent status failed: {e}")
+    code, body = await client.get_status()
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=body)
+    return body
 
 
 @router.post("/apply", response_model=WifiApplyResponse)
@@ -67,13 +68,14 @@ async def apply(cfg: WifiConfig, db: AsyncSession = Depends(get_db)):
     row.config = cfg.model_dump()
 
     client = GatewayAgentClient()
-    try:
-        res = await client.apply(cfg.model_dump())
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"gateway-agent apply failed: {e}")
+    code, body = await client.apply(cfg.model_dump())
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=body)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=502, detail=f"unexpected response: {body}")
 
-    row.last_apply_ok = bool(res.get("ok"))
-    row.last_apply_message = str(res.get("message"))
+    row.last_apply_ok = bool(body.get("ok"))
+    row.last_apply_message = str(body.get("message"))
     row.last_apply_at = datetime.utcnow()
     await db.flush()
     await db.refresh(row)
@@ -86,13 +88,14 @@ async def rollback(db: AsyncSession = Depends(get_db)):
     row = await _get_or_create_row(db)
 
     client = GatewayAgentClient()
-    try:
-        res = await client.rollback()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"gateway-agent rollback failed: {e}")
+    code, body = await client.rollback()
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=body)
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=502, detail=f"unexpected response: {body}")
 
-    row.last_apply_ok = bool(res.get("ok"))
-    row.last_apply_message = str(res.get("message"))
+    row.last_apply_ok = bool(body.get("ok"))
+    row.last_apply_message = str(body.get("message"))
     row.last_apply_at = datetime.utcnow()
     await db.flush()
     await db.refresh(row)

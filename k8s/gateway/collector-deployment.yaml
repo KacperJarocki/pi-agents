@@ -46,6 +46,10 @@ spec:
               value: "wlan0"
             - name: LOG_LEVEL
               value: "info"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: METRICS_PORT
+              value: "9090"
           volumeMounts:
             - name: sqlite-data
               mountPath: /data
@@ -54,7 +58,9 @@ spec:
           livenessProbe:
             exec:
               command:
-                - /healthcheck
+                - sh
+                - -c
+                - "ip link show \"$INTERFACE\" >/dev/null 2>&1"
             initialDelaySeconds: 10
             periodSeconds: 30
       volumes:

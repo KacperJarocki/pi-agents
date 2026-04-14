@@ -19,4 +19,4 @@ resources:
 labels:
   - pairs:
       variant: gateway
-    includeSelectors: true
+    includeSelectors: false

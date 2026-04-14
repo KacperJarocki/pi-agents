@@ -14,4 +14,4 @@ spec:
           name: gateway-api
           port: 8080
   tls:
-    certResolver: letsencrypt
+    secretName: gateway-api-tls

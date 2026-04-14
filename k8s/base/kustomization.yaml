@@ -8,9 +8,10 @@ resources:
   - pvc.yaml
   - network-policy.yaml
   - gateway-api-netpol.yaml
+  - dashboard-netpol.yaml
 
 labels:
   - pairs:
       app.kubernetes.io/part-of: iot-security
       app.kubernetes.io/managed-by: kustomize
-    includeSelectors: true
+    includeSelectors: false

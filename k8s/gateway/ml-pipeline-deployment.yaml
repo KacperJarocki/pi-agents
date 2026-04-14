@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ml-pipeline
+  namespace: iot-security
+  labels:
+    app: ml-pipeline
+spec:
+  schedule: "0 3 * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: ml-pipeline
+            task: training
+        spec:
+          nodeSelector:
+            node-role.kubernetes.io/gateway: "true"
+          restartPolicy: OnFailure
+          containers:
+            - name: ml-pipeline
+              image: ghcr.io/pi-agents/ml-pipeline:latest
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Starting ML training at $(date)"
+                  python /app/train.py
+                  echo "Training complete, starting inference loop"
+                  python /app/inference.py
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              env:
+                - name: DATABASE_PATH
+                  value: "/data/iot-security.db"
+                - name: MODEL_PATH
+                  value: "/data/models"
+                - name: LOG_LEVEL
+                  value: "info"
+                - name: TRAINING_CRON
+                  value: "true"
+              volumeMounts:
+                - name: sqlite-data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: sqlite-data
+              persistentVolumeClaim:
+                claimName: iot-security-sqlite
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 100Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000

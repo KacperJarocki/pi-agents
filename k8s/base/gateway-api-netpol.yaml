@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-api-access
+  namespace: iot-security
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              name: default
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: collector
+        - podSelector:
+            matchLabels:
+              app: ml-pipeline
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53

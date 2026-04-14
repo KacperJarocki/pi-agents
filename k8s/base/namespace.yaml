@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iot-security
+  labels:
+    app.kubernetes.io/name: iot-security
+    app.kubernetes.io/managed-by: kustomize

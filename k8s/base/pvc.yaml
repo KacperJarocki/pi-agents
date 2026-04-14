@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iot-security-sqlite
+  namespace: iot-security
+  labels:
+    app.kubernetes.io/name: iot-security
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: ceph-block

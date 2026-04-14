@@ -11,14 +11,13 @@ Agent-based IoT threat detection system. Gateway RPi acts as WiFi AP + traffic c
 - **Ingress + LoadBalancer** already configured
 - **Rook Ceph** for persistent storage
 
-## Components
+## Images
 
 | Component | Image | Purpose |
 |-----------|-------|---------|
-| `collector` | ghcr.io/pi-agents/collector | Traffic capture via tcpdump/tshark |
-| `ml-pipeline` | ghcr.io/pi-agents/ml-pipeline | Isolation Forest training + inference |
-| `gateway-api` | ghcr.io/pi-agents/gateway-api | REST API + WebSocket alerts |
-| `dashboard` | ghcr.io/pi-agents/dashboard | Web UI (separate host) |
+| `gateway-api` | ghcr.io/kacperjarocki/gateway-api | REST API + WebSocket alerts |
+| `collector` | ghcr.io/kacperjarocki/collector | Traffic capture via tcpdump/tshark |
+| `ml-pipeline` | ghcr.io/kacperjarocki/ml-pipeline | ML training + inference |
 
 ## K8s Structure
 
@@ -28,21 +27,33 @@ k8s/
 └── gateway/          # All workload deployments
 ```
 
+## K8s Workloads
+
+| Component | Type | Schedule | Command |
+|-----------|------|----------|---------|
+| collector | Deployment | Always | collector app |
+| gateway-api | Deployment | Always | uvicorn |
+| ml-trainer | CronJob | 3:00 AM daily | train.py |
+| ml-inference | Deployment | Always | inference.py loop |
+
+## Building Images
+
+Images are built automatically via GitHub Actions on push to `images/*`:
+
+```
+.github/workflows/docker-build.yml
+```
+
+Images pushed to: `ghcr.io/kacperjarocki/{image-name}`
+
+Tags: `latest`, `sha-{git-sha}`
+
 ## Gateway Constraints (Critical)
 
 - All pods MUST have CPU/memory limits (see README.md)
 - hostapd runs native (not containerized) with higher priority
-- ML training runs nightly at 3:00 AM with `nice +10`
+- ML training runs nightly at 3:00 AM
 - collector uses hostNetwork mode for direct NIC access
-
-## Building Images
-
-Use GitHub Actions: `.github/workflows/docker-build.yml`
-
-```bash
-# For local development
-docker-compose up --build
-```
 
 ## API Endpoints
 
@@ -69,7 +80,6 @@ docker-compose up --build
 ## Local Development
 
 ```bash
-# Start all services
 docker-compose up --build
 
 # Services:

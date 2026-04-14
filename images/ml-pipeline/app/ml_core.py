@@ -3,6 +3,7 @@ import structlog
 import aiosqlite
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
@@ -98,8 +99,9 @@ class AnomalyDetector:
     def detect(self, features: pd.DataFrame) -> List[Dict]:
         if self.model is None or features.empty:
             return []
-        
-        X = features[self.FEATURE_COLUMNS].values
+
+        # Use the feature set defined by the extractor.
+        X = features[FeatureExtractor.FEATURE_COLUMNS].values
         
         scores = self.model.decision_function(X)
         predictions = self.model.predict(X)
@@ -112,7 +114,7 @@ class AnomalyDetector:
                     'device_id': int(device_id),
                     'anomaly_score': float(score),
                     'severity': 'critical' if score < self.threshold * 2 else 'warning',
-                    'features': features.iloc[idx][self.FEATURE_COLUMNS].to_dict()
+                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict()
                 })
         
         return anomalies
@@ -171,7 +173,7 @@ async def save_anomaly(device_id: int, anomaly_type: str, severity: str,
     await conn.execute("""
         INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (device_id, anomaly_type, severity, score, description, str(features)))
+    """, (device_id, anomaly_type, severity, score, description, json.dumps(features)))
     
     await conn.commit()
     await conn.close()

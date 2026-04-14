@@ -8,6 +8,8 @@ RUN apt-get update && \
         iproute2 \
         iptables \
         procps \
+        hostapd \
+        dnsmasq \
         util-linux \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,10 +21,7 @@ COPY app/ ./app/
 # Basic import smoke-test
 RUN python -c "from app.main import app" >/dev/null
 
-RUN useradd -m -u 1000 agent && \
-    chown -R agent:agent /app
-
-USER agent
+# Run as root inside privileged pod (needed for iptables/hostapd).
 
 EXPOSE 7000
 

@@ -23,12 +23,24 @@ class ValidationResult(BaseModel):
     issues: list[str] = []
 
 
+class ProcessStatus(BaseModel):
+    running: bool
+    pid: int | None = None
+    exit_code: int | None = None
+
+
 class GatewayStatus(BaseModel):
     ap_interface_exists: bool
     upstream_interface_exists: bool
     ap_ip: str | None = None
     ip_forward: bool | None = None
     nat_rule_present: bool | None = None
+
+    hostapd: ProcessStatus | None = None
+    dnsmasq: ProcessStatus | None = None
+
+    last_apply_ok: bool | None = None
+    last_apply_message: str | None = None
 
 
 class ApplyResult(BaseModel):

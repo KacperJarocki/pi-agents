@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from .models import WifiConfig, ValidationResult, GatewayStatus, ApplyResult
 from .validate import validate_config
 from .status import get_status
+from .state import GatewayRuntime
 
 structlog.configure(
     processors=[
@@ -15,6 +16,8 @@ structlog.configure(
 log = structlog.get_logger()
 
 app = FastAPI(title="Gateway Agent", version="0.1.0")
+
+runtime = GatewayRuntime()
 
 
 @app.get("/health")
@@ -27,7 +30,18 @@ async def status(
     ap_interface: str = "wlan0",
     upstream_interface: str = "eth0",
 ):
-    return get_status(ap_interface=ap_interface, upstream_interface=upstream_interface)
+    base = get_status(ap_interface=ap_interface, upstream_interface=upstream_interface)
+    ps = runtime.process_status()
+    ok, msg = runtime.read_last_apply()
+    base.update(
+        {
+            "hostapd": ps.get("hostapd"),
+            "dnsmasq": ps.get("dnsmasq"),
+            "last_apply_ok": ok,
+            "last_apply_message": msg,
+        }
+    )
+    return base
 
 
 @app.post("/validate", response_model=ValidationResult)
@@ -45,13 +59,13 @@ async def apply(cfg: WifiConfig):
     if not res.ok:
         raise HTTPException(status_code=400, detail={"issues": res.issues})
 
-    # TODO: implement staged apply + rollback with dedicated iptables chains.
-    log.warning("apply_not_implemented", cfg=cfg.model_dump(exclude={"psk"}))
-    return ApplyResult(ok=False, message="apply not implemented yet")
+    ok, message = await runtime.apply(cfg)
+    return ApplyResult(ok=ok, message=message)
 
 
 @app.post("/rollback", response_model=ApplyResult)
 async def rollback():
     if os.getenv("ENABLE_APPLY", "false").lower() != "true":
         raise HTTPException(status_code=403, detail="rollback disabled (set ENABLE_APPLY=true)")
-    return ApplyResult(ok=False, message="rollback not implemented yet")
+    ok, message = await runtime.rollback()
+    return ApplyResult(ok=ok, message=message)

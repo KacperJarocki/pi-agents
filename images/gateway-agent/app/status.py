@@ -1,5 +1,7 @@
 import subprocess
 
+from .models import ProcessStatus
+
 
 def _iface_exists(name: str) -> bool:
     try:
@@ -46,3 +48,9 @@ def get_status(ap_interface: str = "wlan0", upstream_interface: str = "eth0") ->
         "ip_forward": _ip_forward_enabled(),
         "nat_rule_present": _nat_rule_present(),
     }
+
+
+def process_status(proc) -> ProcessStatus:
+    if not proc:
+        return ProcessStatus(running=False)
+    return ProcessStatus(running=proc.running, pid=proc.pid, exit_code=proc.exit_code)

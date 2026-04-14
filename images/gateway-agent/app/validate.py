@@ -12,6 +12,14 @@ def _iface_exists(name: str) -> bool:
         return False
 
 
+def _bin_exists(name: str) -> bool:
+    try:
+        subprocess.run(["sh", "-c", f"command -v {name}"], check=True, capture_output=True)
+        return True
+    except Exception:
+        return False
+
+
 def validate_config(cfg: WifiConfig) -> ValidationResult:
     issues: list[str] = []
 
@@ -51,5 +59,12 @@ def validate_config(cfg: WifiConfig) -> ValidationResult:
     # Hard safety rails for a k8s node: don't ever touch eth0 except as upstream.
     if cfg.ap_interface == "eth0":
         issues.append("refusing to use eth0 as AP interface")
+
+    if not _bin_exists("hostapd"):
+        issues.append("hostapd not installed")
+    if not _bin_exists("dnsmasq"):
+        issues.append("dnsmasq not installed")
+    if not _bin_exists("iptables"):
+        issues.append("iptables not installed")
 
     return ValidationResult(ok=len(issues) == 0, issues=issues)

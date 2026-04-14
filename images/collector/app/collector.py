@@ -1,5 +1,4 @@
 import asyncio
-import subprocess
 import os
 import structlog
 from datetime import datetime
@@ -26,19 +25,42 @@ class TrafficCollector:
         self.flow_buffer = []
         self.device_cache: Dict[str, int] = {}
         self._process = None
+        self._capture_task: Optional[asyncio.Task] = None
+        self._flush_task: Optional[asyncio.Task] = None
     
     def start(self):
         self.running = True
-        asyncio.create_task(self._capture_loop())
-        asyncio.create_task(self._flush_loop())
+        self._capture_task = asyncio.create_task(self._capture_loop())
+        self._flush_task = asyncio.create_task(self._flush_loop())
         log.info("collector_started", interface=self.interface)
     
-    def stop(self):
+    async def stop(self):
         self.running = False
-        if self._process and self._process.poll() is None:
-            self._process.terminate()
-            self._process.wait(timeout=5)
+
+        await self._stop_process()
+
+        for task in [self._capture_task, self._flush_task]:
+            if task:
+                task.cancel()
+        for task in [self._capture_task, self._flush_task]:
+            if task:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
         log.info("collector_stopped")
+
+    async def _stop_process(self):
+        if not self._process:
+            return
+        if self._process.returncode is None:
+            self._process.terminate()
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=5)
+            except TimeoutError:
+                self._process.kill()
+                await self._process.wait()
     
     async def _capture_loop(self):
         pcap_file = f"/tmp/capture_{os.getpid()}.pcap"
@@ -58,15 +80,14 @@ class TrafficCollector:
                 
                 self._process = await asyncio.create_subprocess_exec(
                     *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
                 
                 await asyncio.sleep(self.flush_interval)
                 
-                if self._process.poll() is None:
-                    self._process.terminate()
-                    await self._process.wait()
+                if self._process.returncode is None:
+                    await self._stop_process()
                 
                 await self._process_pcap(pcap_file)
                 
@@ -131,19 +152,32 @@ class TrafficCollector:
             if not src_ip or not dst_ip or '.' not in src_ip or '.' not in dst_ip:
                 return None
             
-            protocol = parts[5] if len(parts) > 5 and parts[5] else "UNKNOWN"
+            # tshark fields list:
+            # 0 ip.src, 1 ip.dst,
+            # 2 tcp.srcport, 3 tcp.dstport,
+            # 4 udp.srcport, 5 udp.dstport,
+            # 6 protocol, 7 frame.len, 8 tcp.len, 9 udp.length,
+            # 10 eth.addr, 11 dns.qry.name
+            protocol = parts[6] if len(parts) > 6 and parts[6] else "UNKNOWN"
             
-            if protocol in ["TCP", "UDP"]:
+            if protocol == "TCP":
                 src_port = parts[2] if len(parts) > 2 and parts[2] else "0"
                 dst_port = parts[3] if len(parts) > 3 and parts[3] else "0"
+            elif protocol == "UDP":
+                src_port = parts[4] if len(parts) > 4 and parts[4] else "0"
+                dst_port = parts[5] if len(parts) > 5 and parts[5] else "0"
             else:
                 src_port = "0"
                 dst_port = "0"
             
-            frame_len = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
+            frame_len = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
             
             mac_addr = parts[10] if len(parts) > 10 and parts[10] else None
             dns_query = parts[11] if len(parts) > 11 and parts[11] else None
+
+            # eth.addr may contain "src_mac,dst_mac"; take the first value.
+            if mac_addr and "," in mac_addr:
+                mac_addr = mac_addr.split(",", 1)[0]
             
             return {
                 "src_ip": src_ip,

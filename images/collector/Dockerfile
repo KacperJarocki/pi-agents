@@ -21,6 +21,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
+# Basic import smoke-test (fails build on broken entrypoints)
+RUN python -c "import app; import app.collector; import app.database" >/dev/null
+
+# Ensure entrypoint is executable and uses /bin/sh.
+RUN chmod +x /app/app/entrypoint.sh
+
 RUN useradd -m -u 1000 collector && \
     chown -R collector:collector /app
 

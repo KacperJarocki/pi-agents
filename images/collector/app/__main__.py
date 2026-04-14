@@ -3,6 +3,7 @@ import signal
 import os
 import structlog
 from datetime import datetime
+from prometheus_client import start_http_server
 
 structlog.configure(
     processors=[
@@ -36,29 +37,35 @@ async def main():
     db = Database(database_path)
     await db.init()
     
+    # Expose Prometheus metrics (Service expects :9090)
+    start_http_server(int(os.getenv("METRICS_PORT", "9090")))
+
     collector = TrafficCollector(
         db=db,
         interface=interface,
         batch_size=batch_size,
         flush_interval=flush_interval
     )
-    
-    loop = asyncio.get_event_loop()
-    
+
+    stop_event = asyncio.Event()
+
     def signal_handler():
         log.info("received_shutdown_signal")
-        if collector:
-            collector.stop()
-    
+        stop_event.set()
+
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, signal_handler)
-    
+
     try:
-        await collector.start()
+        collector.start()
+        await stop_event.wait()
     except Exception as e:
         log.error("collector_error", error=str(e))
         raise
     finally:
+        if collector:
+            await collector.stop()
         await db.close()
         log.info("collector_stopped")
 

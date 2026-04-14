@@ -1,5 +1,6 @@
 import aiosqlite
 import structlog
+import json
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -52,7 +53,8 @@ class Database:
                 bytes_received INTEGER DEFAULT 0,
                 packets INTEGER DEFAULT 1,
                 duration_ms INTEGER DEFAULT 0,
-                dns_query TEXT
+                dns_query TEXT,
+                flags TEXT
             );
             
             CREATE INDEX IF NOT EXISTS idx_flows_device_time ON traffic_flows(device_id, timestamp);
@@ -87,18 +89,37 @@ class Database:
                 is_active INTEGER DEFAULT 0
             );
         """)
-        
+
+        # Best-effort schema alignment for existing DBs.
+        await self._ensure_column("traffic_flows", "dns_query", "TEXT")
+        await self._ensure_column("traffic_flows", "flags", "TEXT")
+
         await self.conn.commit()
         log.info("database_initialized", path=self.db_path)
+
+    async def _ensure_column(self, table: str, column: str, column_type: str):
+        cursor = await self.conn.execute(f"PRAGMA table_info({table})")
+        cols = {row[1] for row in await cursor.fetchall()}
+        if column not in cols:
+            await self.conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"
+            )
     
     async def close(self):
         if self.conn:
             await self.conn.close()
+
+    async def _fetch_one(self, query: str, params: tuple):
+        cursor = await self.conn.execute(query, params)
+        return await cursor.fetchone()
     
     async def get_or_create_device(self, ip_address: str, mac_address: str = None) -> int:
-        if mac_address:
-            row = await self.conn.executerow(
-                "SELECT id FROM devices WHERE mac_address = ?",
+        # Keep DB invariant: mac_address is NOT NULL.
+        mac_address = mac_address or f"ip:{ip_address}"
+
+        if mac_address and not mac_address.startswith("ip:"):
+            row = await self._fetch_one(
+                "SELECT id, mac_address FROM devices WHERE mac_address = ?",
                 (mac_address,)
             )
             if row:
@@ -108,15 +129,16 @@ class Database:
                 )
                 return row['id']
         
-        row = await self.conn.executerow(
+        row = await self._fetch_one(
             "SELECT id FROM devices WHERE ip_address = ?",
             (ip_address,)
         )
         
         if row:
+            # If we previously inserted a placeholder MAC, try to upgrade it.
             await self.conn.execute(
-                "UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE id = ?",
-                (row['id'],)
+                "UPDATE devices SET last_seen = CURRENT_TIMESTAMP, mac_address = CASE WHEN mac_address LIKE 'ip:%' THEN ? ELSE mac_address END WHERE id = ?",
+                (mac_address, row['id'])
             )
             return row['id']
         
@@ -162,7 +184,7 @@ class Database:
                     extra_data = ?
                 WHERE ip_address = ?
             """, (
-                str({
+                json.dumps({
                     "total_bytes": stats["total_bytes"],
                     "packet_count": stats["packet_count"],
                     "unique_connections": len(stats["connections"]),

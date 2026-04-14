@@ -70,13 +70,21 @@ jobs:
           echo "From directory: ${{ matrix.image_dir }}"
           echo "To: ghcr.io/${IMAGE_NAME}"
           
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:latest" \
-            --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:sha-${SHA_SHORT:0:8}" \
-            ${{ github.event_name == 'pull_request' && '--tag ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:pr-${{ github.event.number }}' || '' }} \
-            --push \
-            "${{ matrix.image_dir }}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "PR build: build-only (no push)"
+            docker buildx build \
+              --platform linux/amd64 \
+              --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:pr-${{ github.event.number }}" \
+              --load \
+              "${{ matrix.image_dir }}"
+          else
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:latest" \
+              --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:sha-${SHA_SHORT:0:8}" \
+              --push \
+              "${{ matrix.image_dir }}"
+          fi
 
       - name: Display build success
         env:

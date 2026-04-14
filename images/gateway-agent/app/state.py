@@ -106,6 +106,16 @@ class GatewayRuntime:
         paths["hostapd"].write_text(render_hostapd(cfg))
         paths["dnsmasq"].write_text(render_dnsmasq(cfg))
 
+        # Persist intent and rendered configs even if disabled (for UI).
+        if not cfg.enabled:
+            await self._stop_processes()
+            iptables.teardown()
+            # Remove IPv4 address from AP interface, but don't touch eth0.
+            await _run(["ip", "-4", "addr", "flush", "dev", cfg.ap_interface])
+            msg = "gateway disabled"
+            await self._write_last_apply(True, msg)
+            return True, msg
+
         # Configure interface and forwarding.
         net = ipaddress.ip_network(cfg.subnet_cidr, strict=True)
         await _run(["ip", "link", "set", cfg.ap_interface, "up"])

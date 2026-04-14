@@ -23,6 +23,10 @@ def _bin_exists(name: str) -> bool:
 def validate_config(cfg: WifiConfig) -> ValidationResult:
     issues: list[str] = []
 
+    # If disabling the gateway, allow validation even if hostapd/dnsmasq are missing.
+    if not cfg.enabled:
+        return ValidationResult(ok=True, issues=[])
+
     if cfg.ap_interface == cfg.upstream_interface:
         issues.append("ap_interface must differ from upstream_interface")
 

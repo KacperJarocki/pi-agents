@@ -26,6 +26,8 @@ jobs:
             image_name: gateway-api
           - image_dir: images/collector
             image_name: collector
+          - image_dir: images/gateway-agent
+            image_name: gateway-agent
           - image_dir: images/ml-pipeline
             image_name: ml-pipeline
           - image_dir: images/dashboard

@@ -1,0 +1,17 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gateway-api
+  namespace: iot-security
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`iot-api.homelab.kacperjarocki.dev`)
+      kind: Rule
+      services:
+        - kind: Service
+          name: gateway-api
+          port: 8080
+  tls:
+    certResolver: letsencrypt

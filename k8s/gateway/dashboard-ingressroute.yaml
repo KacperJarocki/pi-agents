@@ -1,0 +1,17 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+  namespace: iot-security
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`iot-dashboard.homelab.kacperjarocki.dev`)
+      kind: Rule
+      services:
+        - kind: Service
+          name: dashboard
+          port: 80
+  tls:
+    certResolver: letsencrypt

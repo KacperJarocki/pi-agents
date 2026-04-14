@@ -5,10 +5,16 @@ resources:
   - ../base
   - gateway-api-deployment.yaml
   - gateway-api-service.yaml
+  - gateway-api-ingressroute.yaml
+  - gateway-api-certificate.yaml
   - collector-deployment.yaml
   - collector-service.yaml
   - ml-trainer-cronjob.yaml
   - ml-inference-deployment.yaml
+  - dashboard-deployment.yaml
+  - dashboard-service.yaml
+  - dashboard-ingressroute.yaml
+  - dashboard-certificate.yaml
 
 commonLabels:
   variant: gateway

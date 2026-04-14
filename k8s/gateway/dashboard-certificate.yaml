@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dashboard-tls
+  namespace: iot-security
+spec:
+  secretName: dashboard-tls
+  issuerRef:
+    name: letsencrypt-http-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - iot-dashboard.homelab.kacperjarocki.dev

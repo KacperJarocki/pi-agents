@@ -14,10 +14,6 @@ spec:
     metadata:
       labels:
         app: gateway-api
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
     spec:
       nodeSelector:
         node-role.kubernetes.io/gateway: "true"

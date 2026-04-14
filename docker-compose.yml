@@ -31,18 +31,30 @@ services:
       - NET_ADMIN
       - NET_RAW
 
-  ml-pipeline:
+  ml-trainer:
     build: ./images/ml-pipeline
+    command: ["python", "-m", "app.train"]
     environment:
       - DATABASE_PATH=/data/iot-security.db
       - MODEL_PATH=/data/models
-      - TRAINING_CRON=true
+    volumes:
+      - sqlite-data:/data
+      - model-data:/data/models
+    restart: on-failure
+
+  ml-inference:
+    build: ./images/ml-pipeline
+    command: ["python", "-m", "app.inference"]
+    environment:
+      - DATABASE_PATH=/data/iot-security.db
+      - MODEL_PATH=/data/models
       - INFERENCE_INTERVAL=300
     volumes:
       - sqlite-data:/data
       - model-data:/data/models
     depends_on:
-      - gateway-api
+      - ml-trainer
+    restart: unless-stopped
 
   dashboard:
     build: ./images/dashboard

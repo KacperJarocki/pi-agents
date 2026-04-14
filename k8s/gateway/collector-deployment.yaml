@@ -14,10 +14,6 @@ spec:
     metadata:
       labels:
         app: collector
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "9090"
-        prometheus.io/path: "/metrics"
     spec:
       nodeSelector:
         node-role.kubernetes.io/gateway: "true"

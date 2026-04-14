@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-api-tls
+  namespace: iot-security
+spec:
+  secretName: gateway-api-tls
+  issuerRef:
+    name: letsencrypt-http-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - iot-api.homelab.kacperjarocki.dev

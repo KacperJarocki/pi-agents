@@ -7,23 +7,34 @@ Agent-based IoT threat detection system. Gateway RPi acts as WiFi AP + traffic c
 ## Cluster Architecture
 
 - **3 Masters + 2 Workers** (worker-1 = AP gateway)
-- **Prometheus + Grafana** already running
-- **Ingress + LoadBalancer** already configured
-- **Rook Ceph** for persistent storage
+- **Traefik** ingress controller
+- **cert-manager** with Let's Encrypt (Cloudflare DNS)
+- **Longhorn** for persistent storage
+- **Alloy** for metrics collection
+
+## Infrastructure Stack
+
+| Component | Technology | Config Location |
+|-----------|------------|-----------------|
+| Ingress | Traefik | homelab/infra/networking/traefik/ |
+| TLS | cert-manager | homelab/infra/certmanager/ |
+| Storage | Longhorn | homelab/infra/longhorn-system/ |
+| GitOps | Flux CD | homelab/cluster/ |
 
 ## Images
 
-| Component | Image | Purpose |
-|-----------|-------|---------|
+| Component | Image | Registry |
+|-----------|-------|----------|
 | `gateway-api` | ghcr.io/kacperjarocki/gateway-api | REST API + WebSocket alerts |
 | `collector` | ghcr.io/kacperjarocki/collector | Traffic capture via tcpdump/tshark |
 | `ml-pipeline` | ghcr.io/kacperjarocki/ml-pipeline | ML training + inference |
+| `dashboard` | ghcr.io/kacperjarocki/dashboard | Web UI |
 
 ## K8s Structure
 
 ```
 k8s/
-├── base/              # Namespace, PVC, NetworkPolicy, Ingress
+├── base/              # Namespace, PVC, NetworkPolicy
 └── gateway/          # All workload deployments
 ```
 
@@ -35,13 +46,14 @@ k8s/
 | gateway-api | Deployment | Always | uvicorn |
 | ml-trainer | CronJob | 3:00 AM daily | train.py |
 | ml-inference | Deployment | Always | inference.py loop |
+| dashboard | Deployment | Always | FastAPI + HTMX |
 
 ## Building Images
 
 Images are built automatically via GitHub Actions on push to `images/*`:
 
-```
-.github/workflows/docker-build.yml
+```yaml
+# .github/workflows/docker-build.yml
 ```
 
 Images pushed to: `ghcr.io/kacperjarocki/{image-name}`
@@ -54,6 +66,24 @@ Tags: `latest`, `sha-{git-sha}`
 - hostapd runs native (not containerized) with higher priority
 - ML training runs nightly at 3:00 AM
 - collector uses hostNetwork mode for direct NIC access
+
+## Labels Required
+
+Label the gateway worker (worker-1):
+```bash
+kubectl label node <worker-1-name> node-role.kubernetes.io/gateway=true
+```
+
+## Ingress Configuration
+
+Uses Traefik IngressRoute + cert-manager:
+
+| Service | Host | TLS |
+|---------|------|-----|
+| gateway-api | `iot-api.homelab.kacperjarocki.dev` | Certificate |
+| dashboard | `iot-dashboard.homelab.kacperjarocki.dev` | Certificate |
+
+Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 
 ## API Endpoints
 
@@ -72,8 +102,8 @@ Tags: `latest`, `sha-{git-sha}`
 
 ## Dashboard
 
-- Runs on separate host (not in K8s)
-- Accesses API via ingress/LB
+- Runs as K8s Deployment
+- Accesses API via Traefik ingress
 - Stack: FastAPI + HTMX + TailwindCSS
 - Views: Devices, Timeline, Top Talkers, Anomalies
 
@@ -92,5 +122,5 @@ docker-compose up --build
 
 - collector needs `CAP_NET_ADMIN` + `CAP_NET_RAW` (securityContext)
 - collector uses `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet`
-- SQLite stored on Rook Ceph PVC at `/data/iot-security.db`
+- SQLite stored on Longhorn PVC at `/data/iot-security.db`
 - Minimum 100 flows required for ML training

@@ -15,7 +15,7 @@ class Device(Base):
     last_seen = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
     risk_score = Column(Float, default=0.0)
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column('extra_data', JSON, nullable=True)
 
 
 class TrafficFlow(Base):

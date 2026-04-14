@@ -33,7 +33,7 @@ class Database:
                 last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
                 risk_score REAL DEFAULT 0.0,
-                metadata TEXT
+                extra_data TEXT
             );
             
             CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(mac_address);
@@ -159,7 +159,7 @@ class Database:
             await self.conn.execute("""
                 UPDATE devices 
                 SET last_seen = CURRENT_TIMESTAMP,
-                    metadata = ?
+                    extra_data = ?
                 WHERE ip_address = ?
             """, (
                 str({

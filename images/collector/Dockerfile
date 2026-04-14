@@ -26,4 +26,4 @@ RUN useradd -m -u 1000 collector && \
 
 USER collector
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/app/entrypoint.sh"]

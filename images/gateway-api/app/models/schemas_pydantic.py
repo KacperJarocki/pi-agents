@@ -27,7 +27,7 @@ class DeviceResponse(DeviceBase):
     last_seen: datetime
     is_active: bool
     risk_score: float
-    metadata: Optional[dict] = None
+    extra_data: Optional[dict] = None
 
     class Config:
         from_attributes = True

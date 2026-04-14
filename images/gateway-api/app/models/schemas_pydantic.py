@@ -135,3 +135,35 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     timestamp: datetime
+
+
+class WifiConfig(BaseModel):
+    ssid: str
+    psk: str
+    country_code: str = "PL"
+    channel: int = 6
+    ap_interface: str = "wlan0"
+    upstream_interface: str = "eth0"
+    subnet_cidr: str = "192.168.50.0/24"
+    gateway_ip: str = "192.168.50.1"
+    dhcp_range_start: str = "192.168.50.100"
+    dhcp_range_end: str = "192.168.50.200"
+    enabled: bool = True
+
+
+class WifiConfigResponse(BaseModel):
+    config: WifiConfig
+
+
+class WifiValidationResponse(BaseModel):
+    ok: bool
+    issues: List[str] = []
+
+
+class GatewayAgentStatusResponse(BaseModel):
+    status: dict
+
+
+class WifiApplyResponse(BaseModel):
+    ok: bool
+    message: str

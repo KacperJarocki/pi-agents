@@ -9,7 +9,7 @@ from .core.config import get_settings
 from .core.database import init_db
 from .core.database import get_db_context
 from .core.logging import log
-from .routers import devices_router, anomalies_router, metrics_router
+from .routers import devices_router, anomalies_router, metrics_router, gateway_wifi_router
 
 settings = get_settings()
 
@@ -91,6 +91,7 @@ app.add_middleware(
 app.include_router(devices_router, prefix=settings.api_prefix)
 app.include_router(anomalies_router, prefix=settings.api_prefix)
 app.include_router(metrics_router, prefix=settings.api_prefix)
+app.include_router(gateway_wifi_router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

@@ -70,3 +70,15 @@ class ModelMetadata(Base):
     features_used = Column(JSON, nullable=True)
     parameters = Column(JSON, nullable=True)
     is_active = Column(Boolean, default=False)
+
+
+class GatewayWifiConfig(Base):
+    __tablename__ = "gateway_wifi_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    config = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    last_apply_ok = Column(Boolean, nullable=True)
+    last_apply_message = Column(String(500), nullable=True)
+    last_apply_at = Column(DateTime, nullable=True)

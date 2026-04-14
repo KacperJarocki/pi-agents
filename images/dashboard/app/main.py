@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response, RedirectResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 import httpx
 import asyncio
@@ -7,7 +7,6 @@ import json
 from datetime import datetime
 from typing import List, Optional
 import os
-from urllib.parse import quote
 
 app = FastAPI(title="IoT Security Dashboard")
 
@@ -77,9 +76,12 @@ async def root(request: Request):
 
 @app.get("/gateway", response_class=HTMLResponse)
 async def gateway_settings(request: Request):
+    return await _render_gateway(request)
+
+
+async def _render_gateway(request: Request, message: str | None = None):
     cfg = await fetch_api("/gateway/wifi/config")
     status = await fetch_api("/gateway/wifi/status")
-    msg = request.query_params.get("msg")
 
     return templates.TemplateResponse(
         "gateway.html",
@@ -87,7 +89,7 @@ async def gateway_settings(request: Request):
             "request": request,
             "config": (cfg.get("config") if isinstance(cfg, dict) else None) or {},
             "status": status if isinstance(status, dict) else {},
-            "message": msg,
+            "message": message,
         },
     )
 
@@ -99,7 +101,7 @@ async def gateway_validate(request: Request):
     cfg["channel"] = int(cfg.get("channel") or 6)
     cfg["enabled"] = (cfg.get("enabled") == "on")
     res = await call_api("POST", "/gateway/wifi/validate", cfg)
-    return RedirectResponse(url=f"/gateway?msg={quote(json.dumps(res))}", status_code=303)
+    return await _render_gateway(request, message=json.dumps(res))
 
 
 @app.post("/gateway/save")
@@ -110,7 +112,7 @@ async def gateway_save(request: Request):
     cfg["enabled"] = (cfg.get("enabled") == "on")
     res = await call_api("PUT", "/gateway/wifi/config", cfg)
     msg = "saved" if not res.get("error") else f"error: {res.get('error')}"
-    return RedirectResponse(url=f"/gateway?msg={msg}", status_code=303)
+    return await _render_gateway(request, message=msg)
 
 
 @app.post("/gateway/apply")
@@ -121,14 +123,14 @@ async def gateway_apply(request: Request):
     cfg["enabled"] = (cfg.get("enabled") == "on")
     res = await call_api("POST", "/gateway/wifi/apply", cfg)
     msg = res.get("message") if not res.get("error") else f"error: {res.get('error')}"
-    return RedirectResponse(url=f"/gateway?msg={msg}", status_code=303)
+    return await _render_gateway(request, message=msg)
 
 
 @app.post("/gateway/rollback")
-async def gateway_rollback():
+async def gateway_rollback(request: Request):
     res = await call_api("POST", "/gateway/wifi/rollback")
     msg = res.get("message") if not res.get("error") else f"error: {res.get('error')}"
-    return RedirectResponse(url=f"/gateway?msg={msg}", status_code=303)
+    return await _render_gateway(request, message=msg)
 
 
 @app.get("/health")

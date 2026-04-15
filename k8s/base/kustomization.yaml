@@ -6,10 +6,6 @@ namespace: iot-security
 resources:
   - namespace.yaml
   - pvc.yaml
-  - network-policy.yaml
-  - gateway-api-netpol.yaml
-  - dashboard-netpol.yaml
-  - gateway-agent-netpol.yaml
 
 labels:
   - pairs:

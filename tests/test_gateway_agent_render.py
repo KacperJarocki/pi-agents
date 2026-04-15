@@ -6,7 +6,13 @@ class TestGatewayAgentRender(unittest.TestCase):
         import sys
         from pathlib import Path
 
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "images" / "gateway-agent"))
+        root = str(Path(__file__).resolve().parents[1] / "images" / "gateway-agent")
+        if root not in sys.path:
+            sys.path.insert(0, root)
+
+        for k in list(sys.modules.keys()):
+            if k == "app" or k.startswith("app."):
+                del sys.modules[k]
 
         from app.models import WifiConfig
         from app.render import render_hostapd, render_dnsmasq

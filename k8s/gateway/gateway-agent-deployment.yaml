@@ -7,6 +7,11 @@ metadata:
     app: gateway-agent
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app: gateway-agent
@@ -23,9 +28,6 @@ spec:
         - name: gateway-agent
           image: ghcr.io/kacperjarocki/gateway-agent:latest
           imagePullPolicy: Always
-          ports:
-            - containerPort: 7000
-              name: http
           env:
             # Safety rail: keep OFF by default.
             - name: ENABLE_APPLY

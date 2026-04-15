@@ -5,7 +5,7 @@ resources:
   - ../base
   - gateway-api-deployment.yaml
   - gateway-api-service.yaml
-  - gateway-api-ingressroute.yaml
+  - gateway-api-ingress.yaml
   - gateway-api-certificate.yaml
   - gateway-agent-deployment.yaml
   - gateway-agent-service.yaml
@@ -15,7 +15,7 @@ resources:
   - ml-inference-deployment.yaml
   - dashboard-deployment.yaml
   - dashboard-service.yaml
-  - dashboard-ingressroute.yaml
+  - dashboard-ingress.yaml
   - dashboard-certificate.yaml
 
 labels:

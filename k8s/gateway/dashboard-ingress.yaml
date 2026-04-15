@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard
+  namespace: iot-security
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - iot-dashboard.homelab.kacperjarocki.dev
+      secretName: dashboard-tls
+  rules:
+    - host: iot-dashboard.homelab.kacperjarocki.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  number: 80

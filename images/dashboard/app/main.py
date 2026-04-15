@@ -67,11 +67,14 @@ async def call_api(method: str, endpoint: str, payload: dict | None = None):
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "gateway_api": GATEWAY_API,
-        "refresh_interval": REFRESH_INTERVAL
-    })
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "gateway_api": GATEWAY_API,
+            "refresh_interval": REFRESH_INTERVAL,
+        },
+    )
 
 
 @app.get("/gateway", response_class=HTMLResponse)
@@ -84,9 +87,9 @@ async def _render_gateway(request: Request, message: str | None = None):
     status = await fetch_api("/gateway/wifi/status")
 
     return templates.TemplateResponse(
+        request,
         "gateway.html",
         {
-            "request": request,
             "config": (cfg.get("config") if isinstance(cfg, dict) else None) or {},
             "status": status if isinstance(status, dict) else {},
             "message": message,

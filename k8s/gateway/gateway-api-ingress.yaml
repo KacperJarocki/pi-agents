@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway-api
+  namespace: iot-security
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - iot-api.homelab.kacperjarocki.dev
+      secretName: gateway-api-tls
+  rules:
+    - host: iot-api.homelab.kacperjarocki.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway-api
+                port:
+                  number: 8080

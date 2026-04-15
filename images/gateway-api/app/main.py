@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 import asyncio
 from datetime import datetime
 from typing import List
@@ -98,7 +99,7 @@ app.include_router(gateway_wifi_router, prefix=settings.api_prefix)
 async def health_check():
     try:
         async with get_db_context() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"database_unavailable: {e}")
 

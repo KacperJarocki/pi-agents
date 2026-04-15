@@ -25,14 +25,18 @@ async def main():
     
     database_path = os.getenv("DATABASE_PATH", "/data/iot-security.db")
     interface = os.getenv("INTERFACE", "wlan0")
-    batch_size = int(os.getenv("BATCH_SIZE", "100"))
+    batch_size = int(os.getenv("BATCH_SIZE", "25"))
     flush_interval = int(os.getenv("FLUSH_INTERVAL", "5"))
+    capture_packet_count = int(os.getenv("CAPTURE_PACKET_COUNT", str(batch_size)))
+    capture_timeout = int(os.getenv("CAPTURE_TIMEOUT", str(flush_interval)))
     
     log.info("starting_collector", 
              interface=interface, 
              database=database_path,
              batch_size=batch_size,
-             flush_interval=flush_interval)
+             flush_interval=flush_interval,
+             capture_packet_count=capture_packet_count,
+             capture_timeout=capture_timeout)
     
     db = Database(database_path)
     await db.init()
@@ -44,7 +48,9 @@ async def main():
         db=db,
         interface=interface,
         batch_size=batch_size,
-        flush_interval=flush_interval
+        flush_interval=flush_interval,
+        capture_packet_count=capture_packet_count,
+        capture_timeout=capture_timeout,
     )
 
     stop_event = asyncio.Event()

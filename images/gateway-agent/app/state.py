@@ -35,6 +35,22 @@ def _paths() -> dict[str, Path]:
     }
 
 
+def build_hostapd_command(config_path: Path) -> list[str]:
+    return [
+        "hostapd",
+        "-s",
+        str(config_path),
+    ]
+
+
+def build_dnsmasq_command(config_path: Path) -> list[str]:
+    return [
+        "dnsmasq",
+        "--no-daemon",
+        f"--conf-file={config_path}",
+    ]
+
+
 @dataclass
 class ManagedProcess:
     name: str
@@ -227,9 +243,7 @@ class GatewayRuntime:
     async def _start_hostapd(self, cfg: WifiConfig) -> None:
         paths = _paths()
         proc = await asyncio.create_subprocess_exec(
-            "hostapd",
-            "-s",
-            str(paths["hostapd"]),
+            *build_hostapd_command(paths["hostapd"]),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -239,10 +253,7 @@ class GatewayRuntime:
     async def _start_dnsmasq(self, cfg: WifiConfig) -> None:
         paths = _paths()
         proc = await asyncio.create_subprocess_exec(
-            "dnsmasq",
-            "--no-daemon",
-            "--conf-file",
-            str(paths["dnsmasq"]),
+            *build_dnsmasq_command(paths["dnsmasq"]),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )

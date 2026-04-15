@@ -29,6 +29,15 @@ class TestGatewayAgentRender(unittest.TestCase):
         self.assertIn("dhcp-range=192.168.50.100,192.168.50.200", d)
         self.assertIn("dhcp-option=option:router,192.168.50.1", d)
 
+    def test_dnsmasq_command_uses_inline_conf_file_flag(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-agent" / "app" / "state.py").read_text()
+
+        self.assertIn('def build_dnsmasq_command(config_path: Path)', src)
+        self.assertIn('f"--conf-file={config_path}"', src)
+
 
 if __name__ == "__main__":
     unittest.main()

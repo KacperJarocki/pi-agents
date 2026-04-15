@@ -3,16 +3,97 @@ from sqlalchemy import select, func, desc, and_, cast, Integer
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from ..models.schemas import Device, TrafficFlow, Anomaly, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
 )
 from ..core.logging import log
+from ..core.config import get_settings
+from .gateway_control import GatewayAgentClient
 
 
 class DeviceService:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.settings = get_settings()
+
+    async def _presence_maps(self) -> tuple[set[str], set[str], dict[str, str], list[dict]]:
+        macs: set[str] = set()
+        ips: set[str] = set()
+        source_map: dict[str, str] = {}
+        clients: list[dict] = []
+
+        # Source 1: current DHCP leases from gateway-agent.
+        try:
+            code, body = await GatewayAgentClient().get_status()
+            if code < 400 and isinstance(body, dict):
+                for client in body.get("connected_clients") or []:
+                    clients.append(client)
+                    ip = (client.get("ip_address") or "").strip()
+                    mac = (client.get("mac_address") or "").strip().lower()
+                    if ip:
+                        ips.add(ip)
+                        source_map[f"ip:{ip}"] = "dhcp_lease"
+                    if mac:
+                        macs.add(mac)
+                        source_map[f"mac:{mac}"] = "dhcp_lease"
+        except Exception:
+            # Fall back to DB-only view if agent is temporarily unavailable.
+            pass
+
+        return macs, ips, source_map, clients
+
+    def _recently_seen(self, device: Device) -> bool:
+        if not device.last_seen:
+            return False
+        cutoff = datetime.utcnow() - timedelta(minutes=self.settings.active_device_window_minutes)
+        return device.last_seen >= cutoff
+
+    def _decorate_device_presence(
+        self,
+        device: Device,
+        present_macs: set[str],
+        present_ips: set[str],
+        source_map: dict[str, str],
+    ) -> None:
+        mac = (device.mac_address or "").lower()
+        ip = device.ip_address or ""
+
+        connected = False
+        connection_source: str | None = None
+
+        if mac and not mac.startswith("ip:") and mac in present_macs:
+            connected = True
+            connection_source = source_map.get(f"mac:{mac}", "dhcp_lease")
+        elif ip and ip in present_ips:
+            connected = True
+            connection_source = source_map.get(f"ip:{ip}", "dhcp_lease")
+        elif self._recently_seen(device):
+            connected = True
+            connection_source = "recent_traffic"
+
+        setattr(device, "connected", connected)
+        setattr(device, "connection_source", connection_source)
+        setattr(device, "model_status", "missing")
+
+    def _synthetic_device(self, client: dict, idx: int):
+        now = datetime.utcnow()
+        return SimpleNamespace(
+            id=-(idx + 1),
+            mac_address=client.get("mac_address") or f"ip:{client.get('ip_address')}",
+            ip_address=client.get("ip_address") or "0.0.0.0",
+            hostname=client.get("hostname"),
+            device_type=None,
+            first_seen=now,
+            last_seen=now,
+            is_active=True,
+            risk_score=0.0,
+            extra_data=None,
+            connected=True,
+            connection_source="dhcp_lease",
+            model_status="missing",
+        )
 
     async def create_device(self, device_data: DeviceCreate) -> Device:
         device = Device(**device_data.model_dump())
@@ -36,22 +117,37 @@ class DeviceService:
 
     async def list_devices(self, skip: int = 0, limit: int = 100, 
                           active_only: bool = False) -> tuple[List[Device], int]:
-        query = select(Device)
-        if active_only:
-            query = query.where(Device.is_active == True)
-        
-        count_query = select(func.count()).select_from(Device)
-        if active_only:
-            count_query = count_query.where(Device.is_active == True)
-        
-        total_result = await self.db.execute(count_query)
-        total = total_result.scalar()
-        
-        query = query.order_by(desc(Device.risk_score)).offset(skip).limit(limit)
+        query = select(Device).order_by(desc(Device.risk_score))
         result = await self.db.execute(query)
-        devices = result.scalars().all()
-        
-        return list(devices), total
+        devices = list(result.scalars().all())
+
+        present_macs, present_ips, source_map, clients = await self._presence_maps()
+        for device in devices:
+            self._decorate_device_presence(device, present_macs, present_ips, source_map)
+
+        seen_keys = set()
+        for device in devices:
+            if device.mac_address and not device.mac_address.startswith("ip:"):
+                seen_keys.add(f"mac:{device.mac_address.lower()}")
+            if device.ip_address:
+                seen_keys.add(f"ip:{device.ip_address}")
+
+        synthetic = []
+        for idx, client in enumerate(clients):
+            mac = (client.get("mac_address") or "").lower()
+            ip = client.get("ip_address") or ""
+            if (mac and f"mac:{mac}" in seen_keys) or (ip and f"ip:{ip}" in seen_keys):
+                continue
+            synthetic.append(self._synthetic_device(client, idx))
+
+        devices.extend(synthetic)
+
+        if active_only:
+            devices = [d for d in devices if getattr(d, "connected", False)]
+
+        total = len(devices)
+        devices = devices[skip:skip + limit]
+        return devices, total
 
     async def update_device(self, device_id: int, data: DeviceUpdate) -> Optional[Device]:
         device = await self.get_device(device_id)

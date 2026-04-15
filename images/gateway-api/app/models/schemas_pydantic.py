@@ -28,6 +28,9 @@ class DeviceResponse(DeviceBase):
     is_active: bool
     risk_score: float
     extra_data: Optional[dict] = None
+    connected: bool = False
+    connection_source: Optional[str] = None
+    model_status: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -183,6 +183,13 @@ async def partial_devices():
         risk = device.get("risk_score", 0)
         status_class = "risk-critical" if risk > 70 else "risk-warning" if risk > 40 else "risk-ok"
         status_icon = "🔴" if risk > 70 else "🟡" if risk > 40 else "🟢"
+        connected = bool(device.get("connected"))
+        connection_source = device.get("connection_source") or ""
+        connection_badge = (
+            f'<span class="inline-block text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">Connected via {connection_source}</span>'
+            if connected else
+            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-white/10 text-gray-300 border border-white/10">Not connected</span>'
+        )
         
         html += f"""
         <div class="device-card {status_class}">
@@ -190,6 +197,7 @@ async def partial_devices():
                 <span class="status-icon">{status_icon}</span>
                 <span class="device-name">{device.get('hostname', device.get('ip_address', 'Unknown'))}</span>
             </div>
+            <div class="mt-2 mb-3">{connection_badge}</div>
             <div class="device-details">
                 <div class="device-info">
                     <span class="label">IP:</span> {device.get('ip_address', 'N/A')}

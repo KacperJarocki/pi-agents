@@ -4,6 +4,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from pathlib import Path
 from ..models.schemas import Device, TrafficFlow, Anomaly, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
@@ -73,9 +74,15 @@ class DeviceService:
             connected = True
             connection_source = "recent_traffic"
 
+        model_status = "missing"
+        if getattr(device, "id", None) and getattr(device, "id", 0) > 0:
+            model_file = Path(self.settings.model_path) / f"isolation_forest_model_device_{device.id}.joblib"
+            if model_file.exists():
+                model_status = "ready"
+
         setattr(device, "connected", connected)
         setattr(device, "connection_source", connection_source)
-        setattr(device, "model_status", "missing")
+        setattr(device, "model_status", model_status)
 
     def _synthetic_device(self, client: dict, idx: int):
         now = datetime.utcnow()

@@ -163,6 +163,7 @@ Services:
 | `/api/v1/metrics/summary` | GET | System summary |
 | `/api/v1/metrics/timeline` | GET | Traffic timeline |
 | `/api/v1/metrics/top-talking` | GET | Top talkers |
+| `/api/v1/metrics/ml-status` | GET | ML model readiness status |
 | `/api/v1/gateway/wifi/config` | GET/PUT | Read/update WiFi config |
 | `/api/v1/gateway/wifi/validate` | POST | Validate WiFi config |
 | `/api/v1/gateway/wifi/apply` | POST | Apply WiFi config |
@@ -173,10 +174,17 @@ Services:
 ## ML Pipeline
 
 - **Algorithm**: Isolation Forest (sklearn)
-- **Features**: bytes, packets, unique destinations/ports, DNS queries, packet rate
-- **Training**: CronJob at 3:00 AM
+- **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate)
+- **Training**: CronJob every 30 minutes for MVP
 - **Inference**: Batch every 5 minutes
-- **Minimum training samples**: 100 flows
+- **MVP mode**: per-device models with 5-minute buckets
+- **Minimum training samples**: 20 per-device buckets
+
+## Device Presence
+
+- Connected devices are sourced from `dnsmasq` DHCP leases exposed by `gateway-agent`
+- Recent traffic is used as a fallback signal when a lease is missing
+- Dashboard devices may appear even before collector has built a persistent device record
 
 ## Troubleshooting
 

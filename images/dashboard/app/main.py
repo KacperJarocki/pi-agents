@@ -185,10 +185,16 @@ async def partial_devices():
         status_icon = "🔴" if risk > 70 else "🟡" if risk > 40 else "🟢"
         connected = bool(device.get("connected"))
         connection_source = device.get("connection_source") or ""
+        model_status = device.get("model_status") or "missing"
         connection_badge = (
             f'<span class="inline-block text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">Connected via {connection_source}</span>'
             if connected else
             '<span class="inline-block text-xs px-2 py-1 rounded-full bg-white/10 text-gray-300 border border-white/10">Not connected</span>'
+        )
+        model_badge = (
+            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">Model ready</span>'
+            if model_status == "ready" else
+            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">Model missing</span>'
         )
         
         html += f"""
@@ -197,7 +203,7 @@ async def partial_devices():
                 <span class="status-icon">{status_icon}</span>
                 <span class="device-name">{device.get('hostname', device.get('ip_address', 'Unknown'))}</span>
             </div>
-            <div class="mt-2 mb-3">{connection_badge}</div>
+            <div class="mt-2 mb-3 flex flex-wrap gap-2">{connection_badge}{model_badge}</div>
             <div class="device-details">
                 <div class="device-info">
                     <span class="label">IP:</span> {device.get('ip_address', 'N/A')}

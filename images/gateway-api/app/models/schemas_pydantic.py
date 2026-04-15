@@ -134,6 +134,18 @@ class MetricsSummary(BaseModel):
     total_traffic_mb: float
 
 
+class DeviceModelStatus(BaseModel):
+    device_id: int
+    model_status: str
+
+
+class MlStatusResponse(BaseModel):
+    model_path: str
+    device_models_ready: int
+    total_devices: int
+    devices: List[DeviceModelStatus]
+
+
 class HealthResponse(BaseModel):
     status: str
     database: str

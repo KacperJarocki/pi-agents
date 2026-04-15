@@ -34,6 +34,8 @@ spec:
           env:
             - name: DATABASE_PATH
               value: "/data/iot-security.db"
+            - name: MODEL_PATH
+              value: "/data/models"
             - name: LOG_LEVEL
               value: "info"
           volumeMounts:

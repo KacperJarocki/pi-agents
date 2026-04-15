@@ -94,6 +94,7 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 - `GET /api/v1/devices` - Device list with risk scores
 - `GET /api/v1/anomalies` - Recent anomalies
 - `GET /api/v1/metrics/summary` - Dashboard metrics
+- `GET /api/v1/metrics/ml-status` - ML model readiness status
 - `GET/PUT /api/v1/gateway/wifi/config` - WiFi config
 - `POST /api/v1/gateway/wifi/validate` - Validate WiFi config
 - `POST /api/v1/gateway/wifi/apply` - Apply WiFi config
@@ -104,10 +105,16 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 ## ML Pipeline
 
 - **Algorithm**: Isolation Forest (sklearn)
-- **Features**: bytes, packets, unique destinations/ports, DNS queries, packet rate
-- **Training**: CronJob at 3:00 AM
+- **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate)
+- **Training**: CronJob every 30 minutes for MVP
 - **Inference**: Batch every 5 minutes
-- **Minimum training samples**: 100 flows
+- **MVP mode**: per-device models with 5-minute buckets
+- **Minimum training samples**: 20 per-device buckets
+
+## Device Presence
+
+- Connected devices are derived from `dnsmasq` DHCP leases exposed by `gateway-agent`
+- Recent traffic is used as a fallback signal when a lease is missing
 
 ## Dashboard
 

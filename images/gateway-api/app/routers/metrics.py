@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from pathlib import Path
 from ..core.database import get_db
+from ..core.config import get_settings
 from ..services.crud import TrafficService, DeviceService, AnomalyService
 from ..models.schemas import Device
 from ..models.schemas_pydantic import (
-    TimelineResponse, TopTalkersResponse, MetricsSummary
+    TimelineResponse, TopTalkersResponse, MetricsSummary, MlStatusResponse, DeviceModelStatus
 )
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -58,4 +60,28 @@ async def get_summary(
         critical_anomalies=anomaly_stats["critical"],
         avg_risk_score=avg_risk,
         total_traffic_mb=total_traffic
+    )
+
+
+@router.get("/ml-status", response_model=MlStatusResponse)
+async def get_ml_status(
+    db: AsyncSession = Depends(get_db)
+):
+    settings = get_settings()
+    device_service = DeviceService(db)
+    devices, total = await device_service.list_devices(limit=1000)
+
+    statuses = [
+        DeviceModelStatus(device_id=int(device.id), model_status=getattr(device, "model_status", "missing"))
+        for device in devices
+        if getattr(device, "id", 0) > 0
+    ]
+
+    ready_count = sum(1 for s in statuses if s.model_status == "ready")
+
+    return MlStatusResponse(
+        model_path=settings.model_path,
+        device_models_ready=ready_count,
+        total_devices=int(total or 0),
+        devices=statuses,
     )

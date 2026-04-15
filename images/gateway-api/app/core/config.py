@@ -5,6 +5,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     database_path: str = os.getenv("DATABASE_PATH", "/data/iot-security.db")
+    model_path: str = os.getenv("MODEL_PATH", "/data/models")
     log_level: str = os.getenv("LOG_LEVEL", "info")
     api_prefix: str = "/api/v1"
     gateway_agent_url: str = os.getenv("GATEWAY_AGENT_URL", "http://gateway-agent.iot-security:7000")

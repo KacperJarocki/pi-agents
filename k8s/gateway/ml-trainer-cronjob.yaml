@@ -7,7 +7,7 @@ metadata:
     app: ml-pipeline
     component: trainer
 spec:
-  schedule: "0 3 * * *"
+  schedule: "*/30 * * * *"
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   concurrencyPolicy: Forbid
@@ -42,6 +42,14 @@ spec:
                   value: "/data/iot-security.db"
                 - name: MODEL_PATH
                   value: "/data/models"
+                - name: TRAINING_HOURS
+                  value: "24"
+                - name: MIN_TRAINING_SAMPLES
+                  value: "20"
+                - name: FEATURE_BUCKET_MINUTES
+                  value: "5"
+                - name: PER_DEVICE_MODELS
+                  value: "true"
                 - name: LOG_LEVEL
                   value: "info"
               volumeMounts:

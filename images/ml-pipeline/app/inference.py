@@ -20,7 +20,19 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
 
     extractor = FeatureExtractor()
     features = extractor.extract_features(flows)
-    anomalies = detector.detect(features)
+    per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
+    anomalies = []
+
+    if per_device_models:
+        for device_id, group in features.groupby('device_id'):
+            latest = group.sort_values('bucket_start').tail(1)
+            device_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+            if not device_detector.load_model(device_id=int(device_id)):
+                log.warning("inference_model_missing_for_device", device_id=int(device_id))
+                continue
+            anomalies.extend(device_detector.detect(latest))
+    else:
+        anomalies = detector.detect(features)
 
     for a in anomalies:
         device_id = a["device_id"]
@@ -51,14 +63,15 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
 async def run_inference_loop():
     interval = int(os.getenv("INFERENCE_INTERVAL", "300"))
     hours = int(os.getenv("INFERENCE_HOURS", "24"))
+    per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
 
     detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
 
     while True:
         try:
-            if detector.model is None:
+            if not per_device_models and detector.model is None:
                 detector.load_model()
-            if detector.model is None:
+            if not per_device_models and detector.model is None:
                 log.warning("inference_model_missing")
             else:
                 await run_inference_once(detector, hours=hours)

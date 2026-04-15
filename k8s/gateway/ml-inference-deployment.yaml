@@ -44,6 +44,12 @@ spec:
               value: "info"
             - name: INFERENCE_INTERVAL
               value: "300"
+            - name: INFERENCE_HOURS
+              value: "24"
+            - name: FEATURE_BUCKET_MINUTES
+              value: "5"
+            - name: PER_DEVICE_MODELS
+              value: "true"
           volumeMounts:
             - name: sqlite-data
               mountPath: /data

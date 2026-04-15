@@ -27,13 +27,19 @@ class FeatureExtractor:
         'packet_rate', 'connection_duration_avg'
     ]
     
+    def __init__(self, bucket_minutes: int | None = None):
+        self.bucket_minutes = bucket_minutes or int(os.getenv("FEATURE_BUCKET_MINUTES", "5"))
+
     def extract_features(self, flows: pd.DataFrame) -> pd.DataFrame:
         if flows.empty:
-            return pd.DataFrame(columns=self.FEATURE_COLUMNS)
+            return pd.DataFrame(columns=['device_id', 'bucket_start', *self.FEATURE_COLUMNS])
         
         features = []
+        bucket = f"{self.bucket_minutes}min"
+        flows = flows.copy()
+        flows['bucket_start'] = flows['timestamp'].dt.floor(bucket)
         
-        for device_id, group in flows.groupby('device_id'):
+        for (device_id, bucket_start), group in flows.groupby(['device_id', 'bucket_start']):
             device_flows = group.sort_values('timestamp')
             
             total_bytes = device_flows['bytes_sent'].sum() + device_flows['bytes_received'].sum()
@@ -56,6 +62,7 @@ class FeatureExtractor:
             
             features.append({
                 'device_id': device_id,
+                'bucket_start': bucket_start,
                 'total_bytes': total_bytes,
                 'packets': packets,
                 'unique_destinations': unique_destinations,
@@ -75,26 +82,33 @@ class AnomalyDetector:
         self.model = None
         self.threshold = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
     
-    def load_model(self):
-        import joblib
+    def _model_file(self, device_id: int | None = None) -> str:
         import os
+        name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
+        return os.path.join(self.model_path, name)
+
+    def load_model(self, device_id: int | None = None):
+        import joblib
         
-        model_file = os.path.join(self.model_path, "isolation_forest_model.joblib")
+        model_file = self._model_file(device_id)
         if os.path.exists(model_file):
             self.model = joblib.load(model_file)
-            log.info("model_loaded", path=model_file)
+            log.info("model_loaded", path=model_file, device_id=device_id)
             return True
         return False
     
-    def save_model(self, model):
+    def save_model(self, model, device_id: int | None = None):
         import joblib
         import os
         
         os.makedirs(self.model_path, exist_ok=True)
-        model_file = os.path.join(self.model_path, "isolation_forest_model.joblib")
+        model_file = self._model_file(device_id)
         joblib.dump(model, model_file)
-        log.info("model_saved", path=model_file)
+        log.info("model_saved", path=model_file, device_id=device_id)
         self.model = model
+
+    def model_exists(self, device_id: int | None = None) -> bool:
+        return os.path.exists(self._model_file(device_id))
     
     def detect(self, features: pd.DataFrame) -> List[Dict]:
         if self.model is None or features.empty:

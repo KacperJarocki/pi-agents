@@ -9,9 +9,10 @@ from .ml_core import log
 
 
 async def train_model():
-    hours = int(os.getenv("TRAINING_HOURS", "168"))
-    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "100"))
+    hours = int(os.getenv("TRAINING_HOURS", "24"))
+    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "20"))
     contamination = float(os.getenv("CONTAMINATION", "0.05"))
+    per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
 
     flows = await get_all_recent_flows(hours=hours)
     if flows.empty:
@@ -21,13 +22,60 @@ async def train_model():
     extractor = FeatureExtractor()
     features = extractor.extract_features(flows)
 
+    log.info(
+        "training_dataset_stats",
+        flow_count=int(len(flows)),
+        device_count=int(flows['device_id'].nunique()) if not flows.empty else 0,
+        sample_count=int(len(features)),
+        per_device_models=per_device_models,
+    )
+
     if len(features) < 1:
         log.warning("training_no_features")
         return 0
 
-    # We train on per-device aggregated feature rows.
-    X = features[FeatureExtractor.FEATURE_COLUMNS].values
+    detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
 
+    if per_device_models:
+        trained_devices = 0
+        total_samples = 0
+
+        for device_id, group in features.groupby('device_id'):
+            samples = int(len(group))
+            total_samples += samples
+            if samples < min_samples:
+                log.warning(
+                    "training_not_enough_samples_for_device",
+                    device_id=int(device_id),
+                    samples=samples,
+                    min_samples=min_samples,
+                )
+                continue
+
+            X = group[FeatureExtractor.FEATURE_COLUMNS].values
+            model = IsolationForest(
+                n_estimators=int(os.getenv("N_ESTIMATORS", "200")),
+                contamination=contamination,
+                random_state=42,
+                n_jobs=1,
+            )
+            model.fit(X)
+            detector.save_model(model, device_id=int(device_id))
+            trained_devices += 1
+
+            log.info(
+                "training_complete_for_device",
+                trained_at=datetime.utcnow().isoformat(),
+                device_id=int(device_id),
+                samples=samples,
+                features=len(FeatureExtractor.FEATURE_COLUMNS),
+            )
+
+        if trained_devices == 0:
+            log.warning("training_no_device_models", sample_count=int(len(features)), min_samples=min_samples)
+        return trained_devices
+
+    X = features[FeatureExtractor.FEATURE_COLUMNS].values
     if X.shape[0] < min_samples:
         log.warning(
             "training_not_enough_samples",
@@ -43,8 +91,6 @@ async def train_model():
         n_jobs=1,
     )
     model.fit(X)
-
-    detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
     detector.save_model(model)
 
     log.info(

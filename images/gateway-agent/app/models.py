@@ -43,6 +43,8 @@ class GatewayStatus(BaseModel):
     last_apply_ok: bool | None = None
     last_apply_message: str | None = None
     active_config: dict | None = None
+    connected_clients: list[dict] | None = None
+    lease_count: int | None = None
 
     apply_enabled: bool
     auto_restore: bool

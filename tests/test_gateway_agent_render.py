@@ -28,6 +28,7 @@ class TestGatewayAgentRender(unittest.TestCase):
         self.assertIn("interface=wlan0", d)
         self.assertIn("dhcp-range=192.168.50.100,192.168.50.200", d)
         self.assertIn("dhcp-option=option:router,192.168.50.1", d)
+        self.assertIn("dhcp-leasefile=/data/dnsmasq.leases", d)
 
     def test_dnsmasq_command_uses_inline_conf_file_flag(self):
         from pathlib import Path

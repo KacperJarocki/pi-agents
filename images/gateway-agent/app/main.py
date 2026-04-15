@@ -33,6 +33,10 @@ def _active_config() -> dict | None:
     return cfg.model_dump(exclude={"psk"})
 
 
+def _connected_clients() -> list[dict]:
+    return runtime.read_leases()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_enabled = _bool_env("ENABLE_APPLY", False)
@@ -65,6 +69,7 @@ async def status(
     base = get_status(ap_interface=ap_interface, upstream_interface=upstream_interface)
     ps = runtime.process_status()
     ok, msg = runtime.read_last_apply()
+    clients = _connected_clients()
     base.update(
         {
             "hostapd": ps.get("hostapd"),
@@ -72,6 +77,8 @@ async def status(
             "last_apply_ok": ok,
             "last_apply_message": msg,
             "active_config": _active_config(),
+            "connected_clients": clients,
+            "lease_count": len(clients),
             "apply_enabled": _bool_env("ENABLE_APPLY", False),
             "auto_restore": _bool_env("AUTO_RESTORE", True),
         }

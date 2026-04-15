@@ -30,6 +30,7 @@ def _paths() -> dict[str, Path]:
         "config": d / "wifi_config.json",
         "hostapd": d / "hostapd.conf",
         "dnsmasq": d / "dnsmasq.conf",
+        "leases": d / "dnsmasq.leases",
         "last_apply": d / "last_apply.json",
         "lkg": d / "last_known_good",
     }
@@ -90,6 +91,34 @@ class GatewayRuntime:
             return WifiConfig.model_validate_json(p.read_text())
         except Exception:
             return None
+
+    def read_leases(self) -> list[dict]:
+        p = _paths()["leases"]
+        if not p.exists():
+            return []
+
+        clients: list[dict] = []
+        for line in p.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+
+            expiry, mac, ip, hostname, client_id = parts[:5]
+            clients.append(
+                {
+                    "lease_expires_at": expiry,
+                    "mac_address": None if mac == "*" else mac,
+                    "ip_address": ip,
+                    "hostname": None if hostname == "*" else hostname,
+                    "client_id": None if client_id == "*" else client_id,
+                }
+            )
+
+        return clients
 
     async def apply(self, cfg: WifiConfig) -> tuple[bool, str]:
         async with self._lock:

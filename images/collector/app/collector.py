@@ -19,6 +19,7 @@ log = structlog.get_logger()
 def build_tcpdump_command(interface: str, pcap_file: str, packet_count: int) -> list[str]:
     return [
         "tcpdump",
+        "-Z", "root",
         "-i", interface,
         "-n", "-p",
         "-s", "96",

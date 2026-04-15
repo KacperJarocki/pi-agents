@@ -23,8 +23,6 @@ def build_tcpdump_command(
         "tcpdump",
         "-i",
         interface,
-        "-Z",
-        "root",
         "-n",
         "-p",
         "-s",

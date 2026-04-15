@@ -45,6 +45,10 @@ Agent-based IoT threat detection system running on K3s cluster with ML-powered a
 | Gateway API | `https://iot-api.homelab.kacperjarocki.dev` |
 | Dashboard | `https://iot-dashboard.homelab.kacperjarocki.dev` |
 
+Default WiFi config:
+- SSID: `IoT-Security`
+- PSK: `change-me-please`
+
 ## Images
 
 | Component | Image | Registry |
@@ -119,6 +123,8 @@ Tags: `latest`, `sha-{git-sha}`
 kubectl apply -k k8s/base
 kubectl apply -k k8s/gateway
 ```
+
+Ingress is exposed using standard Kubernetes `Ingress` resources with `ingressClassName: traefik`.
 
 ### Enable WiFi AP Control (Required For SSID)
 

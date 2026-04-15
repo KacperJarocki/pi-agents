@@ -27,6 +27,7 @@ class ProcessStatus(BaseModel):
     running: bool
     pid: int | None = None
     exit_code: int | None = None
+    last_error: str | None = None
 
 
 class GatewayStatus(BaseModel):
@@ -41,6 +42,7 @@ class GatewayStatus(BaseModel):
 
     last_apply_ok: bool | None = None
     last_apply_message: str | None = None
+    active_config: dict | None = None
 
     apply_enabled: bool
     auto_restore: bool

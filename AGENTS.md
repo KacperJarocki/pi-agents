@@ -78,7 +78,9 @@ kubectl label node <worker-1-name> node-role.kubernetes.io/gateway=true
 
 ## Ingress Configuration
 
-Uses Traefik IngressRoute + cert-manager:
+Uses standard Kubernetes Ingress + cert-manager:
+
+Note: manifests now use standard Kubernetes `Ingress` with `ingressClassName: traefik` and cert-manager TLS secrets.
 
 | Service | Host | TLS |
 |---------|------|-----|

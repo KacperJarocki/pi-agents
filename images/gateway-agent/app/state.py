@@ -58,6 +58,8 @@ class GatewayRuntime:
         self._hostapd: ManagedProcess | None = None
         self._dnsmasq: ManagedProcess | None = None
         self._lock = asyncio.Lock()
+        self._hostapd_error: str | None = None
+        self._dnsmasq_error: str | None = None
 
     def read_last_apply(self) -> tuple[bool | None, str | None]:
         p = _paths()["last_apply"]
@@ -111,8 +113,9 @@ class GatewayRuntime:
     def process_status(self) -> dict:
         def _ps(p: ManagedProcess | None):
             if not p:
-                return {"running": False, "pid": None, "exit_code": None}
-            return {"running": p.running, "pid": p.pid, "exit_code": p.exit_code}
+                return {"running": False, "pid": None, "exit_code": None, "last_error": None}
+            err = self._hostapd_error if p.name == "hostapd" else self._dnsmasq_error
+            return {"running": p.running, "pid": p.pid, "exit_code": p.exit_code, "last_error": err}
 
         return {
             "hostapd": _ps(self._hostapd),
@@ -122,6 +125,8 @@ class GatewayRuntime:
     async def _apply_locked(self, cfg: WifiConfig) -> tuple[bool, str]:
         paths = _paths()
         paths["dir"].mkdir(parents=True, exist_ok=True)
+        self._hostapd_error = None
+        self._dnsmasq_error = None
 
         # Persist intent and rendered configs.
         paths["config"].write_text(cfg.model_dump_json())
@@ -166,11 +171,11 @@ class GatewayRuntime:
         # Basic health: ensure both processes are running shortly after start.
         await asyncio.sleep(1.0)
         if not self._dnsmasq or not self._dnsmasq.running:
-            msg = "dnsmasq failed to start"
+            msg = f"dnsmasq failed to start: {self._dnsmasq_error or 'unknown error'}"
             await self._write_last_apply(False, msg)
             return False, msg
         if not self._hostapd or not self._hostapd.running:
-            msg = "hostapd failed to start"
+            msg = f"hostapd failed to start: {self._hostapd_error or 'unknown error'}"
             await self._write_last_apply(False, msg)
             return False, msg
 
@@ -226,9 +231,10 @@ class GatewayRuntime:
             "-s",
             str(paths["hostapd"]),
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
         self._hostapd = ManagedProcess("hostapd", proc)
+        asyncio.create_task(self._capture_process_error("hostapd", proc))
 
     async def _start_dnsmasq(self, cfg: WifiConfig) -> None:
         paths = _paths()
@@ -238,9 +244,26 @@ class GatewayRuntime:
             "--conf-file",
             str(paths["dnsmasq"]),
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
         self._dnsmasq = ManagedProcess("dnsmasq", proc)
+        asyncio.create_task(self._capture_process_error("dnsmasq", proc))
+
+    async def _capture_process_error(self, name: str, proc: asyncio.subprocess.Process) -> None:
+        if not proc.stderr:
+            return
+        try:
+            data = await proc.stderr.read()
+        except Exception as e:
+            data = str(e).encode()
+
+        msg = data.decode(errors="replace").strip() if data else None
+        if name == "hostapd":
+            self._hostapd_error = msg
+        else:
+            self._dnsmasq_error = msg
+        if msg:
+            log.warning("managed_process_stderr", process=name, error=msg)
 
 
 async def _run(cmd: list[str]) -> None:

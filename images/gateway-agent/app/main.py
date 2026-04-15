@@ -26,6 +26,13 @@ def _bool_env(name: str, default: bool) -> bool:
 runtime = GatewayRuntime()
 
 
+def _active_config() -> dict | None:
+    cfg = runtime.read_config()
+    if not cfg:
+        return None
+    return cfg.model_dump(exclude={"psk"})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_enabled = _bool_env("ENABLE_APPLY", False)
@@ -64,6 +71,7 @@ async def status(
             "dnsmasq": ps.get("dnsmasq"),
             "last_apply_ok": ok,
             "last_apply_message": msg,
+            "active_config": _active_config(),
             "apply_enabled": _bool_env("ENABLE_APPLY", False),
             "auto_restore": _bool_env("AUTO_RESTORE", True),
         }

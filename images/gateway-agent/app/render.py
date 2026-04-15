@@ -11,12 +11,16 @@ def render_hostapd(cfg: WifiConfig) -> str:
         [
             f"interface={cfg.ap_interface}",
             "driver=nl80211",
+            "ctrl_interface=/var/run/hostapd",
+            "ctrl_interface_group=0",
             f"ssid={cfg.ssid}",
             f"country_code={cfg.country_code}",
             f"channel={cfg.channel}",
             # 2.4G by default; for channel > 14 hostapd switches to 5G.
             "hw_mode=g",
+            "ieee80211n=1",
             "wmm_enabled=1",
+            "ignore_broadcast_ssid=0",
             "auth_algs=1",
             "wpa=2",
             f"wpa_passphrase={cfg.psk}",

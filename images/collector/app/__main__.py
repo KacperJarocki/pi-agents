@@ -40,9 +40,12 @@ async def main():
     
     db = Database(database_path)
     await db.init()
-    
-    # Expose Prometheus metrics (Service expects :9090)
-    start_http_server(int(os.getenv("METRICS_PORT", "9090")))
+
+    if os.getenv("ENABLE_METRICS", "false").lower() == "true":
+        start_http_server(int(os.getenv("METRICS_PORT", "9090")))
+        log.info("collector_metrics_enabled", port=int(os.getenv("METRICS_PORT", "9090")))
+    else:
+        log.info("collector_metrics_disabled")
 
     collector = TrafficCollector(
         db=db,

@@ -10,7 +10,6 @@ resources:
   - gateway-agent-deployment.yaml
   - gateway-agent-service.yaml
   - collector-deployment.yaml
-  - collector-service.yaml
   - ml-trainer-cronjob.yaml
   - ml-inference-deployment.yaml
   - dashboard-deployment.yaml

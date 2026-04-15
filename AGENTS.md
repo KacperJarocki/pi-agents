@@ -138,5 +138,6 @@ docker-compose up --build
 
 - collector needs `CAP_NET_ADMIN` + `CAP_NET_RAW` (securityContext)
 - collector uses `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet`
+- collector metrics endpoint is disabled for MVP to avoid conflicts with host-level exporters like `node_exporter`
 - SQLite stored on Longhorn PVC at `/data/iot-security.db`
-- Minimum 100 flows required for ML training
+- Minimum training samples for MVP are 20 per-device buckets

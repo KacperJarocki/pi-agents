@@ -52,10 +52,10 @@ spec:
               value: "25"
             - name: CAPTURE_TIMEOUT
               value: "5"
+            - name: ENABLE_METRICS
+              value: "false"
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
-            - name: METRICS_PORT
-              value: "9090"
           volumeMounts:
             - name: sqlite-data
               mountPath: /data

@@ -2,13 +2,13 @@ import unittest
 
 
 class TestCollectorMvpSources(unittest.TestCase):
-    def test_tcpdump_command_keeps_root_user(self):
+    def test_tcpdump_command_does_not_force_privilege_switch(self):
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "collector" / "app" / "collector.py").read_text()
 
-        self.assertIn('"-Z", "root"', src)
+        self.assertNotIn('"-Z", "root"', src)
 
     def test_collector_has_capture_pipeline_logging(self):
         from pathlib import Path

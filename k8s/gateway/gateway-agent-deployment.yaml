@@ -30,6 +30,8 @@ spec:
             # Safety rail: keep OFF by default.
             - name: ENABLE_APPLY
               value: "false"
+            - name: AUTO_RESTORE
+              value: "true"
             - name: STATE_DIR
               value: "/data"
           securityContext:

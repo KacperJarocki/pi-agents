@@ -86,6 +86,28 @@ class GatewayRuntime:
         async with self._lock:
             await self._stop_processes()
 
+    async def restore_from_disk(self) -> tuple[bool, str]:
+        async with self._lock:
+            paths = _paths()
+            lkg = paths["lkg"]
+            if lkg.exists() and (lkg / paths["config"].name).exists():
+                try:
+                    cfg = WifiConfig.model_validate_json((lkg / paths["config"].name).read_text())
+                    ok, msg = await self._apply_locked(cfg)
+                    return ok, f"restore(lkg): {msg}"
+                except Exception as e:
+                    return False, f"restore(lkg) failed: {e}"
+
+            cfg = self.read_config()
+            if not cfg:
+                return False, "no saved config"
+
+            try:
+                ok, msg = await self._apply_locked(cfg)
+                return ok, f"restore(config): {msg}"
+            except Exception as e:
+                return False, f"restore(config) failed: {e}"
+
     def process_status(self) -> dict:
         def _ps(p: ManagedProcess | None):
             if not p:

@@ -1,6 +1,7 @@
 import os
 import structlog
 from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
 
 from .models import WifiConfig, ValidationResult, GatewayStatus, ApplyResult
 from .validate import validate_config
@@ -15,9 +16,33 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-app = FastAPI(title="Gateway Agent", version="0.1.0")
+def _bool_env(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.lower() == "true"
+
 
 runtime = GatewayRuntime()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    apply_enabled = _bool_env("ENABLE_APPLY", False)
+    auto_restore = _bool_env("AUTO_RESTORE", True)
+
+    if apply_enabled and auto_restore:
+        # Best-effort restore of last-known-good after start.
+        try:
+            ok, msg = await runtime.restore_from_disk()
+            log.info("startup_restore", ok=ok, message=msg)
+        except Exception as e:
+            log.error("startup_restore_error", error=str(e))
+
+    yield
+
+
+app = FastAPI(title="Gateway Agent", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -39,6 +64,8 @@ async def status(
             "dnsmasq": ps.get("dnsmasq"),
             "last_apply_ok": ok,
             "last_apply_message": msg,
+            "apply_enabled": _bool_env("ENABLE_APPLY", False),
+            "auto_restore": _bool_env("AUTO_RESTORE", True),
         }
     )
     return base

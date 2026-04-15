@@ -42,6 +42,9 @@ class GatewayStatus(BaseModel):
     last_apply_ok: bool | None = None
     last_apply_message: str | None = None
 
+    apply_enabled: bool
+    auto_restore: bool
+
 
 class ApplyResult(BaseModel):
     ok: bool

@@ -27,6 +27,7 @@ Agent-based IoT threat detection system. Gateway RPi acts as WiFi AP + traffic c
 |-----------|-------|----------|
 | `gateway-api` | ghcr.io/kacperjarocki/gateway-api | REST API + WebSocket alerts |
 | `collector` | ghcr.io/kacperjarocki/collector | Traffic capture via tcpdump/tshark |
+| `gateway-agent` | ghcr.io/kacperjarocki/gateway-agent | WiFi AP + DHCP + NAT control |
 | `ml-pipeline` | ghcr.io/kacperjarocki/ml-pipeline | ML training + inference |
 | `dashboard` | ghcr.io/kacperjarocki/dashboard | Web UI |
 
@@ -43,6 +44,7 @@ k8s/
 | Component | Type | Schedule | Command |
 |-----------|------|----------|---------|
 | collector | Deployment | Always | collector app |
+| gateway-agent | Deployment | Always | gateway-agent API |
 | gateway-api | Deployment | Always | uvicorn |
 | ml-trainer | CronJob | 3:00 AM daily | train.py |
 | ml-inference | Deployment | Always | inference.py loop |
@@ -90,6 +92,11 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 - `GET /api/v1/devices` - Device list with risk scores
 - `GET /api/v1/anomalies` - Recent anomalies
 - `GET /api/v1/metrics/summary` - Dashboard metrics
+- `GET/PUT /api/v1/gateway/wifi/config` - WiFi config
+- `POST /api/v1/gateway/wifi/validate` - Validate WiFi config
+- `POST /api/v1/gateway/wifi/apply` - Apply WiFi config
+- `POST /api/v1/gateway/wifi/rollback` - Rollback WiFi config
+- `GET /api/v1/gateway/wifi/status` - Gateway status
 - `WS /ws/alerts` - Real-time anomaly alerts
 
 ## ML Pipeline

@@ -12,7 +12,7 @@ Agent-based IoT threat detection system running on K3s cluster with ML-powered a
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Worker-AP (Gateway Node)                             │   │
 │  │                                                      │   │
-│  │  hostapd (native) ──── WiFi AP for IoT devices     │   │
+│  │  gateway-agent (pod) ─ WiFi AP + DHCP + NAT        │   │
 │  │                                                      │   │
 │  │  ┌────────────┐  ┌────────────┐  ┌────────────┐   │   │
 │  │  │ collector  │  │ ml-trainer │  │ ml-inference│   │   │
@@ -51,6 +51,7 @@ Agent-based IoT threat detection system running on K3s cluster with ML-powered a
 |-----------|-------|----------|
 | gateway-api | `gateway-api:latest` | ghcr.io/kacperjarocki |
 | collector | `collector:latest` | ghcr.io/kacperjarocki |
+| gateway-agent | `gateway-agent:latest` | ghcr.io/kacperjarocki |
 | ml-pipeline | `ml-pipeline:latest` | ghcr.io/kacperjarocki |
 | dashboard | `dashboard:latest` | ghcr.io/kacperjarocki |
 
@@ -67,6 +68,7 @@ k8s/
 | Component | Type | Schedule | Description |
 |-----------|------|----------|-------------|
 | collector | Deployment | Always | Traffic capture via tcpdump/tshark |
+| gateway-agent | Deployment | Always | WiFi AP + DHCP + NAT control |
 | gateway-api | Deployment | Always | REST API + WebSocket alerts |
 | ml-trainer | CronJob | 3:00 AM | Isolation Forest training |
 | ml-inference | Deployment | Always | Batch anomaly inference |
@@ -118,10 +120,26 @@ kubectl apply -k k8s/base
 kubectl apply -k k8s/gateway
 ```
 
+### Enable WiFi AP Control (Required For SSID)
+
+By default `gateway-agent` is deployed with `ENABLE_APPLY=false` (safe mode). This means the SSID will not appear until you enable apply.
+
+Use the production overlay to enable AP control:
+
+```bash
+kubectl apply -k k8s/overlays/gateway-prod
+```
+
 ### Local Development
 
 ```bash
 docker-compose up --build
+```
+
+Gateway-only services (privileged, may not work on non-Linux hosts):
+
+```bash
+docker-compose --profile gateway up --build
 ```
 
 Services:
@@ -139,6 +157,11 @@ Services:
 | `/api/v1/metrics/summary` | GET | System summary |
 | `/api/v1/metrics/timeline` | GET | Traffic timeline |
 | `/api/v1/metrics/top-talking` | GET | Top talkers |
+| `/api/v1/gateway/wifi/config` | GET/PUT | Read/update WiFi config |
+| `/api/v1/gateway/wifi/validate` | POST | Validate WiFi config |
+| `/api/v1/gateway/wifi/apply` | POST | Apply WiFi config |
+| `/api/v1/gateway/wifi/rollback` | POST | Rollback to last-known-good |
+| `/api/v1/gateway/wifi/status` | GET | Gateway agent status |
 | `/ws/alerts` | WS | Real-time alerts |
 
 ## ML Pipeline
@@ -150,6 +173,10 @@ Services:
 - **Minimum training samples**: 100 flows
 
 ## Troubleshooting
+
+- SSID not visible:
+  - Ensure `k8s/overlays/gateway-prod` is applied (sets `ENABLE_APPLY=true`)
+  - Check `GET /api/v1/gateway/wifi/status` and look for `apply_enabled: true` and `hostapd.running: true`
 
 - collector needs `CAP_NET_ADMIN` + `CAP_NET_RAW` (securityContext)
 - collector uses `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet`

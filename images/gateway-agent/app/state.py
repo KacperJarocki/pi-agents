@@ -38,7 +38,6 @@ def _paths() -> dict[str, Path]:
 def build_hostapd_command(config_path: Path) -> list[str]:
     return [
         "hostapd",
-        "-s",
         str(config_path),
     ]
 

@@ -33,7 +33,7 @@ spec:
                 - NET_RAW
               drop:
                 - ALL
-            readOnlyRootFilesystem: true
+            readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
           resources:
             requests:

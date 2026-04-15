@@ -20,6 +20,7 @@ spec:
       labels:
         app: gateway-agent
     spec:
+      terminationGracePeriodSeconds: 20
       nodeSelector:
         node-role.kubernetes.io/gateway: "true"
       hostNetwork: true
@@ -58,6 +59,13 @@ spec:
               port: 7000
             initialDelaySeconds: 3
             periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - "sleep 5"
           volumeMounts:
             - name: state
               mountPath: /data

@@ -42,15 +42,21 @@ async def lifespan(app: FastAPI):
     apply_enabled = _bool_env("ENABLE_APPLY", False)
     auto_restore = _bool_env("AUTO_RESTORE", True)
 
-    if apply_enabled and auto_restore:
-        # Best-effort restore of last-known-good after start.
-        try:
-            ok, msg = await runtime.restore_from_disk()
-            log.info("startup_restore", ok=ok, message=msg)
-        except Exception as e:
-            log.error("startup_restore_error", error=str(e))
+    try:
+        if apply_enabled and auto_restore:
+            # Best-effort restore of last-known-good after start.
+            try:
+                ok, msg = await runtime.restore_from_disk()
+                log.info("startup_restore", ok=ok, message=msg)
+            except Exception as e:
+                log.error("startup_restore_error", error=str(e))
 
-    yield
+        yield
+    finally:
+        try:
+            await runtime.stop()
+        except Exception as e:
+            log.error("shutdown_cleanup_error", error=str(e))
 
 
 app = FastAPI(title="Gateway Agent", version="0.1.0", lifespan=lifespan)

@@ -130,7 +130,9 @@ class GatewayRuntime:
 
     async def stop(self) -> None:
         async with self._lock:
+            log.info("gateway_runtime_stop_begin")
             await self._stop_processes()
+            log.info("gateway_runtime_stop_complete")
 
     async def restore_from_disk(self) -> tuple[bool, str]:
         async with self._lock:
@@ -321,10 +323,16 @@ async def _run(cmd: list[str]) -> None:
 async def _terminate(p: ManagedProcess | None) -> None:
     if not p:
         return
+    log.info("managed_process_stop_begin", process=p.name, pid=p.pid)
     if p.proc.returncode is None:
         p.proc.terminate()
         try:
             await asyncio.wait_for(p.proc.wait(), timeout=5)
+            log.info("managed_process_stopped", process=p.name, pid=p.pid, exit_code=p.proc.returncode)
         except TimeoutError:
+            log.warning("managed_process_stop_timeout", process=p.name, pid=p.pid)
             p.proc.kill()
             await p.proc.wait()
+            log.warning("managed_process_killed", process=p.name, pid=p.pid, exit_code=p.proc.returncode)
+    else:
+        log.info("managed_process_already_stopped", process=p.name, pid=p.pid, exit_code=p.proc.returncode)

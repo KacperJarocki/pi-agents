@@ -29,6 +29,8 @@ async def main():
     flush_interval = int(os.getenv("FLUSH_INTERVAL", "5"))
     capture_packet_count = int(os.getenv("CAPTURE_PACKET_COUNT", str(batch_size)))
     capture_timeout = int(os.getenv("CAPTURE_TIMEOUT", str(flush_interval)))
+    lan_subnet_cidr = os.getenv("LAN_SUBNET_CIDR", "192.168.50.0/24")
+    lease_file_path = os.getenv("LEASE_FILE_PATH", "/gateway-state/dnsmasq.leases")
     
     log.info("starting_collector", 
              interface=interface, 
@@ -36,7 +38,9 @@ async def main():
              batch_size=batch_size,
              flush_interval=flush_interval,
              capture_packet_count=capture_packet_count,
-             capture_timeout=capture_timeout)
+             capture_timeout=capture_timeout,
+             lan_subnet_cidr=lan_subnet_cidr,
+             lease_file_path=lease_file_path)
     
     db = Database(database_path)
     await db.init()
@@ -54,6 +58,8 @@ async def main():
         flush_interval=flush_interval,
         capture_packet_count=capture_packet_count,
         capture_timeout=capture_timeout,
+        lan_subnet_cidr=lan_subnet_cidr,
+        lease_file_path=lease_file_path,
     )
 
     stop_event = asyncio.Event()

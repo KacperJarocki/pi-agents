@@ -22,6 +22,27 @@ class TestCollectorMvpSources(unittest.TestCase):
         self.assertIn('"pcap_processed"', src)
         self.assertIn('"flush_started"', src)
 
+    def test_collector_uses_lease_based_device_resolution(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "collector" / "app" / "collector.py").read_text()
+
+        self.assertIn("def _read_lease_map", src)
+        self.assertIn("device_resolution_from_lease", src)
+        self.assertIn("def _resolve_client_identity", src)
+        self.assertIn('flow["device_ip"]', src)
+
+    def test_collector_filters_invalid_device_mac_identities(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "collector" / "app" / "collector.py").read_text()
+
+        self.assertIn('"ff:ff:ff:ff:ff:ff"', src)
+        self.assertIn('first_octet & 1', src)
+
+
     def test_collector_uses_small_batch_defaults_for_mvp(self):
         from pathlib import Path
 
@@ -42,6 +63,9 @@ class TestCollectorMvpSources(unittest.TestCase):
         self.assertIn('value: "25"', src)
         self.assertIn('name: CAPTURE_PACKET_COUNT', src)
         self.assertIn('name: CAPTURE_TIMEOUT', src)
+        self.assertIn('name: LAN_SUBNET_CIDR', src)
+        self.assertIn('name: LEASE_FILE_PATH', src)
+        self.assertIn('mountPath: /gateway-state', src)
 
 
 if __name__ == "__main__":

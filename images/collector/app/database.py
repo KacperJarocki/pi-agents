@@ -113,7 +113,7 @@ class Database:
         cursor = await self.conn.execute(query, params)
         return await cursor.fetchone()
     
-    async def get_or_create_device(self, ip_address: str, mac_address: str = None) -> int:
+    async def get_or_create_device(self, ip_address: str, mac_address: str = None, hostname: str = None) -> int:
         # Keep DB invariant: mac_address is NOT NULL.
         mac_address = mac_address or f"ip:{ip_address}"
 
@@ -124,9 +124,10 @@ class Database:
             )
             if row:
                 await self.conn.execute(
-                    "UPDATE devices SET last_seen = CURRENT_TIMESTAMP, ip_address = ? WHERE id = ?",
-                    (ip_address, row['id'])
+                    "UPDATE devices SET last_seen = CURRENT_TIMESTAMP, ip_address = ?, hostname = COALESCE(?, hostname) WHERE id = ?",
+                    (ip_address, hostname, row['id'])
                 )
+                log.info("device_updated_from_mac", device_id=row['id'], mac=mac_address, ip=ip_address)
                 return row['id']
         
         row = await self._fetch_one(
@@ -137,24 +138,27 @@ class Database:
         if row:
             # If we previously inserted a placeholder MAC, try to upgrade it.
             await self.conn.execute(
-                "UPDATE devices SET last_seen = CURRENT_TIMESTAMP, mac_address = CASE WHEN mac_address LIKE 'ip:%' THEN ? ELSE mac_address END WHERE id = ?",
-                (mac_address, row['id'])
+                "UPDATE devices SET last_seen = CURRENT_TIMESTAMP, hostname = COALESCE(?, hostname), mac_address = CASE WHEN mac_address LIKE 'ip:%' THEN ? ELSE mac_address END WHERE id = ?",
+                (hostname, mac_address, row['id'])
             )
+            log.info("device_updated_from_ip", device_id=row['id'], mac=mac_address, ip=ip_address)
             return row['id']
         
         cursor = await self.conn.execute(
-            "INSERT INTO devices (mac_address, ip_address) VALUES (?, ?)",
-            (mac_address, ip_address)
+            "INSERT INTO devices (mac_address, ip_address, hostname) VALUES (?, ?, ?)",
+            (mac_address, ip_address, hostname)
         )
         await self.conn.commit()
+        log.info("device_created", device_id=cursor.lastrowid, mac=mac_address, ip=ip_address, hostname=hostname)
         return cursor.lastrowid
     
     async def insert_flows(self, flows: List[Dict]) -> List[int]:
         ids = []
         for flow in flows:
             device_id = await self.get_or_create_device(
-                flow["src_ip"],
-                flow.get("mac_address")
+                flow["device_ip"],
+                flow.get("device_mac"),
+                flow.get("hostname"),
             )
             
             cursor = await self.conn.execute("""

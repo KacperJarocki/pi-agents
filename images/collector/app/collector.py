@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import os
 import structlog
 from datetime import datetime
@@ -79,6 +80,8 @@ class TrafficCollector:
         flush_interval: int = 5,
         capture_packet_count: int = 25,
         capture_timeout: int = 5,
+        lan_subnet_cidr: str = "192.168.50.0/24",
+        lease_file_path: str = "/gateway-state/dnsmasq.leases",
     ):
         self.db = db
         self.interface = interface
@@ -86,6 +89,8 @@ class TrafficCollector:
         self.flush_interval = flush_interval
         self.capture_packet_count = capture_packet_count
         self.capture_timeout = capture_timeout
+        self.lan_subnet = ipaddress.ip_network(lan_subnet_cidr, strict=True)
+        self.lease_file_path = lease_file_path
         self.running = False
         self.flow_buffer = []
         self.device_cache: Dict[str, int] = {}
@@ -93,6 +98,99 @@ class TrafficCollector:
         self._capture_task: Optional[asyncio.Task] = None
         self._flush_task: Optional[asyncio.Task] = None
         self._capture_cycle = 0
+
+    def _read_lease_map(self) -> tuple[dict[str, dict], dict[str, dict]]:
+        lease_path = Path(self.lease_file_path)
+        if not lease_path.exists():
+            return {}, {}
+
+        by_ip: dict[str, dict] = {}
+        by_mac: dict[str, dict] = {}
+        for line in lease_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            expiry, mac, ip, hostname, client_id = parts[:5]
+            if mac == "*" or not ip:
+                continue
+            entry = {
+                "lease_expires_at": expiry,
+                "mac_address": mac.lower(),
+                "ip_address": ip,
+                "hostname": None if hostname == "*" else hostname,
+                "client_id": None if client_id == "*" else client_id,
+            }
+            by_ip[ip] = entry
+            by_mac[entry["mac_address"]] = entry
+        return by_ip, by_mac
+
+    def _is_valid_device_mac(self, mac_addr: str | None) -> bool:
+        if not mac_addr:
+            return False
+        mac = mac_addr.lower()
+        if mac in {"ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"}:
+            return False
+        first_octet = int(mac.split(":", 1)[0], 16)
+        # Multicast/broadcast bit set => not a client identity.
+        if first_octet & 1:
+            return False
+        return True
+
+    def _is_lan_ip(self, ip: str | None) -> bool:
+        if not ip:
+            return False
+        try:
+            return ipaddress.ip_address(ip) in self.lan_subnet
+        except ValueError:
+            return False
+
+    def _resolve_client_identity(self, flow: dict, lease_by_ip: dict[str, dict]) -> dict | None:
+        src_ip = flow.get("src_ip")
+        dst_ip = flow.get("dst_ip")
+
+        client_ip = None
+        if self._is_lan_ip(src_ip):
+            client_ip = src_ip
+        elif self._is_lan_ip(dst_ip):
+            client_ip = dst_ip
+
+        if not client_ip or client_ip == "0.0.0.0":
+            log.info("device_resolution_rejected", reason="no_lan_client_ip", src_ip=src_ip, dst_ip=dst_ip)
+            return None
+
+        lease = lease_by_ip.get(client_ip)
+        if lease:
+            log.info(
+                "device_resolution_from_lease",
+                ip=client_ip,
+                mac=lease["mac_address"],
+                hostname=lease.get("hostname"),
+            )
+            return {
+                "device_ip": client_ip,
+                "device_mac": lease["mac_address"],
+                "hostname": lease.get("hostname"),
+            }
+
+        parsed_mac = flow.get("mac_address")
+        if self._is_valid_device_mac(parsed_mac):
+            log.info("device_resolution_fallback_flow", ip=client_ip, mac=parsed_mac)
+            return {
+                "device_ip": client_ip,
+                "device_mac": parsed_mac.lower(),
+                "hostname": None,
+            }
+
+        log.info(
+            "device_resolution_rejected",
+            reason="invalid_or_missing_mac_without_lease",
+            ip=client_ip,
+            mac=parsed_mac,
+        )
+        return None
 
     def start(self):
         self.running = True
@@ -205,6 +303,7 @@ class TrafficCollector:
             return
 
         try:
+            lease_by_ip, _ = self._read_lease_map()
             cmd = build_tshark_command(pcap_file)
             log.info("starting_tshark", cycle=cycle, command=" ".join(cmd))
 
@@ -240,8 +339,12 @@ class TrafficCollector:
 
                 flow = self._parse_flow(parts)
                 if flow:
-                    self.flow_buffer.append(flow)
-                    parsed_count += 1
+                    resolved = self._resolve_client_identity(flow, lease_by_ip)
+                    if resolved:
+                        self.flow_buffer.append({**flow, **resolved})
+                        parsed_count += 1
+                    else:
+                        skipped_count += 1
                 else:
                     skipped_count += 1
 
@@ -355,7 +458,7 @@ class TrafficCollector:
         )
 
         for flow in flows:
-            src = flow["src_ip"]
+            src = flow["device_ip"]
             aggregated[src]["total_bytes"] += flow.get("bytes", 0)
             aggregated[src]["packet_count"] += 1
             aggregated[src]["connections"].add(flow["dst_ip"])

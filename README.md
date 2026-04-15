@@ -63,8 +63,9 @@ Default WiFi config:
 
 ```
 k8s/
-├── base/              # Namespace, PVC, NetworkPolicy
-└── gateway/          # All workload deployments
+├── base/              # Namespace and PVC
+├── gateway/           # All workload deployments
+└── overlays/          # Environment-specific overrides
 ```
 
 ## K8s Workloads
@@ -74,9 +75,19 @@ k8s/
 | collector | Deployment | Always | Traffic capture via tcpdump/tshark |
 | gateway-agent | Deployment | Always | WiFi AP + DHCP + NAT control |
 | gateway-api | Deployment | Always | REST API + WebSocket alerts |
-| ml-trainer | CronJob | 3:00 AM | Isolation Forest training |
+| ml-trainer | CronJob | Every 30 min | Isolation Forest training |
 | ml-inference | Deployment | Always | Batch anomaly inference |
 | dashboard | Deployment | Always | Web UI |
+
+## Component Docs
+
+- `images/gateway-agent/README.md`
+- `images/collector/README.md`
+- `images/gateway-api/README.md`
+- `images/dashboard/README.md`
+- `images/ml-pipeline/README.md`
+- `k8s/README.md`
+- `docs/MVP-VERIFICATION.md`
 
 ## Building Images
 
@@ -94,7 +105,7 @@ Tags: `latest`, `sha-{git-sha}`
 
 - All pods MUST have CPU/memory limits (see below)
 - WiFi AP is managed by the `gateway-agent` container (hostNetwork + privileged)
-- ML training runs nightly at 3:00 AM with `nice +10`
+- ML training runs every 30 minutes for MVP
 - collector uses hostNetwork mode for direct NIC access
 
 ## Resource Limits

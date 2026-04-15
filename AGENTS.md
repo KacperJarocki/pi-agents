@@ -35,8 +35,9 @@ Agent-based IoT threat detection system. Gateway RPi acts as WiFi AP + traffic c
 
 ```
 k8s/
-├── base/              # Namespace, PVC, NetworkPolicy
-└── gateway/          # All workload deployments
+├── base/              # Namespace and PVC
+├── gateway/           # All workload deployments
+└── overlays/          # Environment-specific overrides
 ```
 
 ## K8s Workloads
@@ -46,7 +47,7 @@ k8s/
 | collector | Deployment | Always | collector app |
 | gateway-agent | Deployment | Always | gateway-agent API |
 | gateway-api | Deployment | Always | uvicorn |
-| ml-trainer | CronJob | 3:00 AM daily | train.py |
+| ml-trainer | CronJob | Every 30 min | train.py |
 | ml-inference | Deployment | Always | inference.py loop |
 | dashboard | Deployment | Always | FastAPI + HTMX |
 
@@ -66,7 +67,7 @@ Tags: `latest`, `sha-{git-sha}`
 
 - All pods MUST have CPU/memory limits (see README.md)
 - WiFi AP is managed by the `gateway-agent` container (hostNetwork + privileged)
-- ML training runs nightly at 3:00 AM
+- ML training runs every 30 minutes for MVP
 - collector uses hostNetwork mode for direct NIC access
 
 ## Labels Required

@@ -41,6 +41,16 @@ class TestInferenceStatusSources(unittest.TestCase):
         self.assertIn("class DeviceBehaviorAlertResponse(BaseModel):", src)
         self.assertIn("class DeviceRiskContributorsResponse(BaseModel):", src)
 
+    def test_behavior_alert_service_normalizes_resolved_and_evidence(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "services" / "crud.py").read_text()
+
+        self.assertIn("def _normalize_alert(self, alert: DeviceBehaviorAlert)", src)
+        self.assertIn("alert.resolved = bool(alert.resolved)", src)
+        self.assertIn("json.loads(alert.evidence)", src)
+
 
 if __name__ == "__main__":
     unittest.main()

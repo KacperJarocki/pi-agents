@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from pathlib import Path
 from time import perf_counter
+import json
 from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, DeviceBehaviorAlert, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
@@ -513,6 +514,15 @@ class BehaviorAlertService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def _normalize_alert(self, alert: DeviceBehaviorAlert) -> DeviceBehaviorAlert:
+        alert.resolved = bool(alert.resolved)
+        if isinstance(alert.evidence, str):
+            try:
+                alert.evidence = json.loads(alert.evidence)
+            except json.JSONDecodeError:
+                alert.evidence = {"raw": alert.evidence}
+        return alert
+
     async def list_device_alerts(
         self,
         device_id: int,
@@ -532,7 +542,7 @@ class BehaviorAlertService:
             .order_by(desc(DeviceBehaviorAlert.timestamp))
             .limit(limit)
         )
-        return list(result.scalars().all()), total
+        return [self._normalize_alert(alert) for alert in result.scalars().all()], total
 
     async def latest_risk_contributors(self, device_id: int, lookback_hours: int = 24) -> List[dict]:
         since = datetime.utcnow() - timedelta(hours=lookback_hours)
@@ -545,6 +555,7 @@ class BehaviorAlertService:
         alerts = list(result.scalars().all())
         contributors = []
         for alert in alerts:
+            self._normalize_alert(alert)
             contributors.append(
                 {
                     "contributor": alert.alert_type,

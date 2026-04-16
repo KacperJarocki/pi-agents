@@ -27,6 +27,7 @@ class TestInferenceStatusSources(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "ml-pipeline" / "app" / "ml_core.py").read_text()
 
+        self.assertIn("_ensure_device_inference_columns", src)
         self.assertIn("last_inference_score", src)
         self.assertIn("last_inference_at = CURRENT_TIMESTAMP", src)
         self.assertIn("def score(self, features: pd.DataFrame)", src)

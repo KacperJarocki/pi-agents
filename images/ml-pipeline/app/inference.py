@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import save_anomaly, update_device_risk_score, log
@@ -68,7 +68,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
 
     log.info(
         "inference_complete",
-        at=datetime.utcnow().isoformat(),
+        at=datetime.now(UTC).isoformat(),
         devices=int(features.shape[0]),
         anomalies=len(anomalies),
     )

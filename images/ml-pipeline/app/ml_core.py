@@ -215,8 +215,22 @@ async def save_anomaly(device_id: int, anomaly_type: str, severity: str,
     log.warning("anomaly_saved", device_id=device_id, type=anomaly_type, score=score)
 
 
+async def _ensure_device_inference_columns(conn: aiosqlite.Connection):
+    cursor = await conn.execute("PRAGMA table_info(devices)")
+    cols = {row[1] for row in await cursor.fetchall()}
+    if "last_inference_score" not in cols:
+        await conn.execute(
+            "ALTER TABLE devices ADD COLUMN last_inference_score REAL"
+        )
+    if "last_inference_at" not in cols:
+        await conn.execute(
+            "ALTER TABLE devices ADD COLUMN last_inference_at TIMESTAMP"
+        )
+
+
 async def update_device_risk_score(device_id: int, risk_score: float, last_inference_score: float | None = None):
     conn = await aiosqlite.connect(DB_PATH)
+    await _ensure_device_inference_columns(conn)
     
     await conn.execute("""
         UPDATE devices

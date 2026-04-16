@@ -32,6 +32,15 @@ class TestInferenceStatusSources(unittest.TestCase):
         self.assertIn("last_inference_at = CURRENT_TIMESTAMP", src)
         self.assertIn("def score(self, features: pd.DataFrame)", src)
 
+    def test_behavior_alert_schema_is_exposed(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "models" / "schemas_pydantic.py").read_text()
+
+        self.assertIn("class DeviceBehaviorAlertResponse(BaseModel):", src)
+        self.assertIn("class DeviceRiskContributorsResponse(BaseModel):", src)
+
 
 if __name__ == "__main__":
     unittest.main()

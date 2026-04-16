@@ -18,6 +18,8 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('chart-shell', device_template)
         self.assertIn('traffic-meta', device_template)
         self.assertIn('inference-meta', device_template)
+        self.assertIn('Behavior Alerts', device_template)
+        self.assertIn('Risk Contributors', device_template)
 
 
 if __name__ == "__main__":

@@ -43,11 +43,13 @@ spec:
             - name: LOG_LEVEL
               value: "info"
             - name: INFERENCE_INTERVAL
-              value: "300"
+              value: "60"
             - name: INFERENCE_HOURS
               value: "24"
+            - name: BEHAVIOR_BASELINE_HOURS
+              value: "168"
             - name: FEATURE_BUCKET_MINUTES
-              value: "5"
+              value: "2"
             - name: PER_DEVICE_MODELS
               value: "true"
           volumeMounts:

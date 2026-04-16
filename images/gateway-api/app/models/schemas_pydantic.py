@@ -195,6 +195,41 @@ class DeviceDestinationsResponse(BaseModel):
     dns_queries: List[DeviceDestination]
 
 
+class DeviceBehaviorAlertResponse(BaseModel):
+    id: int
+    device_id: int
+    timestamp: datetime
+    bucket_start: Optional[datetime] = None
+    alert_type: str
+    severity: str
+    score: float
+    title: str
+    description: Optional[str] = None
+    evidence: Optional[dict] = None
+    resolved: bool
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceBehaviorAlertListResponse(BaseModel):
+    total: int
+    alerts: List[DeviceBehaviorAlertResponse]
+
+
+class RiskContributor(BaseModel):
+    contributor: str
+    severity: str
+    score: float
+    details: str
+
+
+class DeviceRiskContributorsResponse(BaseModel):
+    device_id: int
+    risk_score: float
+    contributors: List[RiskContributor]
+
+
 class HealthResponse(BaseModel):
     status: str
     database: str

@@ -45,6 +45,30 @@ async def init_db():
                 "ALTER TABLE devices ADD COLUMN last_inference_at TIMESTAMP"
             )
 
+        await conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS device_behavior_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                bucket_start TIMESTAMP,
+                alert_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                score REAL NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                evidence TEXT,
+                resolved INTEGER DEFAULT 0
+            )
+            """
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_time ON device_behavior_alerts(device_id, timestamp)"
+        )
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start)"
+        )
+
 
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:

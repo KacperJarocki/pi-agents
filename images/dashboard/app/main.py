@@ -183,6 +183,16 @@ async def get_device_inference_history(device_id: int, days: int = 7):
     return await fetch_api(f"/devices/{device_id}/inference-history?days={days}")
 
 
+@app.get("/api/devices/{device_id}/behavior-alerts")
+async def get_device_behavior_alerts(device_id: int, limit: int = 20, since_hours: int = 168):
+    return await fetch_api(f"/devices/{device_id}/behavior-alerts?limit={limit}&since_hours={since_hours}")
+
+
+@app.get("/api/devices/{device_id}/risk-contributors")
+async def get_device_risk_contributors(device_id: int):
+    return await fetch_api(f"/devices/{device_id}/risk-contributors")
+
+
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 20):
     return await fetch_api(f"/anomalies?limit={limit}")

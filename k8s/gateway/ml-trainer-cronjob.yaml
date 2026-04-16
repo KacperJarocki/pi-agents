@@ -47,7 +47,7 @@ spec:
                 - name: MIN_TRAINING_SAMPLES
                   value: "20"
                 - name: FEATURE_BUCKET_MINUTES
-                  value: "5"
+                  value: "2"
                 - name: PER_DEVICE_MODELS
                   value: "true"
                 - name: LOG_LEVEL

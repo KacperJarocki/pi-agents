@@ -78,6 +78,27 @@ class DeviceInferenceHistory(Base):
     )
 
 
+class DeviceBehaviorAlert(Base):
+    __tablename__ = "device_behavior_alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, nullable=False, index=True)
+    timestamp = Column(DateTime, server_default=func.now(), index=True)
+    bucket_start = Column(DateTime, nullable=True)
+    alert_type = Column(String(50), nullable=False, index=True)
+    severity = Column(String(10), nullable=False)
+    score = Column(Float, nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    evidence = Column(JSON, nullable=True)
+    resolved = Column(Boolean, default=False)
+
+    __table_args__ = (
+        Index('idx_behavior_alert_device_time', 'device_id', 'timestamp'),
+        Index('idx_behavior_alert_device_type_bucket', 'device_id', 'alert_type', 'bucket_start'),
+    )
+
+
 class ModelMetadata(Base):
     __tablename__ = "model_metadata"
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from pathlib import Path
 from time import perf_counter
-from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, ModelMetadata
+from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, DeviceBehaviorAlert, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
 )
@@ -507,3 +507,50 @@ class InferenceHistoryService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+
+class BehaviorAlertService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_device_alerts(
+        self,
+        device_id: int,
+        limit: int = 20,
+        since_hours: int = 168,
+    ) -> tuple[List[DeviceBehaviorAlert], int]:
+        since = datetime.utcnow() - timedelta(hours=since_hours)
+        count_result = await self.db.execute(
+            select(func.count()).select_from(DeviceBehaviorAlert).where(
+                and_(DeviceBehaviorAlert.device_id == device_id, DeviceBehaviorAlert.timestamp >= since)
+            )
+        )
+        total = int(count_result.scalar() or 0)
+        result = await self.db.execute(
+            select(DeviceBehaviorAlert)
+            .where(and_(DeviceBehaviorAlert.device_id == device_id, DeviceBehaviorAlert.timestamp >= since))
+            .order_by(desc(DeviceBehaviorAlert.timestamp))
+            .limit(limit)
+        )
+        return list(result.scalars().all()), total
+
+    async def latest_risk_contributors(self, device_id: int, lookback_hours: int = 24) -> List[dict]:
+        since = datetime.utcnow() - timedelta(hours=lookback_hours)
+        result = await self.db.execute(
+            select(DeviceBehaviorAlert)
+            .where(and_(DeviceBehaviorAlert.device_id == device_id, DeviceBehaviorAlert.timestamp >= since))
+            .order_by(desc(DeviceBehaviorAlert.timestamp))
+            .limit(6)
+        )
+        alerts = list(result.scalars().all())
+        contributors = []
+        for alert in alerts:
+            contributors.append(
+                {
+                    "contributor": alert.alert_type,
+                    "severity": alert.severity,
+                    "score": float(alert.score),
+                    "details": alert.description or alert.title,
+                }
+            )
+        return contributors

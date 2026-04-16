@@ -92,6 +92,23 @@ class Database:
             );
 
             CREATE INDEX IF NOT EXISTS idx_inference_history_device_time ON device_inference_history(device_id, timestamp);
+
+            CREATE TABLE IF NOT EXISTS device_behavior_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                bucket_start TIMESTAMP,
+                alert_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                score REAL NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                evidence TEXT,
+                resolved INTEGER DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_time ON device_behavior_alerts(device_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start);
             
             CREATE TABLE IF NOT EXISTS model_metadata (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

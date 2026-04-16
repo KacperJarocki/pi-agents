@@ -202,12 +202,16 @@
                 </div>
             </div>
             <div class="panel rounded-2xl p-4">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Anomalies</div>
-                <div id="anomaly-feed" class="mt-3 space-y-3"></div>
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Alerts</div>
+                <div id="behavior-alert-feed" class="mt-3 space-y-3"></div>
             </div>
         </section>
 
         <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Contributors</div>
+                <div id="risk-contributors" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            </div>
             <div class="panel rounded-2xl p-4">
                 <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Top Destinations</div>
                 <div id="destinations-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
@@ -292,12 +296,14 @@
         }
 
         async function loadDevice() {
-            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes] = await Promise.all([
+            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes, behaviorRes, contributorRes] = await Promise.all([
                 fetch(`/api/devices/${deviceId}`),
                 fetch(`/api/devices/${deviceId}/traffic?hours=24`),
                 fetch(`/api/devices/${deviceId}/anomalies?limit=10`),
                 fetch(`/api/devices/${deviceId}/destinations?hours=24`),
                 fetch(`/api/devices/${deviceId}/inference-history?days=7`),
+                fetch(`/api/devices/${deviceId}/behavior-alerts?limit=10&since_hours=168`),
+                fetch(`/api/devices/${deviceId}/risk-contributors`),
             ]);
 
             const device = await deviceRes.json();
@@ -305,6 +311,8 @@
             const anomalies = await anomalyRes.json();
             const destinations = await destinationRes.json();
             const history = await historyRes.json();
+            const behaviorAlerts = await behaviorRes.json();
+            const contributors = await contributorRes.json();
 
             document.getElementById('device-name').textContent = device.hostname || device.ip_address || `Device #${device.id}`;
             document.getElementById('device-ip').textContent = device.ip_address || '-';
@@ -352,12 +360,28 @@
                 value: `${item.connection_count} lookups`,
             })), 'No DNS queries yet');
 
-            const anomalyNode = document.getElementById('anomaly-feed');
+            renderKeyValues('risk-contributors', (contributors.contributors || []).map(item => ({
+                label: `${item.contributor} / ${item.severity}`,
+                value: item.details,
+            })), 'No active contributors');
+
+            const anomalyNode = document.getElementById('behavior-alert-feed');
+            const behaviorRows = behaviorAlerts.alerts || [];
             const anomalyRows = anomalies.anomalies || [];
-            if (!anomalyRows.length) {
-                anomalyNode.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No anomalies for this device yet</div>';
+            if (!behaviorRows.length && !anomalyRows.length) {
+                anomalyNode.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No behavior alerts for this device yet</div>';
             } else {
-                anomalyNode.innerHTML = anomalyRows.map(item => `
+                const behaviorHtml = behaviorRows.map(item => `
+                    <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="text-white">${item.title}</div>
+                            <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
+                        </div>
+                        <div class="mt-2 text-sm text-slate-300">${item.description || 'No description'}</div>
+                        <div class="mt-2 text-xs text-sky-300">${item.alert_type} / score=${Number(item.score || 0).toFixed(2)}</div>
+                    </div>
+                `).join('');
+                const anomalyHtml = anomalyRows.map(item => `
                     <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
                         <div class="flex items-center justify-between gap-3">
                             <div class="text-white">${item.anomaly_type}</div>
@@ -367,6 +391,7 @@
                         <div class="mt-2 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${item.severity}</div>
                     </div>
                 `).join('');
+                anomalyNode.innerHTML = behaviorHtml + anomalyHtml;
             }
         }
 

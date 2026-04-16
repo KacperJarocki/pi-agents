@@ -3,11 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from ..core.database import get_db
 from ..core.cache import cache
-from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService
+from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService, BehaviorAlertService
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
-    AnomalyListResponse,
+    AnomalyListResponse, DeviceBehaviorAlertListResponse, DeviceRiskContributorsResponse,
 )
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -132,6 +132,58 @@ async def get_device_inference_history(
         lambda: history_service.get_device_history(device_id, days=days),
     )
     return DeviceInferenceHistoryResponse(device_id=device_id, days=days, data=data)
+
+
+@router.get("/{device_id}/behavior-alerts", response_model=DeviceBehaviorAlertListResponse)
+async def get_device_behavior_alerts(
+    device_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    since_hours: int = Query(168, ge=1, le=168),
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    alert_service = BehaviorAlertService(db)
+    alerts, total = await cache.get_or_set(
+        f"device-behavior-alerts:{device_id}:{limit}:{since_hours}",
+        5.0,
+        lambda: alert_service.list_device_alerts(device_id, limit=limit, since_hours=since_hours),
+    )
+    return DeviceBehaviorAlertListResponse(total=total, alerts=alerts)
+
+
+@router.get("/{device_id}/risk-contributors", response_model=DeviceRiskContributorsResponse)
+async def get_device_risk_contributors(
+    device_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_decorated_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    alert_service = BehaviorAlertService(db)
+    contributors = await cache.get_or_set(
+        f"device-risk-contributors:{device_id}",
+        5.0,
+        lambda: alert_service.latest_risk_contributors(device_id),
+    )
+    if getattr(device, "last_inference_score", None) is not None:
+        contributors = [
+            {
+                "contributor": "ml_inference",
+                "severity": "critical" if device.risk_score >= 75 else "warning" if device.risk_score >= 35 else "info",
+                "score": float(device.last_inference_score),
+                "details": f"Latest model score {device.last_inference_score:.4f}",
+            },
+            *contributors,
+        ]
+    return DeviceRiskContributorsResponse(
+        device_id=device_id,
+        risk_score=float(device.risk_score or 0.0),
+        contributors=contributors,
+    )
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

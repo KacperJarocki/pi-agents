@@ -42,7 +42,10 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn('MIN_TRAINING_SAMPLES', trainer)
         self.assertIn('FEATURE_BUCKET_MINUTES', trainer)
         self.assertIn('PER_DEVICE_MODELS', trainer)
+        self.assertIn('value: "2"', trainer)
         self.assertIn('FEATURE_BUCKET_MINUTES', inference)
+        self.assertIn('INFERENCE_INTERVAL', inference)
+        self.assertIn('BEHAVIOR_BASELINE_HOURS', inference)
         self.assertIn('PER_DEVICE_MODELS', inference)
 
     def test_metrics_router_exposes_ml_status(self):
@@ -73,6 +76,20 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("def _risk_from_score(score: float, threshold: float)", inference)
         self.assertIn('"threshold": device_detector.threshold', inference)
         self.assertIn("threshold=threshold", inference)
+
+    def test_inference_builds_behavior_alerts(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        inference = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+        ml_core = (repo / "images" / "ml-pipeline" / "app" / "ml_core.py").read_text()
+
+        self.assertIn("def _build_behavior_alerts(", inference)
+        self.assertIn("destination_novelty", inference)
+        self.assertIn("dns_burst", inference)
+        self.assertIn("port_churn", inference)
+        self.assertIn("save_behavior_alert(", inference)
+        self.assertIn("device_behavior_alerts", ml_core)
 
 
 if __name__ == "__main__":

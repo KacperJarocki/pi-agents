@@ -250,6 +250,32 @@ async def _ensure_inference_history_table(conn: aiosqlite.Connection):
     )
 
 
+async def _ensure_behavior_alerts_table(conn: aiosqlite.Connection):
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_behavior_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            bucket_start TIMESTAMP,
+            alert_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            score REAL NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            evidence TEXT,
+            resolved INTEGER DEFAULT 0
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_time ON device_behavior_alerts(device_id, timestamp)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start)"
+    )
+
+
 async def update_device_risk_score(device_id: int, risk_score: float, last_inference_score: float | None = None):
     conn = await aiosqlite.connect(DB_PATH)
     await _ensure_device_inference_columns(conn)
@@ -296,6 +322,59 @@ async def save_inference_result(
     )
     await conn.execute(
         "DELETE FROM device_inference_history WHERE timestamp < datetime('now', '-' || ? || ' days')",
+        (retention_days,),
+    )
+    await conn.commit()
+    await conn.close()
+
+
+async def save_behavior_alert(
+    device_id: int,
+    bucket_start,
+    alert_type: str,
+    severity: str,
+    score: float,
+    title: str,
+    description: str,
+    evidence: dict,
+    retention_days: int = 7,
+):
+    conn = await aiosqlite.connect(DB_PATH)
+    await _ensure_behavior_alerts_table(conn)
+    bucket_value = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
+    cursor = await conn.execute(
+        """
+        SELECT id FROM device_behavior_alerts
+        WHERE device_id = ? AND alert_type = ?
+          AND ((bucket_start IS NULL AND ? IS NULL) OR bucket_start = ?)
+        LIMIT 1
+        """,
+        (device_id, alert_type, bucket_value, bucket_value),
+    )
+    existing = await cursor.fetchone()
+    if existing:
+        await conn.close()
+        return
+
+    await conn.execute(
+        """
+        INSERT INTO device_behavior_alerts (
+            device_id, bucket_start, alert_type, severity, score, title, description, evidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            device_id,
+            bucket_value,
+            alert_type,
+            severity,
+            score,
+            title,
+            description,
+            json.dumps(evidence),
+        ),
+    )
+    await conn.execute(
+        "DELETE FROM device_behavior_alerts WHERE timestamp < datetime('now', '-' || ? || ' days')",
         (retention_days,),
     )
     await conn.commit()

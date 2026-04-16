@@ -30,10 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup kind
+        uses: helm/kind-action@v1.10.0
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
           version: v1.30.0
+
+      - name: Install cert-manager CRDs
+        run: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.1/cert-manager.crds.yaml
 
       - name: Render kustomize
         run: kubectl kustomize k8s/gateway > /tmp/rendered.yaml

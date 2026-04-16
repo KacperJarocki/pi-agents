@@ -114,7 +114,7 @@ Tags: `latest`, `sha-{git-sha}`
 |-----|------------|-----------|--------|
 | collector | 100m | 300m | 256Mi |
 | ml-trainer | 100m | 500m | 512Mi |
-| ml-inference | 50m | 200m | 256Mi |
+| ml-inference | 100m | 300m | 512Mi |
 | gateway-api | 50m | 200m | 256Mi |
 | dashboard | 50m | 100m | 128Mi |
 

@@ -21,7 +21,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     extractor = FeatureExtractor()
     features = extractor.extract_features(flows)
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
-    anomalies = []
+    scored_results = []
 
     if per_device_models:
         for device_id, group in features.groupby('device_id'):
@@ -30,25 +30,41 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             if not device_detector.load_model(device_id=int(device_id)):
                 log.warning("inference_model_missing_for_device", device_id=int(device_id))
                 continue
-            anomalies.extend(device_detector.detect(latest))
+            scored_results.extend(device_detector.score(latest))
     else:
-        anomalies = detector.detect(features)
+        scored_results = detector.score(features)
 
-    for a in anomalies:
+    anomalies = []
+    for a in scored_results:
         device_id = a["device_id"]
         score = a["anomaly_score"]
+        is_anomaly = bool(a.get("is_anomaly"))
         severity = a["severity"]
 
-        await save_anomaly(
+        await update_device_risk_score(
             device_id=device_id,
-            anomaly_type="isolation_forest",
-            severity=severity,
-            score=float(score),
-            description=f"IsolationForest anomaly score={score:.4f}",
-            features=a.get("features") or {},
+            risk_score=_risk_from_score(score),
+            last_inference_score=float(score),
         )
 
-        await update_device_risk_score(device_id=device_id, risk_score=_risk_from_score(score))
+        log.info(
+            "inference_device_score",
+            device_id=device_id,
+            score=float(score),
+            risk_score=_risk_from_score(score),
+            is_anomaly=is_anomaly,
+        )
+
+        if is_anomaly:
+            anomalies.append(a)
+            await save_anomaly(
+                device_id=device_id,
+                anomaly_type="isolation_forest",
+                severity=severity,
+                score=float(score),
+                description=f"IsolationForest anomaly score={score:.4f}",
+                features=a.get("features") or {},
+            )
 
     log.info(
         "inference_complete",

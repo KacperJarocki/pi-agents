@@ -27,6 +27,8 @@ class DeviceResponse(DeviceBase):
     last_seen: datetime
     is_active: bool
     risk_score: float
+    last_inference_score: Optional[float] = None
+    last_inference_at: Optional[datetime] = None
     extra_data: Optional[dict] = None
     connected: bool = False
     connection_source: Optional[str] = None
@@ -137,6 +139,8 @@ class MetricsSummary(BaseModel):
 class DeviceModelStatus(BaseModel):
     device_id: int
     model_status: str
+    last_inference_score: Optional[float] = None
+    last_inference_at: Optional[datetime] = None
 
 
 class MlStatusResponse(BaseModel):

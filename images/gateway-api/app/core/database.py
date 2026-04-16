@@ -34,6 +34,17 @@ async def init_db():
                 "ALTER TABLE traffic_flows ADD COLUMN dns_query TEXT"
             )
 
+        result = await conn.exec_driver_sql("PRAGMA table_info(devices)")
+        cols = {row[1] for row in result}
+        if "last_inference_score" not in cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE devices ADD COLUMN last_inference_score REAL"
+            )
+        if "last_inference_at" not in cols:
+            await conn.exec_driver_sql(
+                "ALTER TABLE devices ADD COLUMN last_inference_at TIMESTAMP"
+            )
+
 
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:

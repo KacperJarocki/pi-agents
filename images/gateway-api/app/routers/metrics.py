@@ -72,7 +72,12 @@ async def get_ml_status(
     devices, total = await device_service.list_devices(limit=1000)
 
     statuses = [
-        DeviceModelStatus(device_id=int(device.id), model_status=getattr(device, "model_status", "missing"))
+        DeviceModelStatus(
+            device_id=int(device.id),
+            model_status=getattr(device, "model_status", "missing"),
+            last_inference_score=getattr(device, "last_inference_score", None),
+            last_inference_at=getattr(device, "last_inference_at", None),
+        )
         for device in devices
         if getattr(device, "id", 0) > 0
     ]

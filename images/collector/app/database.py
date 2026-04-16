@@ -34,6 +34,8 @@ class Database:
                 last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
                 risk_score REAL DEFAULT 0.0,
+                last_inference_score REAL,
+                last_inference_at TIMESTAMP,
                 extra_data TEXT
             );
             
@@ -93,6 +95,8 @@ class Database:
         # Best-effort schema alignment for existing DBs.
         await self._ensure_column("traffic_flows", "dns_query", "TEXT")
         await self._ensure_column("traffic_flows", "flags", "TEXT")
+        await self._ensure_column("devices", "last_inference_score", "REAL")
+        await self._ensure_column("devices", "last_inference_at", "TIMESTAMP")
 
         await self.conn.commit()
         log.info("database_initialized", path=self.db_path)

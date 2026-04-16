@@ -133,6 +133,26 @@ class AnomalyDetector:
         
         return anomalies
 
+    def score(self, features: pd.DataFrame) -> List[Dict]:
+        if self.model is None or features.empty:
+            return []
+
+        X = features[FeatureExtractor.FEATURE_COLUMNS].values
+        scores = self.model.decision_function(X)
+
+        rows = []
+        for idx, score in enumerate(scores):
+            rows.append(
+                {
+                    'device_id': int(features.iloc[idx]['device_id']),
+                    'anomaly_score': float(score),
+                    'is_anomaly': bool(score < self.threshold),
+                    'severity': 'critical' if score < self.threshold * 2 else 'warning',
+                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
+                }
+            )
+        return rows
+
 
 async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     conn = await aiosqlite.connect(DB_PATH)
@@ -195,12 +215,16 @@ async def save_anomaly(device_id: int, anomaly_type: str, severity: str,
     log.warning("anomaly_saved", device_id=device_id, type=anomaly_type, score=score)
 
 
-async def update_device_risk_score(device_id: int, risk_score: float):
+async def update_device_risk_score(device_id: int, risk_score: float, last_inference_score: float | None = None):
     conn = await aiosqlite.connect(DB_PATH)
     
     await conn.execute("""
-        UPDATE devices SET risk_score = ? WHERE id = ?
-    """, (risk_score, device_id))
+        UPDATE devices
+        SET risk_score = ?,
+            last_inference_score = ?,
+            last_inference_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (risk_score, last_inference_score, device_id))
     
     await conn.commit()
     await conn.close()

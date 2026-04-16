@@ -15,6 +15,8 @@ class Device(Base):
     last_seen = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
     risk_score = Column(Float, default=0.0)
+    last_inference_score = Column(Float, nullable=True)
+    last_inference_at = Column(DateTime, nullable=True)
     extra_data = Column('extra_data', JSON, nullable=True)
 
 

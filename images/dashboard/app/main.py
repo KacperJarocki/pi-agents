@@ -186,6 +186,8 @@ async def partial_devices():
         connected = bool(device.get("connected"))
         connection_source = device.get("connection_source") or ""
         model_status = device.get("model_status") or "missing"
+        latest_score = device.get("last_inference_score")
+        last_inference_at = device.get("last_inference_at")
         connection_badge = (
             f'<span class="inline-block text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">Connected via {connection_source}</span>'
             if connected else
@@ -213,6 +215,12 @@ async def partial_devices():
                 </div>
                 <div class="device-info">
                     <span class="label">Last seen:</span> {device.get('last_seen', 'N/A')[:19] if device.get('last_seen') else 'N/A'}
+                </div>
+                <div class="device-info">
+                    <span class="label">Latest score:</span> {f'{latest_score:.4f}' if latest_score is not None else 'N/A'}
+                </div>
+                <div class="device-info">
+                    <span class="label">Last inference:</span> {last_inference_at[:19] if last_inference_at else 'N/A'}
                 </div>
             </div>
             <div class="risk-bar">

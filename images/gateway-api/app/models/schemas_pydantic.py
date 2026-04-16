@@ -219,14 +219,29 @@ class DeviceBehaviorAlertListResponse(BaseModel):
 
 class RiskContributor(BaseModel):
     contributor: str
+    category: str
     severity: str
     score: float
+    raw_score: float
+    effective_score: float
+    weight: float
     details: str
+    reason: str
+    last_seen: Optional[datetime] = None
 
 
 class DeviceRiskContributorsResponse(BaseModel):
     device_id: int
     risk_score: float
+    previous_risk_score: Optional[float] = None
+    risk_delta: float = 0.0
+    status: str
+    ml_risk: float = 0.0
+    behavior_risk: float = 0.0
+    protocol_risk: float = 0.0
+    correlation_bonus: float = 0.0
+    top_reason: str
+    latest_bucket_start: Optional[datetime] = None
     contributors: List[RiskContributor]
 
 

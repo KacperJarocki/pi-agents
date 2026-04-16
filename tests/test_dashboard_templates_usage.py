@@ -20,9 +20,13 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('inference-meta', device_template)
         self.assertIn('Behavior Alerts', device_template)
         self.assertIn('Risk Contributors', device_template)
+        self.assertIn('Risk Breakdown', device_template)
         self.assertIn('Behavior Baseline', device_template)
         self.assertIn('Protocol Signals', device_template)
         self.assertIn('/api/devices/${deviceId}/protocol-signals?hours=24', device_template)
+        self.assertIn("risk-status", device_template)
+        self.assertIn("risk-top-reason", device_template)
+        self.assertIn("correlation_bonus", device_template)
 
 
 if __name__ == "__main__":

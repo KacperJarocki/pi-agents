@@ -82,7 +82,8 @@ Oczekiwane:
 
 - endpointy zwracają poprawny `device_id`
 - `behavior-alerts` pokazuje heurystyki aktywowane dla urządzenia
-- `risk-contributors` zawiera `ml_inference` i najnowsze alerty behavior, jeśli istnieją
+- `risk-contributors` zawiera `ml_risk`, `behavior_risk`, `protocol_risk`, `correlation_bonus`, `risk_delta` i `top_reason`
+- `risk-contributors` deduplikuje podobne alerty po `alert_type` i pokazuje `effective_score` po decay czasowym
 - `behavior-baseline` pokazuje medianę i `p95` dla ostatnich 7 dni
 - `protocol-signals` zwraca DNS failure i ICMP echo summary
 
@@ -95,5 +96,6 @@ curl -sS https://iot-dashboard.homelab.kacperjarocki.dev/devices/5
 Oczekiwane:
 
 - strona renderuje sekcje `Behavior Alerts`, `Risk Contributors`, `Behavior Baseline`, `Protocol Signals`
+- strona renderuje też sekcję `Risk Breakdown` oraz status `rising|stable|cooling_down`
 - wykres `Inference Trail` pokazuje próbki z ostatnich 7 dni
 - wartości z explainability API są widoczne bez błędów 500 po stronie dashboardu

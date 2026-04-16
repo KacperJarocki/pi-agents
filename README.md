@@ -203,10 +203,13 @@ Services:
 - ML scoring is combined with heuristic behavior alerts to raise `risk_score` faster on suspicious bursts.
 - Current heuristic alerts include `destination_novelty`, `dns_burst`, `port_churn`, `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, and `icmp_sweep_suspected`.
 - The collector enriches flows with DNS response codes and ICMP metadata so protocol-level signals can be shown in the API and dashboard.
+- Risk Engine v2 now breaks the final score into `ml_risk`, `behavior_risk`, `protocol_risk`, and `correlation_bonus` so the device console can explain why risk changed.
+- Protocol heuristics now also include `dns_nxdomain_burst` and `icmp_echo_fanout` for low-cost DGA-like and sweep-like detection.
 
 ## Device Console
 
 - Dashboard device detail pages expose a SOC-style view with traffic profile, inference trail, top destinations, top ports, top DNS queries, behavior alerts, risk contributors, behavior baseline, and protocol signals.
+- The device console also shows a `Risk Breakdown` panel with previous risk, risk delta, contributor status, and the current top reason driving the score.
 
 ## Device Presence
 

@@ -165,24 +165,77 @@ async def get_device_risk_contributors(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     alert_service = BehaviorAlertService(db)
+    history_service = InferenceHistoryService(db)
     contributors = await cache.get_or_set(
         f"device-risk-contributors:{device_id}",
         5.0,
         lambda: alert_service.latest_risk_contributors(device_id),
     )
+    recent_history = await cache.get_or_set(
+        f"device-risk-history:{device_id}",
+        5.0,
+        lambda: history_service.latest_device_history_points(device_id, limit=2),
+    )
+    latest_history = recent_history[0] if recent_history else None
+    previous_history = recent_history[1] if len(recent_history) > 1 else None
+    latest_features = latest_history.features or {} if latest_history else {}
+    ml_risk = float(latest_features.get("ml_risk") or 0.0)
+    behavior_risk = float(latest_features.get("behavior_risk") or 0.0)
+    protocol_risk = float(latest_features.get("protocol_risk") or 0.0)
+    correlation_bonus = float(latest_features.get("correlation_bonus") or 0.0)
+    previous_risk_score = float(previous_history.risk_score) if previous_history else None
+    risk_delta = float(device.risk_score or 0.0) - float(previous_risk_score or 0.0)
+    if risk_delta >= 5:
+        status = "rising"
+    elif risk_delta <= -5:
+        status = "cooling_down"
+    else:
+        status = "stable"
     if getattr(device, "last_inference_score", None) is not None:
         contributors = [
             {
                 "contributor": "ml_inference",
-                "severity": "critical" if device.risk_score >= 75 else "warning" if device.risk_score >= 35 else "info",
+                "category": "ml",
+                "severity": "critical" if ml_risk >= 35 else "warning" if ml_risk >= 15 else "info",
                 "score": float(device.last_inference_score),
+                "raw_score": float(device.last_inference_score),
+                "effective_score": ml_risk,
+                "weight": 1.0,
                 "details": f"Latest model score {device.last_inference_score:.4f}",
+                "reason": latest_features.get("risk_top_reason") or "Model drift versus device baseline",
+                "last_seen": latest_history.timestamp if latest_history else device.last_inference_at,
             },
             *contributors,
         ]
+    if correlation_bonus > 0:
+        contributors = [
+            *contributors,
+            {
+                "contributor": "signal_correlation",
+                "category": "correlation",
+                "severity": "warning" if correlation_bonus < 10 else "critical",
+                "score": correlation_bonus,
+                "raw_score": correlation_bonus,
+                "effective_score": correlation_bonus,
+                "weight": 1.0,
+                "details": "ML and heuristic signals aligned in the latest inference window",
+                "reason": "Correlated signals across ML and heuristics",
+                "last_seen": latest_history.timestamp if latest_history else device.last_inference_at,
+            },
+        ]
+    contributors = sorted(contributors, key=lambda item: item.get("effective_score", 0.0), reverse=True)
     return DeviceRiskContributorsResponse(
         device_id=device_id,
         risk_score=float(device.risk_score or 0.0),
+        previous_risk_score=previous_risk_score,
+        risk_delta=round(risk_delta, 4),
+        status=status,
+        ml_risk=ml_risk,
+        behavior_risk=behavior_risk,
+        protocol_risk=protocol_risk,
+        correlation_bonus=correlation_bonus,
+        top_reason=latest_features.get("risk_top_reason") or "Model score within baseline",
+        latest_bucket_start=latest_history.bucket_start if latest_history else None,
         contributors=contributors,
     )
 

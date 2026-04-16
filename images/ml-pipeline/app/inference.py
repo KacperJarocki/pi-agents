@@ -9,6 +9,14 @@ from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import save_anomaly, save_behavior_alert, save_inference_result, update_device_risk_score, log
 
 
+PROTOCOL_ALERT_TYPES = {
+    "dns_failure_spike",
+    "dns_nxdomain_burst",
+    "icmp_sweep_suspected",
+    "icmp_echo_fanout",
+}
+
+
 def _risk_from_score(score: float, threshold: float) -> float:
     # IsolationForest decision_function scores: lower => more anomalous.
     # Scale risk relative to the configured threshold so pre-threshold drift is visible,
@@ -49,6 +57,81 @@ def _baseline_stats(values: list[float]) -> dict:
 
 def _behavior_severity(score: float, critical_at: float) -> str:
     return "critical" if score >= critical_at else "warning"
+
+
+def _alert_category(alert_type: str) -> str:
+    return "protocol" if alert_type in PROTOCOL_ALERT_TYPES else "behavior"
+
+
+def _alert_weight(alert_type: str) -> float:
+    if alert_type in {"beaconing_suspected", "destination_novelty"}:
+        return 0.2
+    if alert_type in {"dns_failure_spike", "dns_nxdomain_burst", "icmp_sweep_suspected", "icmp_echo_fanout"}:
+        return 0.16
+    return 0.18
+
+
+def _risk_with_contributors(ml_risk: float, behavior_alerts: list[dict]) -> dict:
+    if not behavior_alerts:
+        return {
+            "ml_risk": round(ml_risk, 4),
+            "behavior_risk": 0.0,
+            "protocol_risk": 0.0,
+            "correlation_bonus": 0.0,
+            "final_risk": round(ml_risk, 4),
+            "top_reason": "Model score within baseline",
+            "reason_summary": ["No active behavior or protocol contributors"],
+        }
+
+    strongest_by_type = {}
+    for alert in behavior_alerts:
+        alert_type = alert["alert_type"]
+        existing = strongest_by_type.get(alert_type)
+        if existing is None or float(alert["score"]) > float(existing["score"]):
+            strongest_by_type[alert_type] = alert
+
+    behavior_risk = 0.0
+    protocol_risk = 0.0
+    contribution_reasons = []
+    categories = set()
+    for alert_type, alert in strongest_by_type.items():
+        raw_score = float(alert["score"])
+        weighted = min(20.0 if _alert_category(alert_type) == "behavior" else 16.0, raw_score * _alert_weight(alert_type))
+        category = _alert_category(alert_type)
+        categories.add(category)
+        if category == "protocol":
+            protocol_risk += weighted
+        else:
+            behavior_risk += weighted
+        contribution_reasons.append((weighted, alert["title"]))
+
+    behavior_risk = min(35.0, behavior_risk)
+    protocol_risk = min(20.0, protocol_risk)
+
+    correlation_bonus = 0.0
+    if ml_risk >= 20.0 and strongest_by_type:
+        correlation_bonus += 8.0
+    if len([alert_type for alert_type in strongest_by_type if _alert_category(alert_type) == "behavior"]) >= 2:
+        correlation_bonus += 6.0
+    if "behavior" in categories and "protocol" in categories:
+        correlation_bonus += 6.0
+    correlation_bonus = min(15.0, correlation_bonus)
+
+    contribution_reasons.append((ml_risk, "Model drift versus device baseline"))
+    if correlation_bonus > 0:
+        contribution_reasons.append((correlation_bonus, "Correlated signals across ML and heuristics"))
+    contribution_reasons.sort(key=lambda item: item[0], reverse=True)
+    reason_summary = [reason for _, reason in contribution_reasons[:3]]
+
+    return {
+        "ml_risk": round(ml_risk, 4),
+        "behavior_risk": round(behavior_risk, 4),
+        "protocol_risk": round(protocol_risk, 4),
+        "correlation_bonus": round(correlation_bonus, 4),
+        "final_risk": round(min(100.0, ml_risk + behavior_risk + protocol_risk + correlation_bonus), 4),
+        "top_reason": reason_summary[0] if reason_summary else "Model score within baseline",
+        "reason_summary": reason_summary,
+    }
 
 
 def _build_behavior_alerts(
@@ -241,6 +324,31 @@ def _build_behavior_alerts(
             }
         )
 
+    latest_nxdomain_failures = int((latest_bucket.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) == 3).sum())
+    historical_nxdomain_failures = []
+    if not history_flows.empty and "dns_rcode" in history_flows.columns:
+        for _, group in history_flows.groupby("bucket_start"):
+            historical_nxdomain_failures.append(float((group.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) == 3).sum()))
+    nxdomain_baseline = _baseline_stats(historical_nxdomain_failures)
+    if latest_nxdomain_failures >= max(3, nxdomain_baseline["p95"] + 1):
+        score = min(100.0, latest_nxdomain_failures * 18.0 + nxdomain_baseline["p95"] * 4.0)
+        alerts.append(
+            {
+                "device_id": device_id,
+                "bucket_start": bucket_start,
+                "alert_type": "dns_nxdomain_burst",
+                "severity": _behavior_severity(score, 78.0),
+                "score": round(score, 2),
+                "title": "NXDOMAIN burst detected",
+                "description": f"Device generated {latest_nxdomain_failures} NXDOMAIN responses in the latest bucket.",
+                "evidence": {
+                    "nxdomain_failures": latest_nxdomain_failures,
+                    "baseline_nxdomain_median": round(nxdomain_baseline["median"], 2),
+                    "baseline_nxdomain_p95": round(nxdomain_baseline["p95"], 2),
+                },
+            }
+        )
+
     latest_icmp_requests = latest_bucket[
         latest_bucket.get("icmp_type", pd.Series(dtype=float)).fillna(-1).astype(float) == 8
     ] if "icmp_type" in latest_bucket.columns else pd.DataFrame()
@@ -272,22 +380,27 @@ def _build_behavior_alerts(
             }
         )
 
+    icmp_fanout_ratio = latest_icmp_destinations / max(latest_icmp_request_count, 1)
+    if latest_icmp_request_count >= 3 and latest_icmp_destinations >= 4 and icmp_fanout_ratio >= 0.75:
+        score = min(100.0, latest_icmp_destinations * 11.0 + icmp_fanout_ratio * 20.0)
+        alerts.append(
+            {
+                "device_id": device_id,
+                "bucket_start": bucket_start,
+                "alert_type": "icmp_echo_fanout",
+                "severity": _behavior_severity(score, 76.0),
+                "score": round(score, 2),
+                "title": "ICMP echo fanout",
+                "description": f"Device spread ICMP echo requests across {latest_icmp_destinations} destinations in the latest bucket.",
+                "evidence": {
+                    "icmp_echo_requests": latest_icmp_request_count,
+                    "unique_icmp_destinations": latest_icmp_destinations,
+                    "fanout_ratio": round(icmp_fanout_ratio, 4),
+                },
+            }
+        )
+
     return alerts
-
-
-def _risk_with_behavior(ml_risk: float, behavior_alerts: list[dict]) -> float:
-    if not behavior_alerts:
-        return ml_risk
-    bonus = sum(min(25.0, float(alert["score"]) * 0.25) for alert in behavior_alerts)
-    if any(alert["alert_type"] == "beaconing_suspected" for alert in behavior_alerts):
-        bonus += 12.0
-    if any(alert["alert_type"] == "icmp_sweep_suspected" for alert in behavior_alerts):
-        bonus += 10.0
-    if any(alert["alert_type"] == "dns_failure_spike" for alert in behavior_alerts):
-        bonus += 8.0
-    if len(behavior_alerts) >= 2:
-        bonus += 10.0
-    return round(min(100.0, ml_risk + bonus), 4)
 
 
 async def run_inference_once(detector: AnomalyDetector, hours: int):
@@ -339,7 +452,18 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         ] if bucket_start is not None and not baseline_flows.empty else pd.DataFrame()
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
         ml_risk = _risk_from_score(score, threshold)
-        risk_score = _risk_with_behavior(ml_risk, behavior_alerts)
+        risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
+        risk_score = risk_breakdown["final_risk"]
+        inference_features = {
+            **(a.get("features") or {}),
+            "threshold": threshold,
+            "ml_risk": risk_breakdown["ml_risk"],
+            "behavior_risk": risk_breakdown["behavior_risk"],
+            "protocol_risk": risk_breakdown["protocol_risk"],
+            "correlation_bonus": risk_breakdown["correlation_bonus"],
+            "risk_top_reason": risk_breakdown["top_reason"],
+            "risk_reason_summary": risk_breakdown["reason_summary"],
+        }
 
         await update_device_risk_score(
             device_id=device_id,
@@ -353,7 +477,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             risk_score=risk_score,
             is_anomaly=is_anomaly,
             severity=severity,
-            features=a.get("features") or {},
+            features=inference_features,
             retention_days=7,
         )
         for alert in behavior_alerts:
@@ -374,9 +498,13 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             device_id=device_id,
             score=float(score),
             ml_risk=ml_risk,
+            behavior_risk=risk_breakdown["behavior_risk"],
+            protocol_risk=risk_breakdown["protocol_risk"],
+            correlation_bonus=risk_breakdown["correlation_bonus"],
             risk_score=risk_score,
             threshold=threshold,
             behavior_alert_count=len(behavior_alerts),
+            top_reason=risk_breakdown["top_reason"],
             is_anomaly=is_anomaly,
         )
 

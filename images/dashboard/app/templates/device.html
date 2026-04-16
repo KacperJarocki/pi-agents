@@ -156,7 +156,7 @@
             </div>
         </section>
 
-        <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <section class="grid grid-cols-1 xl:grid-cols-4 gap-4">
             <div class="panel rounded-2xl p-4 xl:col-span-2">
                 <div class="flex items-center justify-between mb-4">
                     <div>
@@ -178,6 +178,13 @@
             <div class="panel rounded-2xl p-4">
                 <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Latest Feature Snapshot</div>
                 <div id="feature-snapshot" class="mt-3 space-y-2 text-sm text-slate-300"></div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Breakdown</div>
+                    <div id="risk-status" class="text-[11px] uppercase tracking-[0.2em] text-sky-300">Pending</div>
+                </div>
+                <div id="risk-breakdown" class="mt-3 space-y-2 text-sm text-slate-300"></div>
             </div>
         </section>
 
@@ -211,6 +218,7 @@
             <div class="panel rounded-2xl p-4">
                 <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Contributors</div>
                 <div id="risk-contributors" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                <div id="risk-top-reason" class="mt-3 text-xs text-slate-400"></div>
             </div>
             <div class="panel rounded-2xl p-4">
                 <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Baseline</div>
@@ -335,6 +343,7 @@
             document.getElementById('device-score').textContent = device.last_inference_score == null ? 'N/A' : Number(device.last_inference_score).toFixed(4);
             document.getElementById('device-inference-at').textContent = fmtTs(device.last_inference_at);
             document.getElementById('risk-bar').style.width = `${Math.max(0, Math.min(100, Number(device.risk_score || 0)))}%`;
+            document.getElementById('risk-status').textContent = `${(contributors.status || 'stable').replaceAll('_', ' ')} / delta ${Number(contributors.risk_delta || 0).toFixed(1)}`;
 
             const pill = document.getElementById('connection-pill');
             if (device.connected) {
@@ -358,6 +367,14 @@
                 {label: 'dns_queries', value: Number(features.dns_queries || 0).toFixed(0)},
                 {label: 'packet_rate', value: Number(features.packet_rate || 0).toFixed(4)},
             ], 'No inference snapshot yet');
+            renderKeyValues('risk-breakdown', [
+                {label: 'ml_risk', value: Number(contributors.ml_risk || 0).toFixed(2)},
+                {label: 'behavior_risk', value: Number(contributors.behavior_risk || 0).toFixed(2)},
+                {label: 'protocol_risk', value: Number(contributors.protocol_risk || 0).toFixed(2)},
+                {label: 'correlation_bonus', value: Number(contributors.correlation_bonus || 0).toFixed(2)},
+                {label: 'previous_risk', value: contributors.previous_risk_score == null ? 'N/A' : Number(contributors.previous_risk_score).toFixed(2)},
+                {label: 'final_risk', value: Number(contributors.risk_score || 0).toFixed(2)},
+            ], 'No risk breakdown yet');
 
             renderKeyValues('destinations-list', (destinations.destinations || []).map(item => ({
                 label: item.value,
@@ -373,9 +390,10 @@
             })), 'No DNS queries yet');
 
             renderKeyValues('risk-contributors', (contributors.contributors || []).map(item => ({
-                label: `${item.contributor} / ${item.severity}`,
-                value: item.details,
+                label: `${item.category}:${item.contributor} / ${Number(item.effective_score || 0).toFixed(2)}`,
+                value: `${item.reason} / raw=${Number(item.raw_score || 0).toFixed(2)} / ${fmtTs(item.last_seen)}`,
             })), 'No active contributors');
+            document.getElementById('risk-top-reason').textContent = `Top reason: ${contributors.top_reason || 'N/A'}`;
             renderKeyValues('behavior-baseline', (baseline.metrics || []).map(item => ({
                 label: `${item.metric} median=${Number(item.median || 0).toFixed(2)} p95=${Number(item.p95 || 0).toFixed(2)}`,
                 value: item.latest == null ? 'latest=N/A' : `latest=${Number(item.latest).toFixed(2)}`,

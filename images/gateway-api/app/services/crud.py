@@ -16,6 +16,14 @@ from ..core.config import get_settings
 from .gateway_control import GatewayAgentClient
 
 
+PROTOCOL_ALERT_TYPES = {
+    "dns_failure_spike",
+    "dns_nxdomain_burst",
+    "icmp_sweep_suspected",
+    "icmp_echo_fanout",
+}
+
+
 class DeviceService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -584,6 +592,15 @@ class InferenceHistoryService:
         )
         return result.scalar_one_or_none()
 
+    async def latest_device_history_points(self, device_id: int, limit: int = 2) -> List[DeviceInferenceHistory]:
+        result = await self.db.execute(
+            select(DeviceInferenceHistory)
+            .where(DeviceInferenceHistory.device_id == device_id)
+            .order_by(desc(DeviceInferenceHistory.timestamp))
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_behavior_baseline(self, device_id: int, days: int = 7) -> List[dict]:
         history = await self.get_device_history(device_id, days=days, limit=1024)
         if not history:
@@ -628,6 +645,33 @@ class BehaviorAlertService:
                 alert.evidence = {"raw": alert.evidence}
         return alert
 
+    def _alert_category(self, alert_type: str) -> str:
+        return "protocol" if alert_type in PROTOCOL_ALERT_TYPES else "behavior"
+
+    def _alert_weight(self, alert_type: str) -> float:
+        if alert_type in {"beaconing_suspected", "destination_novelty"}:
+            return 0.2
+        if alert_type in PROTOCOL_ALERT_TYPES:
+            return 0.16
+        return 0.18
+
+    def _decay_multiplier(self, timestamp: datetime, now: datetime) -> float:
+        age = max(0.0, (now - timestamp).total_seconds())
+        if age <= 30 * 60:
+            return 1.0
+        if age <= 2 * 60 * 60:
+            return 0.7
+        if age <= 6 * 60 * 60:
+            return 0.4
+        return 0.15
+
+    def _severity_from_score(self, score: float) -> str:
+        if score >= 18.0:
+            return "critical"
+        if score >= 8.0:
+            return "warning"
+        return "info"
+
     async def list_device_alerts(
         self,
         device_id: int,
@@ -655,18 +699,32 @@ class BehaviorAlertService:
             select(DeviceBehaviorAlert)
             .where(and_(DeviceBehaviorAlert.device_id == device_id, DeviceBehaviorAlert.timestamp >= since))
             .order_by(desc(DeviceBehaviorAlert.timestamp))
-            .limit(6)
+            .limit(64)
         )
         alerts = list(result.scalars().all())
-        contributors = []
+        now = datetime.utcnow()
+        contributors_by_type = {}
         for alert in alerts:
             self._normalize_alert(alert)
-            contributors.append(
-                {
-                    "contributor": alert.alert_type,
-                    "severity": alert.severity,
-                    "score": float(alert.score),
-                    "details": alert.description or alert.title,
-                }
-            )
-        return contributors
+            category = self._alert_category(alert.alert_type)
+            weight = self._alert_weight(alert.alert_type)
+            raw_score = float(alert.score or 0.0)
+            effective_score = round(raw_score * weight * self._decay_multiplier(alert.timestamp, now), 4)
+            if effective_score <= 0:
+                continue
+            existing = contributors_by_type.get(alert.alert_type)
+            if existing and existing["effective_score"] >= effective_score:
+                continue
+            contributors_by_type[alert.alert_type] = {
+                "contributor": alert.alert_type,
+                "category": category,
+                "severity": self._severity_from_score(effective_score),
+                "score": raw_score,
+                "raw_score": raw_score,
+                "effective_score": effective_score,
+                "weight": weight,
+                "details": alert.description or alert.title,
+                "reason": alert.title,
+                "last_seen": alert.timestamp,
+            }
+        return sorted(contributors_by_type.values(), key=lambda item: item["effective_score"], reverse=True)

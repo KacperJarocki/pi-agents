@@ -40,9 +40,22 @@ Aktualnie inference dopina do ML także:
 - `traffic_pattern_drift`
 - `beaconing_suspected`
 - `dns_failure_spike`
+- `dns_nxdomain_burst`
 - `icmp_sweep_suspected`
+- `icmp_echo_fanout`
 
 Wyniki trafiają do `device_behavior_alerts`, a najnowsze cechy do `device_inference_history`.
+
+## Risk Engine v2
+
+Finalny `risk_score` jest składany z:
+
+- `ml_risk`
+- `behavior_risk`
+- `protocol_risk`
+- `correlation_bonus`
+
+Breakdown jest zapisywany do `device_inference_history.features`, żeby API i dashboard mogły pokazać delta risk i top reason bez dodatkowej migracji DB.
 
 ## Kluczowe env
 

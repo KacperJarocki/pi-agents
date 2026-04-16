@@ -41,6 +41,10 @@ class TestInferenceStatusSources(unittest.TestCase):
         self.assertIn("class DeviceBehaviorAlertResponse(BaseModel):", src)
         self.assertIn("class DeviceRiskContributorsResponse(BaseModel):", src)
         self.assertIn("class DeviceBehaviorBaselineResponse(BaseModel):", src)
+        self.assertIn("category: str", src)
+        self.assertIn("effective_score: float", src)
+        self.assertIn("correlation_bonus: float = 0.0", src)
+        self.assertIn("top_reason: str", src)
 
     def test_behavior_alert_service_normalizes_resolved_and_evidence(self):
         from pathlib import Path
@@ -51,6 +55,17 @@ class TestInferenceStatusSources(unittest.TestCase):
         self.assertIn("def _normalize_alert(self, alert: DeviceBehaviorAlert)", src)
         self.assertIn("alert.resolved = bool(alert.resolved)", src)
         self.assertIn("json.loads(alert.evidence)", src)
+
+    def test_risk_contributors_apply_decay_and_deduplication(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "services" / "crud.py").read_text()
+
+        self.assertIn("def _decay_multiplier(self, timestamp: datetime, now: datetime)", src)
+        self.assertIn("contributors_by_type", src)
+        self.assertIn("effective_score", src)
+        self.assertIn("return sorted(contributors_by_type.values()", src)
 
 
 if __name__ == "__main__":

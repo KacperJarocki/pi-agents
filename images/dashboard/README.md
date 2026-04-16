@@ -26,9 +26,21 @@ Dashboard pokazuje:
 Na stronie urządzenia dashboard pokazuje też:
 
 - `Behavior Alerts`
+- `Risk Breakdown`
 - `Risk Contributors`
 - `Behavior Baseline`
 - `Protocol Signals`
+
+W `Risk Breakdown` UI pokazuje:
+
+- `ml_risk`
+- `behavior_risk`
+- `protocol_risk`
+- `correlation_bonus`
+- `previous_risk`
+- `final_risk`
+- status `rising`, `stable` albo `cooling down`
+- `Top reason`
 
 ## Mechanika
 

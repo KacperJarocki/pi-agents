@@ -32,6 +32,19 @@ Na device detail API są dostępne dodatkowe endpointy:
 
 Te endpointy składają razem wynik ML, heurystyki behavior i protocol-level signals z collectora.
 
+`/api/v1/devices/{id}/risk-contributors` zwraca teraz także:
+
+- `ml_risk`
+- `behavior_risk`
+- `protocol_risk`
+- `correlation_bonus`
+- `previous_risk_score`
+- `risk_delta`
+- `status`
+- `top_reason`
+
+Contributors są deduplikowani po `alert_type` i dostają `effective_score` z decay czasowym, żeby API pokazywało aktywny wpływ na bieżący risk, a nie tylko historię alertów.
+
 ## Presence Model
 
 Widoczność urządzeń opiera się na:

@@ -15,6 +15,9 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('Traffic Profile', device_template)
         self.assertIn('Inference Trail', device_template)
         self.assertIn('Retention: 7 days', device_template)
+        self.assertIn('chart-shell', device_template)
+        self.assertIn('traffic-meta', device_template)
+        self.assertIn('inference-meta', device_template)
 
 
 if __name__ == "__main__":

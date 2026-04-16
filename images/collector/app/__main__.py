@@ -25,10 +25,12 @@ async def main():
     
     database_path = os.getenv("DATABASE_PATH", "/data/iot-security.db")
     interface = os.getenv("INTERFACE", "wlan0")
-    batch_size = int(os.getenv("BATCH_SIZE", "25"))
-    flush_interval = int(os.getenv("FLUSH_INTERVAL", "5"))
+    batch_size = int(os.getenv("BATCH_SIZE", "150"))
+    flush_interval = int(os.getenv("FLUSH_INTERVAL", "2"))
     capture_packet_count = int(os.getenv("CAPTURE_PACKET_COUNT", str(batch_size)))
     capture_timeout = int(os.getenv("CAPTURE_TIMEOUT", str(flush_interval)))
+    snaplen = int(os.getenv("SNAPLEN", "128"))
+    max_buffer_size = int(os.getenv("MAX_BUFFER_SIZE", str(batch_size * 4)))
     lan_subnet_cidr = os.getenv("LAN_SUBNET_CIDR", "192.168.50.0/24")
     lease_file_path = os.getenv("LEASE_FILE_PATH", "/gateway-state/dnsmasq.leases")
     
@@ -39,6 +41,8 @@ async def main():
              flush_interval=flush_interval,
              capture_packet_count=capture_packet_count,
              capture_timeout=capture_timeout,
+             snaplen=snaplen,
+             max_buffer_size=max_buffer_size,
              lan_subnet_cidr=lan_subnet_cidr,
              lease_file_path=lease_file_path)
     
@@ -58,6 +62,8 @@ async def main():
         flush_interval=flush_interval,
         capture_packet_count=capture_packet_count,
         capture_timeout=capture_timeout,
+        snaplen=snaplen,
+        max_buffer_size=max_buffer_size,
         lan_subnet_cidr=lan_subnet_cidr,
         lease_file_path=lease_file_path,
     )

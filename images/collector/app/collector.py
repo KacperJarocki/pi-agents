@@ -18,7 +18,7 @@ log = structlog.get_logger()
 
 
 def build_tcpdump_command(
-    interface: str, pcap_file: str, packet_count: int
+    interface: str, pcap_file: str, packet_count: int, snaplen: int
 ) -> list[str]:
     return [
         "tcpdump",
@@ -27,7 +27,7 @@ def build_tcpdump_command(
         "-n",
         "-p",
         "-s",
-        "96",
+        str(snaplen),
         "-w",
         pcap_file,
         "-c",
@@ -80,6 +80,8 @@ class TrafficCollector:
         flush_interval: int = 5,
         capture_packet_count: int = 25,
         capture_timeout: int = 5,
+        snaplen: int = 96,
+        max_buffer_size: int = 500,
         lan_subnet_cidr: str = "192.168.50.0/24",
         lease_file_path: str = "/gateway-state/dnsmasq.leases",
     ):
@@ -89,6 +91,8 @@ class TrafficCollector:
         self.flush_interval = flush_interval
         self.capture_packet_count = capture_packet_count
         self.capture_timeout = capture_timeout
+        self.snaplen = snaplen
+        self.max_buffer_size = max_buffer_size
         self.lan_subnet = ipaddress.ip_network(lan_subnet_cidr, strict=True)
         self.lease_file_path = lease_file_path
         self.running = False
@@ -244,7 +248,7 @@ class TrafficCollector:
             pcap_file = f"/tmp/capture_{os.getpid()}_{self._capture_cycle}.pcap"
             try:
                 cmd = build_tcpdump_command(
-                    self.interface, pcap_file, self.capture_packet_count
+                    self.interface, pcap_file, self.capture_packet_count, self.snaplen
                 )
 
                 log.info(
@@ -252,6 +256,7 @@ class TrafficCollector:
                     command=" ".join(cmd),
                     cycle=self._capture_cycle,
                     packet_count=self.capture_packet_count,
+                    snaplen=self.snaplen,
                     timeout=self.capture_timeout,
                 )
 
@@ -342,6 +347,8 @@ class TrafficCollector:
                     resolved = self._resolve_client_identity(flow, lease_by_ip)
                     if resolved:
                         self.flow_buffer.append({**flow, **resolved})
+                        if len(self.flow_buffer) >= self.max_buffer_size:
+                            await self._flush_buffer(force_all=True)
                         parsed_count += 1
                     else:
                         skipped_count += 1
@@ -418,18 +425,20 @@ class TrafficCollector:
             await asyncio.sleep(self.flush_interval)
             await self._flush_buffer()
 
-    async def _flush_buffer(self):
+    async def _flush_buffer(self, force_all: bool = False):
         if not self.flow_buffer:
             return
 
-        flows_to_process = self.flow_buffer[: self.batch_size]
-        self.flow_buffer = self.flow_buffer[self.batch_size :]
+        batch_limit = len(self.flow_buffer) if force_all else self.batch_size
+        flows_to_process = self.flow_buffer[: batch_limit]
+        self.flow_buffer = self.flow_buffer[batch_limit :]
 
         try:
             log.info(
                 "flush_started",
                 requested=len(flows_to_process),
                 remaining_buffer=len(self.flow_buffer),
+                force_all=force_all,
             )
             flow_ids = await self.db.insert_flows(flows_to_process)
 

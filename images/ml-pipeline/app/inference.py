@@ -6,10 +6,19 @@ from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import save_anomaly, save_inference_result, update_device_risk_score, log
 
 
-def _risk_from_score(score: float) -> float:
+def _risk_from_score(score: float, threshold: float) -> float:
     # IsolationForest decision_function scores: lower => more anomalous.
-    # Map negative scores into a 0..100-ish risk for UI.
-    return max(0.0, min(100.0, (-score) * 100.0))
+    # Scale risk relative to the configured threshold so pre-threshold drift is visible,
+    # and confirmed anomalies ramp quickly into the upper range.
+    margin = threshold - score
+    if margin <= 0:
+        baseline = 35.0 * max(0.0, min(1.0, (threshold - score) / max(abs(threshold), 0.05) + 1.0))
+        return round(max(0.0, min(35.0, baseline)), 4)
+
+    threshold_scale = max(abs(threshold), 0.05)
+    normalized = margin / threshold_scale
+    risk = 35.0 + min(65.0, normalized * 45.0)
+    return round(max(0.0, min(100.0, risk)), 4)
 
 
 async def run_inference_once(detector: AnomalyDetector, hours: int):
@@ -30,9 +39,11 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             if not device_detector.load_model(device_id=int(device_id)):
                 log.warning("inference_model_missing_for_device", device_id=int(device_id))
                 continue
-            scored_results.extend(device_detector.score(latest))
+            scored_results.extend(
+                {**row, "threshold": device_detector.threshold} for row in device_detector.score(latest)
+            )
     else:
-        scored_results = detector.score(features)
+        scored_results = [{**row, "threshold": detector.threshold} for row in detector.score(features)]
 
     anomalies = []
     for a in scored_results:
@@ -40,7 +51,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         score = a["anomaly_score"]
         is_anomaly = bool(a.get("is_anomaly"))
         severity = a["severity"]
-        risk_score = _risk_from_score(score)
+        threshold = float(a.get("threshold", os.getenv("ANOMALY_THRESHOLD", "-0.5")))
+        risk_score = _risk_from_score(score, threshold)
         bucket_start = a.get("bucket_start")
 
         await update_device_risk_score(
@@ -64,6 +76,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             device_id=device_id,
             score=float(score),
             risk_score=risk_score,
+            threshold=threshold,
             is_anomaly=is_anomaly,
         )
 

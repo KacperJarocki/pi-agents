@@ -43,15 +43,18 @@ class TestCollectorMvpSources(unittest.TestCase):
         self.assertIn('first_octet & 1', src)
 
 
-    def test_collector_uses_small_batch_defaults_for_mvp(self):
+    def test_collector_uses_live_view_capture_defaults(self):
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "collector" / "app" / "__main__.py").read_text()
 
-        self.assertIn('BATCH_SIZE", "25"', src)
+        self.assertIn('BATCH_SIZE", "150"', src)
+        self.assertIn('FLUSH_INTERVAL", "2"', src)
         self.assertIn('CAPTURE_PACKET_COUNT', src)
         self.assertIn('CAPTURE_TIMEOUT', src)
+        self.assertIn('SNAPLEN', src)
+        self.assertIn('MAX_BUFFER_SIZE', src)
 
     def test_collector_k8s_manifest_sets_mvp_capture_env(self):
         from pathlib import Path
@@ -60,9 +63,12 @@ class TestCollectorMvpSources(unittest.TestCase):
         src = (repo / "k8s" / "gateway" / "collector-deployment.yaml").read_text()
 
         self.assertIn('name: BATCH_SIZE', src)
-        self.assertIn('value: "25"', src)
+        self.assertIn('value: "150"', src)
+        self.assertIn('name: FLUSH_INTERVAL', src)
         self.assertIn('name: CAPTURE_PACKET_COUNT', src)
         self.assertIn('name: CAPTURE_TIMEOUT', src)
+        self.assertIn('name: SNAPLEN', src)
+        self.assertIn('name: MAX_BUFFER_SIZE', src)
         self.assertIn('name: LAN_SUBNET_CIDR', src)
         self.assertIn('name: LEASE_FILE_PATH', src)
         self.assertIn('mountPath: /gateway-state', src)

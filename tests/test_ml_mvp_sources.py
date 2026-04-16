@@ -64,6 +64,16 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("retention_days=7", inference)
         self.assertIn("save_inference_result(", inference)
 
+    def test_inference_risk_uses_threshold_scaling(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        inference = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+
+        self.assertIn("def _risk_from_score(score: float, threshold: float)", inference)
+        self.assertIn('"threshold": device_detector.threshold', inference)
+        self.assertIn("threshold=threshold", inference)
+
 
 if __name__ == "__main__":
     unittest.main()

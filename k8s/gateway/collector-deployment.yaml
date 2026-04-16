@@ -30,11 +30,11 @@ spec:
             privileged: true
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 150m
+              memory: 192Mi
             limits:
-              cpu: 300m
-              memory: 256Mi
+              cpu: 500m
+              memory: 384Mi
           env:
             - name: DATABASE_PATH
               value: "/data/iot-security.db"
@@ -43,11 +43,17 @@ spec:
             - name: LOG_LEVEL
               value: "info"
             - name: BATCH_SIZE
-              value: "25"
+              value: "150"
+            - name: FLUSH_INTERVAL
+              value: "2"
             - name: CAPTURE_PACKET_COUNT
-              value: "25"
+              value: "300"
             - name: CAPTURE_TIMEOUT
-              value: "5"
+              value: "2"
+            - name: SNAPLEN
+              value: "128"
+            - name: MAX_BUFFER_SIZE
+              value: "600"
             - name: LAN_SUBNET_CIDR
               value: "192.168.50.0/24"
             - name: LEASE_FILE_PATH

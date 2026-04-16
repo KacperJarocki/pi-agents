@@ -46,8 +46,27 @@
             gap: 3px;
             height: 180px;
         }
+        .chart-shell {
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(56,189,248,0.45) rgba(8,17,31,0.8);
+        }
+        .chart-shell::-webkit-scrollbar {
+            height: 10px;
+        }
+        .chart-shell::-webkit-scrollbar-thumb {
+            background: rgba(56,189,248,0.35);
+            border-radius: 999px;
+        }
+        .chart-shell::-webkit-scrollbar-track {
+            background: rgba(8,17,31,0.8);
+        }
+        .chart-frame {
+            min-width: 100%;
+        }
         .spark-bar {
-            min-width: 8px;
+            min-width: 10px;
             border-radius: 6px 6px 0 0;
             background: linear-gradient(180deg, rgba(56,189,248,0.95), rgba(14,165,233,0.18));
         }
@@ -63,6 +82,29 @@
         .terminal {
             background: rgba(3, 8, 15, 0.92);
             border: 1px solid rgba(56, 189, 248, 0.14);
+        }
+        .chart-labels {
+            display: grid;
+            grid-auto-flow: column;
+            gap: 3px;
+            margin-top: 8px;
+            color: rgba(148, 163, 184, 0.9);
+            font-size: 10px;
+        }
+        .chart-label {
+            min-width: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+        .chart-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 10px;
+            color: rgba(148, 163, 184, 0.85);
+            font-size: 11px;
         }
     </style>
 </head>
@@ -124,7 +166,13 @@
                     <div class="text-xs text-slate-400">Near-real time network volume</div>
                 </div>
                 <div class="panel gridline rounded-xl p-3 min-h-[220px]">
-                    <div id="traffic-chart" class="spark"></div>
+                    <div class="chart-shell">
+                        <div id="traffic-chart-frame" class="chart-frame">
+                            <div id="traffic-chart" class="spark"></div>
+                            <div id="traffic-labels" class="chart-labels"></div>
+                        </div>
+                    </div>
+                    <div id="traffic-meta" class="chart-meta"></div>
                 </div>
             </div>
             <div class="panel rounded-2xl p-4">
@@ -144,7 +192,13 @@
                 </div>
                 <div class="panel gridline rounded-xl p-3 min-h-[220px] relative">
                     <div class="score-line" style="top:50%"></div>
-                    <div id="inference-chart" class="spark"></div>
+                    <div class="chart-shell">
+                        <div id="inference-chart-frame" class="chart-frame">
+                            <div id="inference-chart" class="spark"></div>
+                            <div id="inference-labels" class="chart-labels"></div>
+                        </div>
+                    </div>
+                    <div id="inference-meta" class="chart-meta"></div>
                 </div>
             </div>
             <div class="panel rounded-2xl p-4">
@@ -186,6 +240,12 @@
             return `${Number(value || 0).toFixed(2)} MB`;
         }
 
+        function fmtShortTs(value) {
+            if (!value) return '';
+            const ts = new Date(value);
+            return ts.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+        }
+
         function renderKeyValues(targetId, rows, emptyText='No data') {
             const node = document.getElementById(targetId);
             if (!rows.length) {
@@ -200,19 +260,35 @@
             `).join('');
         }
 
-        function renderBars(targetId, data, valueKey, alertKey=null) {
+        function renderBars(targetId, labelsId, metaId, frameId, data, valueKey, alertKey=null, formatter=null) {
             const node = document.getElementById(targetId);
+            const labelsNode = document.getElementById(labelsId);
+            const metaNode = document.getElementById(metaId);
+            const frameNode = document.getElementById(frameId);
             if (!data.length) {
                 node.innerHTML = '<div class="text-slate-500 col-span-full self-center">No samples captured yet</div>';
+                labelsNode.innerHTML = '';
+                metaNode.innerHTML = '<span>No samples</span><span>Awaiting collector data</span>';
+                frameNode.style.width = '100%';
                 return;
             }
-            const maxValue = Math.max(...data.map(item => Number(item[valueKey] || 0)), 1);
+            const values = data.map(item => Number(item[valueKey] || 0));
+            const maxValue = Math.max(...values, 1);
+            const minValue = Math.min(...values, 0);
+            const barWidth = data.length > 96 ? 12 : 10;
+            frameNode.style.width = `${Math.max(100, data.length * (barWidth + 3))}%`;
             node.innerHTML = data.map(item => {
                 const height = Math.max(6, (Number(item[valueKey] || 0) / maxValue) * 100);
                 const alertClass = alertKey && item[alertKey] ? 'alert' : '';
-                const title = `${fmtTs(item.timestamp)} :: ${valueKey}=${Number(item[valueKey] || 0).toFixed(4)}`;
+                const prettyValue = formatter ? formatter(item[valueKey]) : Number(item[valueKey] || 0).toFixed(4);
+                const title = `${fmtTs(item.timestamp)} :: ${valueKey}=${prettyValue}`;
                 return `<div class="spark-bar ${alertClass}" style="height:${height}%" title="${title}"></div>`;
             }).join('');
+            labelsNode.innerHTML = data.map((item, idx) => {
+                const show = idx === 0 || idx === data.length - 1 || idx % Math.max(1, Math.ceil(data.length / 8)) === 0;
+                return `<div class="chart-label">${show ? fmtShortTs(item.timestamp) : ''}</div>`;
+            }).join('');
+            metaNode.innerHTML = `<span>min ${formatter ? formatter(minValue) : minValue.toFixed(4)}</span><span>max ${formatter ? formatter(maxValue) : maxValue.toFixed(4)}</span><span>${data.length} samples</span>`;
         }
 
         async function loadDevice() {
@@ -249,8 +325,8 @@
                 pill.textContent = 'DISCONNECTED';
             }
 
-            renderBars('traffic-chart', traffic.data || [], 'total_traffic_mb');
-            renderBars('inference-chart', history.data || [], 'risk_score', 'is_anomaly');
+            renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
+            renderBars('inference-chart', 'inference-labels', 'inference-meta', 'inference-chart-frame', history.data || [], 'risk_score', 'is_anomaly', value => `${Number(value || 0).toFixed(1)}%`);
 
             const latestHistory = (history.data || []).at(-1);
             const features = latestHistory?.features || {};

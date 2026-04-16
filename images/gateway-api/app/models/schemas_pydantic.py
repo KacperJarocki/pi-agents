@@ -230,6 +230,19 @@ class DeviceRiskContributorsResponse(BaseModel):
     contributors: List[RiskContributor]
 
 
+class BehaviorBaselineMetric(BaseModel):
+    metric: str
+    median: float
+    p95: float
+    latest: Optional[float] = None
+
+
+class DeviceBehaviorBaselineResponse(BaseModel):
+    device_id: int
+    days: int
+    metrics: List[BehaviorBaselineMetric]
+
+
 class HealthResponse(BaseModel):
     status: str
     database: str

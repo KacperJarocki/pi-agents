@@ -40,6 +40,7 @@ class TestInferenceStatusSources(unittest.TestCase):
 
         self.assertIn("class DeviceBehaviorAlertResponse(BaseModel):", src)
         self.assertIn("class DeviceRiskContributorsResponse(BaseModel):", src)
+        self.assertIn("class DeviceBehaviorBaselineResponse(BaseModel):", src)
 
     def test_behavior_alert_service_normalizes_resolved_and_evidence(self):
         from pathlib import Path

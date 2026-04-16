@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import datetime, UTC
-from statistics import median
+from statistics import median, pstdev
 
 import pandas as pd
 
@@ -29,6 +29,24 @@ def _median(values: list[float], default: float = 0.0) -> float:
     return float(median(cleaned)) if cleaned else default
 
 
+def _percentile(values: list[float], p: float, default: float = 0.0) -> float:
+    cleaned = sorted(float(v) for v in values if v is not None)
+    if not cleaned:
+        return default
+    idx = min(len(cleaned) - 1, max(0, int(round((len(cleaned) - 1) * p))))
+    return float(cleaned[idx])
+
+
+def _baseline_stats(values: list[float]) -> dict:
+    cleaned = [float(v) for v in values if v is not None]
+    if not cleaned:
+        return {"median": 0.0, "p95": 0.0}
+    return {
+        "median": _median(cleaned, 0.0),
+        "p95": _percentile(cleaned, 0.95, 0.0),
+    }
+
+
 def _behavior_severity(score: float, critical_at: float) -> str:
     return "critical" if score >= critical_at else "warning"
 
@@ -44,13 +62,18 @@ def _build_behavior_alerts(
 
     alerts = []
     bucket_start = latest_bucket["bucket_start"].iloc[0] if not latest_bucket.empty else None
+    baseline_destinations = _baseline_stats(history_buckets.get("unique_destinations", pd.Series(dtype=float)).tolist())
+    baseline_dns = _baseline_stats(history_buckets.get("dns_queries", pd.Series(dtype=float)).tolist())
+    baseline_ports = _baseline_stats(history_buckets.get("unique_ports", pd.Series(dtype=float)).tolist())
+    baseline_packet_rate = _baseline_stats(history_buckets.get("packet_rate", pd.Series(dtype=float)).tolist())
 
     latest_destinations = set(latest_bucket["dst_ip"].dropna().astype(str))
+    latest_destination_count = float(len(latest_destinations))
     previous_destinations = set(history_flows["dst_ip"].dropna().astype(str)) if not history_flows.empty else set()
     new_destinations = sorted(dest for dest in latest_destinations if dest not in previous_destinations)
     destination_ratio = len(new_destinations) / max(len(latest_destinations), 1)
-    if len(new_destinations) >= 3 and destination_ratio >= 0.5:
-        score = min(100.0, len(new_destinations) * 12.5 + destination_ratio * 25.0)
+    if len(new_destinations) >= max(2, int(baseline_destinations["p95"] + 1)) and destination_ratio >= 0.4:
+        score = min(100.0, len(new_destinations) * 12.5 + destination_ratio * 25.0 + latest_destination_count * 4.0)
         alerts.append(
             {
                 "device_id": device_id,
@@ -64,20 +87,21 @@ def _build_behavior_alerts(
                     "new_destinations": new_destinations[:10],
                     "new_destination_count": len(new_destinations),
                     "destination_ratio": round(destination_ratio, 4),
+                    "baseline_unique_destinations_median": round(baseline_destinations["median"], 2),
+                    "baseline_unique_destinations_p95": round(baseline_destinations["p95"], 2),
                 },
             }
         )
 
     latest_dns_queries = int(latest_bucket["dns_query"].notna().sum())
     latest_unique_dns = int(latest_bucket["dns_query"].dropna().nunique())
-    baseline_dns = _median(history_buckets.get("dns_queries", pd.Series(dtype=float)).tolist(), default=0.0)
     baseline_unique_dns = _median(
         [float(group["dns_query"].dropna().nunique()) for _, group in history_flows.groupby("bucket_start")],
         default=0.0,
     ) if not history_flows.empty else 0.0
-    dns_ratio = latest_dns_queries / max(baseline_dns, 1.0)
+    dns_ratio = latest_dns_queries / max(baseline_dns["median"], 1.0)
     unique_dns_ratio = latest_unique_dns / max(baseline_unique_dns, 1.0)
-    if latest_dns_queries >= max(6, baseline_dns * 3) and latest_unique_dns >= max(3, baseline_unique_dns * 2, 3):
+    if latest_dns_queries >= max(5, baseline_dns["p95"] + 2, baseline_dns["median"] * 2) and latest_unique_dns >= max(3, baseline_unique_dns * 2, 3):
         score = min(100.0, dns_ratio * 18.0 + unique_dns_ratio * 12.0)
         alerts.append(
             {
@@ -91,18 +115,18 @@ def _build_behavior_alerts(
                 "evidence": {
                     "dns_queries": latest_dns_queries,
                     "unique_dns_domains": latest_unique_dns,
-                    "baseline_dns_queries": round(baseline_dns, 2),
+                    "baseline_dns_queries": round(baseline_dns["median"], 2),
+                    "baseline_dns_queries_p95": round(baseline_dns["p95"], 2),
                     "baseline_unique_dns_domains": round(baseline_unique_dns, 2),
                 },
             }
         )
 
     latest_ports = int(latest_bucket["dst_port"].nunique())
-    baseline_ports = _median(history_buckets.get("unique_ports", pd.Series(dtype=float)).tolist(), default=0.0)
     previous_ports = set(history_flows["dst_port"].dropna().astype(int).tolist()) if not history_flows.empty else set()
     new_ports = sorted(port for port in latest_bucket["dst_port"].dropna().astype(int).unique().tolist() if port not in previous_ports)
-    port_ratio = latest_ports / max(baseline_ports, 1.0)
-    if latest_ports >= max(8, baseline_ports * 3) or len(new_ports) >= 6:
+    port_ratio = latest_ports / max(baseline_ports["median"], 1.0)
+    if latest_ports >= max(6, baseline_ports["p95"] + 2, baseline_ports["median"] * 2) or len(new_ports) >= 5:
         score = min(100.0, port_ratio * 16.0 + len(new_ports) * 6.0)
         alerts.append(
             {
@@ -116,10 +140,81 @@ def _build_behavior_alerts(
                 "evidence": {
                     "unique_ports": latest_ports,
                     "new_ports": new_ports[:12],
-                    "baseline_unique_ports": round(baseline_ports, 2),
+                    "baseline_unique_ports": round(baseline_ports["median"], 2),
+                    "baseline_unique_ports_p95": round(baseline_ports["p95"], 2),
                 },
             }
         )
+
+    packet_rate = 0.0
+    if len(latest_bucket) > 1:
+        span = (latest_bucket["timestamp"].max() - latest_bucket["timestamp"].min()).total_seconds()
+        packet_rate = float(len(latest_bucket) / span) if span > 0 else float(len(latest_bucket))
+    if packet_rate >= max(1.5, baseline_packet_rate["p95"] * 1.5) and latest_destination_count >= max(3.0, baseline_destinations["median"] + 2.0):
+        score = min(100.0, packet_rate * 8.0 + latest_destination_count * 6.0)
+        alerts.append(
+            {
+                "device_id": device_id,
+                "bucket_start": bucket_start,
+                "alert_type": "traffic_pattern_drift",
+                "severity": _behavior_severity(score, 70.0),
+                "score": round(score, 2),
+                "title": "Traffic pattern drift",
+                "description": f"Packet rate {packet_rate:.2f} and {int(latest_destination_count)} destinations exceeded the recent baseline.",
+                "evidence": {
+                    "packet_rate": round(packet_rate, 4),
+                    "baseline_packet_rate_median": round(baseline_packet_rate["median"], 4),
+                    "baseline_packet_rate_p95": round(baseline_packet_rate["p95"], 4),
+                    "unique_destinations": int(latest_destination_count),
+                    "baseline_unique_destinations_median": round(baseline_destinations["median"], 2),
+                    "baseline_unique_destinations_p95": round(baseline_destinations["p95"], 2),
+                },
+            }
+        )
+
+    if not history_flows.empty:
+        latest_dest_set = set(latest_bucket["dst_ip"].dropna().astype(str))
+        for dst_ip, group in history_flows.groupby("dst_ip"):
+            if dst_ip not in latest_dest_set:
+                continue
+            timestamps = sorted(group["timestamp"].tolist())
+            if len(timestamps) < 5:
+                continue
+            intervals = []
+            for prev, cur in zip(timestamps, timestamps[1:]):
+                delta = (cur - prev).total_seconds()
+                if delta > 0:
+                    intervals.append(delta)
+            if len(intervals) < 4:
+                continue
+            interval_median = _median(intervals, 0.0)
+            if interval_median < 5 or interval_median > 300:
+                continue
+            interval_std = float(pstdev(intervals)) if len(intervals) > 1 else 0.0
+            regularity = interval_std / max(interval_median, 1.0)
+            avg_bytes = float(group["bytes_sent"].fillna(0).mean()) if "bytes_sent" in group else 0.0
+            if regularity <= 0.35 and avg_bytes <= 300:
+                score = min(100.0, (1.0 - regularity) * 70.0 + max(0.0, 30.0 - avg_bytes / 10.0))
+                alerts.append(
+                    {
+                        "device_id": device_id,
+                        "bucket_start": bucket_start,
+                        "alert_type": "beaconing_suspected",
+                        "severity": _behavior_severity(score, 78.0),
+                        "score": round(score, 2),
+                        "title": "Beaconing suspected",
+                        "description": f"Device shows regular low-volume traffic to {dst_ip} every ~{interval_median:.1f}s.",
+                        "evidence": {
+                            "dst_ip": dst_ip,
+                            "interval_median_seconds": round(interval_median, 2),
+                            "interval_std_seconds": round(interval_std, 2),
+                            "regularity_ratio": round(regularity, 4),
+                            "average_bytes": round(avg_bytes, 2),
+                            "sample_count": len(intervals) + 1,
+                        },
+                    }
+                )
+                break
 
     return alerts
 
@@ -128,6 +223,8 @@ def _risk_with_behavior(ml_risk: float, behavior_alerts: list[dict]) -> float:
     if not behavior_alerts:
         return ml_risk
     bonus = sum(min(25.0, float(alert["score"]) * 0.25) for alert in behavior_alerts)
+    if any(alert["alert_type"] == "beaconing_suspected" for alert in behavior_alerts):
+        bonus += 12.0
     if len(behavior_alerts) >= 2:
         bonus += 10.0
     return round(min(100.0, ml_risk + bonus), 4)

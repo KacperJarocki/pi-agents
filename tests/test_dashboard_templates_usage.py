@@ -20,6 +20,7 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('inference-meta', device_template)
         self.assertIn('Behavior Alerts', device_template)
         self.assertIn('Risk Contributors', device_template)
+        self.assertIn('Behavior Baseline', device_template)
 
 
 if __name__ == "__main__":

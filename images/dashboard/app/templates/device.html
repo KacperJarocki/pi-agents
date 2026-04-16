@@ -213,6 +213,10 @@
                 <div id="risk-contributors" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
             </div>
             <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Baseline</div>
+                <div id="behavior-baseline" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            </div>
+            <div class="panel rounded-2xl p-4">
                 <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Top Destinations</div>
                 <div id="destinations-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
             </div>
@@ -296,7 +300,7 @@
         }
 
         async function loadDevice() {
-            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes, behaviorRes, contributorRes] = await Promise.all([
+            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes, behaviorRes, contributorRes, baselineRes] = await Promise.all([
                 fetch(`/api/devices/${deviceId}`),
                 fetch(`/api/devices/${deviceId}/traffic?hours=24`),
                 fetch(`/api/devices/${deviceId}/anomalies?limit=10`),
@@ -304,6 +308,7 @@
                 fetch(`/api/devices/${deviceId}/inference-history?days=7`),
                 fetch(`/api/devices/${deviceId}/behavior-alerts?limit=10&since_hours=168`),
                 fetch(`/api/devices/${deviceId}/risk-contributors`),
+                fetch(`/api/devices/${deviceId}/behavior-baseline?days=7`),
             ]);
 
             const device = await deviceRes.json();
@@ -313,6 +318,7 @@
             const history = await historyRes.json();
             const behaviorAlerts = await behaviorRes.json();
             const contributors = await contributorRes.json();
+            const baseline = await baselineRes.json();
 
             document.getElementById('device-name').textContent = device.hostname || device.ip_address || `Device #${device.id}`;
             document.getElementById('device-ip').textContent = device.ip_address || '-';
@@ -364,6 +370,10 @@
                 label: `${item.contributor} / ${item.severity}`,
                 value: item.details,
             })), 'No active contributors');
+            renderKeyValues('behavior-baseline', (baseline.metrics || []).map(item => ({
+                label: `${item.metric} median=${Number(item.median || 0).toFixed(2)} p95=${Number(item.p95 || 0).toFixed(2)}`,
+                value: item.latest == null ? 'latest=N/A' : `latest=${Number(item.latest).toFixed(2)}`,
+            })), 'No baseline history yet');
 
             const anomalyNode = document.getElementById('behavior-alert-feed');
             const behaviorRows = behaviorAlerts.alerts || [];

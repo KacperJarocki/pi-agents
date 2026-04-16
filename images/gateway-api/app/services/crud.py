@@ -509,6 +509,36 @@ class InferenceHistoryService:
         )
         return result.scalar_one_or_none()
 
+    async def get_behavior_baseline(self, device_id: int, days: int = 7) -> List[dict]:
+        history = await self.get_device_history(device_id, days=days, limit=1024)
+        if not history:
+            return []
+
+        metrics = ["total_bytes", "unique_destinations", "unique_ports", "dns_queries", "packet_rate"]
+        rows = []
+        latest = history[-1].features or {}
+        for metric in metrics:
+            values = []
+            for item in history:
+                features = item.features or {}
+                value = features.get(metric)
+                if value is not None:
+                    values.append(float(value))
+            if not values:
+                continue
+            values.sort()
+            p95_index = min(len(values) - 1, max(0, int(round((len(values) - 1) * 0.95))))
+            median_index = len(values) // 2
+            rows.append(
+                {
+                    "metric": metric,
+                    "median": float(values[median_index]),
+                    "p95": float(values[p95_index]),
+                    "latest": float(latest.get(metric)) if latest.get(metric) is not None else None,
+                }
+            )
+        return rows
+
 
 class BehaviorAlertService:
     def __init__(self, db: AsyncSession):

@@ -8,6 +8,7 @@ from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
     AnomalyListResponse, DeviceBehaviorAlertListResponse, DeviceRiskContributorsResponse,
+    DeviceBehaviorBaselineResponse,
 )
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -184,6 +185,25 @@ async def get_device_risk_contributors(
         risk_score=float(device.risk_score or 0.0),
         contributors=contributors,
     )
+
+
+@router.get("/{device_id}/behavior-baseline", response_model=DeviceBehaviorBaselineResponse)
+async def get_device_behavior_baseline(
+    device_id: int,
+    days: int = Query(7, ge=1, le=7),
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    history_service = InferenceHistoryService(db)
+    metrics = await cache.get_or_set(
+        f"device-baseline:{device_id}:{days}",
+        10.0,
+        lambda: history_service.get_behavior_baseline(device_id, days=days),
+    )
+    return DeviceBehaviorBaselineResponse(device_id=device_id, days=days, metrics=metrics)
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

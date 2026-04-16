@@ -88,6 +88,9 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("destination_novelty", inference)
         self.assertIn("dns_burst", inference)
         self.assertIn("port_churn", inference)
+        self.assertIn("traffic_pattern_drift", inference)
+        self.assertIn("beaconing_suspected", inference)
+        self.assertIn("def _baseline_stats(values: list[float])", inference)
         self.assertIn("save_behavior_alert(", inference)
         self.assertIn("device_behavior_alerts", ml_core)
 

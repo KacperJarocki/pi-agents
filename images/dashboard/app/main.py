@@ -193,6 +193,11 @@ async def get_device_risk_contributors(device_id: int):
     return await fetch_api(f"/devices/{device_id}/risk-contributors")
 
 
+@app.get("/api/devices/{device_id}/behavior-baseline")
+async def get_device_behavior_baseline(device_id: int, days: int = 7):
+    return await fetch_api(f"/devices/{device_id}/behavior-baseline?days={days}")
+
+
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 20):
     return await fetch_api(f"/anomalies?limit={limit}")

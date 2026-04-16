@@ -21,6 +21,8 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('Behavior Alerts', device_template)
         self.assertIn('Risk Contributors', device_template)
         self.assertIn('Behavior Baseline', device_template)
+        self.assertIn('Protocol Signals', device_template)
+        self.assertIn('/api/devices/${deviceId}/protocol-signals?hours=24', device_template)
 
 
 if __name__ == "__main__":

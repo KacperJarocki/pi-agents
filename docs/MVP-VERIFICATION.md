@@ -68,3 +68,32 @@ Oczekiwane:
 - `model_loaded`
 - `inference_complete`
 - anomaly lub wzrost `risk_score` po nietypowym ruchu
+
+## 6. Device Console / Explainability
+
+```bash
+curl -sS https://iot-api.homelab.kacperjarocki.dev/api/v1/devices/5/behavior-alerts?limit=10\&since_hours=168
+curl -sS https://iot-api.homelab.kacperjarocki.dev/api/v1/devices/5/risk-contributors
+curl -sS https://iot-api.homelab.kacperjarocki.dev/api/v1/devices/5/behavior-baseline?days=7
+curl -sS https://iot-api.homelab.kacperjarocki.dev/api/v1/devices/5/protocol-signals?hours=24
+```
+
+Oczekiwane:
+
+- endpointy zwracają poprawny `device_id`
+- `behavior-alerts` pokazuje heurystyki aktywowane dla urządzenia
+- `risk-contributors` zawiera `ml_inference` i najnowsze alerty behavior, jeśli istnieją
+- `behavior-baseline` pokazuje medianę i `p95` dla ostatnich 7 dni
+- `protocol-signals` zwraca DNS failure i ICMP echo summary
+
+## 7. Dashboard / Device Page
+
+```bash
+curl -sS https://iot-dashboard.homelab.kacperjarocki.dev/devices/5
+```
+
+Oczekiwane:
+
+- strona renderuje sekcje `Behavior Alerts`, `Risk Contributors`, `Behavior Baseline`, `Protocol Signals`
+- wykres `Inference Trail` pokazuje próbki z ostatnich 7 dni
+- wartości z explainability API są widoczne bez błędów 500 po stronie dashboardu

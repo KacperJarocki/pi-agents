@@ -198,8 +198,8 @@ class Database:
             
             cursor = await self.conn.execute("""
                 INSERT INTO traffic_flows 
-                (device_id, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (device_id, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 device_id,
                 flow["src_ip"],
@@ -208,7 +208,8 @@ class Database:
                 flow.get("dst_port", 0),
                 flow["protocol"],
                 flow.get("bytes", 0),
-                flow.get("dns_query")
+                flow.get("dns_query"),
+                json.dumps(flow.get("flags")) if flow.get("flags") is not None else None,
             ))
             ids.append(cursor.lastrowid)
         

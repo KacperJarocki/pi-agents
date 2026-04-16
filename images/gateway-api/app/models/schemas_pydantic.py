@@ -243,6 +243,18 @@ class DeviceBehaviorBaselineResponse(BaseModel):
     metrics: List[BehaviorBaselineMetric]
 
 
+class ProtocolSignal(BaseModel):
+    label: str
+    value: float
+    note: str
+
+
+class DeviceProtocolSignalsResponse(BaseModel):
+    device_id: int
+    hours: int
+    signals: List[ProtocolSignal]
+
+
 class HealthResponse(BaseModel):
     status: str
     database: str

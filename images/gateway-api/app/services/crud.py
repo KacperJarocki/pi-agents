@@ -485,6 +485,81 @@ class TrafficService:
         result = await self.db.execute(query)
         return [dict(row._mapping) for row in result]
 
+    async def get_device_protocol_signals(self, device_id: int, hours: int = 24) -> List[dict]:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        window_suffix = f"_{hours}h"
+
+        dns_failures_result = await self.db.execute(
+            select(func.count())
+            .select_from(TrafficFlow)
+            .where(
+                and_(
+                    TrafficFlow.device_id == device_id,
+                    TrafficFlow.timestamp >= since,
+                    func.json_extract(TrafficFlow.flags, '$.dns_rcode').is_not(None),
+                    cast(func.json_extract(TrafficFlow.flags, '$.dns_rcode'), Integer) > 0,
+                )
+            )
+        )
+        dns_failures = int(dns_failures_result.scalar() or 0)
+
+        icmp_requests_result = await self.db.execute(
+            select(func.count())
+            .select_from(TrafficFlow)
+            .where(
+                and_(
+                    TrafficFlow.device_id == device_id,
+                    TrafficFlow.timestamp >= since,
+                    cast(func.json_extract(TrafficFlow.flags, '$.icmp_type'), Integer) == 8,
+                )
+            )
+        )
+        icmp_requests = int(icmp_requests_result.scalar() or 0)
+
+        icmp_destinations_result = await self.db.execute(
+            select(func.count(func.distinct(TrafficFlow.dst_ip)))
+            .select_from(TrafficFlow)
+            .where(
+                and_(
+                    TrafficFlow.device_id == device_id,
+                    TrafficFlow.timestamp >= since,
+                    cast(func.json_extract(TrafficFlow.flags, '$.icmp_type'), Integer) == 8,
+                )
+            )
+        )
+        icmp_destinations = int(icmp_destinations_result.scalar() or 0)
+
+        top_dns_rcodes_result = await self.db.execute(
+            select(
+                cast(func.json_extract(TrafficFlow.flags, '$.dns_rcode'), Integer).label('rcode'),
+                func.count().label('count'),
+            )
+            .where(
+                and_(
+                    TrafficFlow.device_id == device_id,
+                    TrafficFlow.timestamp >= since,
+                    func.json_extract(TrafficFlow.flags, '$.dns_rcode').is_not(None),
+                )
+            )
+            .group_by('rcode')
+            .order_by(desc('count'))
+            .limit(3)
+        )
+        top_dns_rcodes = [f"rcode={row.rcode}:{int(row.count)}" for row in top_dns_rcodes_result]
+
+        return [
+            {
+                "label": f"dns_failures{window_suffix}",
+                "value": dns_failures,
+                "note": ", ".join(top_dns_rcodes) or "No DNS failures",
+            },
+            {
+                "label": f"icmp_echo_requests{window_suffix}",
+                "value": icmp_requests,
+                "note": f"unique_destinations={icmp_destinations}",
+            },
+        ]
+
 
 class InferenceHistoryService:
     def __init__(self, db: AsyncSession):

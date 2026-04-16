@@ -42,6 +42,21 @@ class TestCollectorMvpSources(unittest.TestCase):
         self.assertIn('"ff:ff:ff:ff:ff:ff"', src)
         self.assertIn('first_octet & 1', src)
 
+    def test_collector_enriches_dns_and_icmp_flags(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        collector_src = (repo / "images" / "collector" / "app" / "collector.py").read_text()
+        database_src = (repo / "images" / "collector" / "app" / "database.py").read_text()
+
+        self.assertIn('dns.flags.rcode', collector_src)
+        self.assertIn('icmp.type', collector_src)
+        self.assertIn('icmp.code', collector_src)
+        self.assertIn('flags or None', collector_src)
+        self.assertIn('INSERT INTO traffic_flows', database_src)
+        self.assertIn('dns_query, flags', database_src)
+        self.assertIn('json.dumps(flow.get("flags"))', database_src)
+
 
     def test_collector_uses_live_view_capture_defaults(self):
         from pathlib import Path

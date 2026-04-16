@@ -14,8 +14,19 @@ Pipeline wygląda tak:
 2. `tshark` czyta pcap i eksportuje wybrane pola
 3. parser zamienia rekordy na flow dict
 4. collector rozwiązuje tożsamość klienta z DHCP lease
-5. flow trafiają do `traffic_flows`
-6. statystyki urządzeń trafiają do `devices.extra_data`
+5. collector zapisuje też DNS / ICMP metadata w `traffic_flows.flags`
+6. flow trafiają do `traffic_flows`
+7. statystyki urządzeń trafiają do `devices.extra_data`
+
+## Protocol Enrichment
+
+Collector wyciąga z `tshark` dodatkowo:
+
+- `dns.flags.rcode`
+- `icmp.type`
+- `icmp.code`
+
+Pola te są zapisywane jako JSON w `traffic_flows.flags` i później wykorzystywane przez ML/API do `dns_failure_spike`, `icmp_sweep_suspected` i `protocol-signals`.
 
 ## Device Identity
 
@@ -37,9 +48,9 @@ Typowe env:
 
 - `INTERFACE=wlan0`
 - `DATABASE_PATH=/data/iot-security.db`
-- `BATCH_SIZE=25`
-- `CAPTURE_PACKET_COUNT=25`
-- `CAPTURE_TIMEOUT=5`
+- `BATCH_SIZE=150`
+- `CAPTURE_PACKET_COUNT=300`
+- `CAPTURE_TIMEOUT=2`
 - `LAN_SUBNET_CIDR=192.168.50.0/24`
 - `LEASE_FILE_PATH=/gateway-state/dnsmasq.leases`
 

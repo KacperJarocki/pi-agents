@@ -8,7 +8,7 @@ from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
     AnomalyListResponse, DeviceBehaviorAlertListResponse, DeviceRiskContributorsResponse,
-    DeviceBehaviorBaselineResponse,
+    DeviceBehaviorBaselineResponse, DeviceProtocolSignalsResponse,
 )
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -204,6 +204,25 @@ async def get_device_behavior_baseline(
         lambda: history_service.get_behavior_baseline(device_id, days=days),
     )
     return DeviceBehaviorBaselineResponse(device_id=device_id, days=days, metrics=metrics)
+
+
+@router.get("/{device_id}/protocol-signals", response_model=DeviceProtocolSignalsResponse)
+async def get_device_protocol_signals(
+    device_id: int,
+    hours: int = Query(24, ge=1, le=168),
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    traffic_service = TrafficService(db)
+    signals = await cache.get_or_set(
+        f"device-protocol-signals:{device_id}:{hours}",
+        5.0,
+        lambda: traffic_service.get_device_protocol_signals(device_id, hours=hours),
+    )
+    return DeviceProtocolSignalsResponse(device_id=device_id, hours=hours, signals=signals)
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

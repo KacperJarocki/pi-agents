@@ -170,6 +170,13 @@ Services:
 |----------|--------|-------------|
 | `/api/v1/devices` | GET | List all devices |
 | `/api/v1/devices/{id}` | GET | Get device details |
+| `/api/v1/devices/{id}/traffic` | GET | 24h traffic profile for the device |
+| `/api/v1/devices/{id}/destinations` | GET | Top destinations, ports and DNS queries |
+| `/api/v1/devices/{id}/inference-history` | GET | 7-day inference trail |
+| `/api/v1/devices/{id}/behavior-alerts` | GET | Recent heuristic behavior alerts |
+| `/api/v1/devices/{id}/risk-contributors` | GET | Active ML and heuristic contributors |
+| `/api/v1/devices/{id}/behavior-baseline` | GET | Per-device median and p95 baseline |
+| `/api/v1/devices/{id}/protocol-signals` | GET | DNS failure and ICMP signal summary |
 | `/api/v1/anomalies` | GET | List anomalies |
 | `/api/v1/metrics/summary` | GET | System summary |
 | `/api/v1/metrics/timeline` | GET | Traffic timeline |
@@ -187,9 +194,19 @@ Services:
 - **Algorithm**: Isolation Forest (sklearn)
 - **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate)
 - **Training**: CronJob every 30 minutes for MVP
-- **Inference**: Batch every 5 minutes
-- **MVP mode**: per-device models with 5-minute buckets
+- **Inference**: Batch every 60 seconds on 2-minute buckets
+- **MVP mode**: per-device models with adaptive device baseline support
 - **Minimum training samples**: 20 per-device buckets
+
+## Detection Layers
+
+- ML scoring is combined with heuristic behavior alerts to raise `risk_score` faster on suspicious bursts.
+- Current heuristic alerts include `destination_novelty`, `dns_burst`, `port_churn`, `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, and `icmp_sweep_suspected`.
+- The collector enriches flows with DNS response codes and ICMP metadata so protocol-level signals can be shown in the API and dashboard.
+
+## Device Console
+
+- Dashboard device detail pages expose a SOC-style view with traffic profile, inference trail, top destinations, top ports, top DNS queries, behavior alerts, risk contributors, behavior baseline, and protocol signals.
 
 ## Device Presence
 

@@ -66,6 +66,12 @@ def build_tshark_command(pcap_file: str) -> list[str]:
         "eth.addr",
         "-e",
         "dns.qry.name",
+        "-e",
+        "dns.flags.rcode",
+        "-e",
+        "icmp.type",
+        "-e",
+        "icmp.code",
         "-E",
         "separator=|",
     ]
@@ -383,7 +389,7 @@ class TrafficCollector:
             # 2 tcp.srcport, 3 tcp.dstport,
             # 4 udp.srcport, 5 udp.dstport,
             # 6 protocol, 7 frame.len, 8 tcp.len, 9 udp.length,
-            # 10 eth.addr, 11 dns.qry.name
+            # 10 eth.addr, 11 dns.qry.name, 12 dns.flags.rcode, 13 icmp.type, 14 icmp.code
             protocol = parts[6] if len(parts) > 6 and parts[6] else "UNKNOWN"
 
             if protocol == "TCP":
@@ -400,10 +406,21 @@ class TrafficCollector:
 
             mac_addr = parts[10] if len(parts) > 10 and parts[10] else None
             dns_query = parts[11] if len(parts) > 11 and parts[11] else None
+            dns_rcode = parts[12] if len(parts) > 12 and parts[12] else None
+            icmp_type = parts[13] if len(parts) > 13 and parts[13] else None
+            icmp_code = parts[14] if len(parts) > 14 and parts[14] else None
 
             # eth.addr may contain "src_mac,dst_mac"; take the first value.
             if mac_addr and "," in mac_addr:
                 mac_addr = mac_addr.split(",", 1)[0]
+
+            flags = {}
+            if dns_rcode is not None and str(dns_rcode).isdigit():
+                flags["dns_rcode"] = int(dns_rcode)
+            if icmp_type is not None and str(icmp_type).isdigit():
+                flags["icmp_type"] = int(icmp_type)
+            if icmp_code is not None and str(icmp_code).isdigit():
+                flags["icmp_code"] = int(icmp_code)
 
             return {
                 "src_ip": src_ip,
@@ -414,6 +431,7 @@ class TrafficCollector:
                 "bytes": frame_len,
                 "mac_address": mac_addr,
                 "dns_query": dns_query,
+                "flags": flags or None,
                 "timestamp": datetime.utcnow(),
             }
         except Exception as e:

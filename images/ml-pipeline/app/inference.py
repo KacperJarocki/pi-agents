@@ -216,6 +216,62 @@ def _build_behavior_alerts(
                 )
                 break
 
+    latest_dns_failures = int((latest_bucket.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) > 0).sum())
+    historical_dns_failures = []
+    if not history_flows.empty and "dns_rcode" in history_flows.columns:
+        for _, group in history_flows.groupby("bucket_start"):
+            historical_dns_failures.append(float((group.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) > 0).sum()))
+    dns_failure_baseline = _baseline_stats(historical_dns_failures)
+    if latest_dns_failures >= max(3, dns_failure_baseline["p95"] + 1):
+        score = min(100.0, latest_dns_failures * 16.0 + dns_failure_baseline["p95"] * 5.0)
+        alerts.append(
+            {
+                "device_id": device_id,
+                "bucket_start": bucket_start,
+                "alert_type": "dns_failure_spike",
+                "severity": _behavior_severity(score, 75.0),
+                "score": round(score, 2),
+                "title": "DNS failure spike",
+                "description": f"Device generated {latest_dns_failures} DNS failures in the latest bucket.",
+                "evidence": {
+                    "dns_failures": latest_dns_failures,
+                    "baseline_dns_failures_median": round(dns_failure_baseline["median"], 2),
+                    "baseline_dns_failures_p95": round(dns_failure_baseline["p95"], 2),
+                },
+            }
+        )
+
+    latest_icmp_requests = latest_bucket[
+        latest_bucket.get("icmp_type", pd.Series(dtype=float)).fillna(-1).astype(float) == 8
+    ] if "icmp_type" in latest_bucket.columns else pd.DataFrame()
+    latest_icmp_request_count = int(len(latest_icmp_requests))
+    latest_icmp_destinations = int(latest_icmp_requests["dst_ip"].nunique()) if not latest_icmp_requests.empty else 0
+    historical_icmp_counts = []
+    if not history_flows.empty and "icmp_type" in history_flows.columns:
+        for _, group in history_flows.groupby("bucket_start"):
+            icmp_requests = group[group.get("icmp_type", pd.Series(dtype=float)).fillna(-1).astype(float) == 8]
+            historical_icmp_counts.append(float(len(icmp_requests)))
+    icmp_baseline = _baseline_stats(historical_icmp_counts)
+    if latest_icmp_request_count >= max(4, icmp_baseline["p95"] + 1) and latest_icmp_destinations >= 3:
+        score = min(100.0, latest_icmp_request_count * 10.0 + latest_icmp_destinations * 8.0)
+        alerts.append(
+            {
+                "device_id": device_id,
+                "bucket_start": bucket_start,
+                "alert_type": "icmp_sweep_suspected",
+                "severity": _behavior_severity(score, 78.0),
+                "score": round(score, 2),
+                "title": "ICMP sweep suspected",
+                "description": f"Device sent {latest_icmp_request_count} ICMP echo requests to {latest_icmp_destinations} destinations in the latest bucket.",
+                "evidence": {
+                    "icmp_echo_requests": latest_icmp_request_count,
+                    "unique_icmp_destinations": latest_icmp_destinations,
+                    "baseline_icmp_requests_median": round(icmp_baseline["median"], 2),
+                    "baseline_icmp_requests_p95": round(icmp_baseline["p95"], 2),
+                },
+            }
+        )
+
     return alerts
 
 
@@ -225,6 +281,10 @@ def _risk_with_behavior(ml_risk: float, behavior_alerts: list[dict]) -> float:
     bonus = sum(min(25.0, float(alert["score"]) * 0.25) for alert in behavior_alerts)
     if any(alert["alert_type"] == "beaconing_suspected" for alert in behavior_alerts):
         bonus += 12.0
+    if any(alert["alert_type"] == "icmp_sweep_suspected" for alert in behavior_alerts):
+        bonus += 10.0
+    if any(alert["alert_type"] == "dns_failure_spike" for alert in behavior_alerts):
+        bonus += 8.0
     if len(behavior_alerts) >= 2:
         bonus += 10.0
     return round(min(100.0, ml_risk + bonus), 4)

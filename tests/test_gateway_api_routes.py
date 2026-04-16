@@ -35,6 +35,7 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn('@router.get("/{device_id}/behavior-alerts"', router_src)
         self.assertIn('@router.get("/{device_id}/risk-contributors"', router_src)
         self.assertIn('@router.get("/{device_id}/behavior-baseline"', router_src)
+        self.assertIn('@router.get("/{device_id}/protocol-signals"', router_src)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
 ## Widoki
 
 - `/` - główny dashboard
+- `/devices/{id}` - SOC-like console dla pojedynczego urządzenia
 - `/gateway` - konfiguracja Wi-Fi i status gatewaya
 
 ## Dane i badge
@@ -21,6 +22,13 @@ Dashboard pokazuje:
 - `Connected via recent_traffic`
 - `Model ready`
 - `Model missing`
+
+Na stronie urządzenia dashboard pokazuje też:
+
+- `Behavior Alerts`
+- `Risk Contributors`
+- `Behavior Baseline`
+- `Protocol Signals`
 
 ## Mechanika
 

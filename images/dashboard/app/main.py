@@ -198,6 +198,11 @@ async def get_device_behavior_baseline(device_id: int, days: int = 7):
     return await fetch_api(f"/devices/{device_id}/behavior-baseline?days={days}")
 
 
+@app.get("/api/devices/{device_id}/protocol-signals")
+async def get_device_protocol_signals(device_id: int, hours: int = 24):
+    return await fetch_api(f"/devices/{device_id}/protocol-signals?hours={hours}")
+
+
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 20):
     return await fetch_api(f"/anomalies?limit={limit}")

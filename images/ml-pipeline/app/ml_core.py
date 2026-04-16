@@ -161,7 +161,7 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     
     cursor = await conn.execute("""
         SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
-               protocol, bytes_sent, bytes_received, dns_query
+               protocol, bytes_sent, bytes_received, dns_query, flags
         FROM traffic_flows
         WHERE device_id = ? AND timestamp >= datetime('now', '-' || ? || ' hours')
         ORDER BY timestamp
@@ -175,6 +175,11 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     
     df = pd.DataFrame([dict(row) for row in rows])
     df['timestamp'] = pd.to_datetime(df['timestamp'])
+    if 'flags' in df.columns:
+        df['flags'] = df['flags'].apply(lambda value: json.loads(value) if isinstance(value, str) and value else (value or {}))
+        df['dns_rcode'] = df['flags'].apply(lambda value: value.get('dns_rcode') if isinstance(value, dict) else None)
+        df['icmp_type'] = df['flags'].apply(lambda value: value.get('icmp_type') if isinstance(value, dict) else None)
+        df['icmp_code'] = df['flags'].apply(lambda value: value.get('icmp_code') if isinstance(value, dict) else None)
     return df
 
 
@@ -184,7 +189,7 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
     
     cursor = await conn.execute("""
         SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
-               protocol, bytes_sent, bytes_received, dns_query
+               protocol, bytes_sent, bytes_received, dns_query, flags
         FROM traffic_flows
         WHERE timestamp >= datetime('now', '-' || ? || ' hours')
         ORDER BY device_id, timestamp
@@ -198,6 +203,11 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
     
     df = pd.DataFrame([dict(row) for row in rows])
     df['timestamp'] = pd.to_datetime(df['timestamp'])
+    if 'flags' in df.columns:
+        df['flags'] = df['flags'].apply(lambda value: json.loads(value) if isinstance(value, str) and value else (value or {}))
+        df['dns_rcode'] = df['flags'].apply(lambda value: value.get('dns_rcode') if isinstance(value, dict) else None)
+        df['icmp_type'] = df['flags'].apply(lambda value: value.get('icmp_type') if isinstance(value, dict) else None)
+        df['icmp_code'] = df['flags'].apply(lambda value: value.get('icmp_code') if isinstance(value, dict) else None)
     return df
 
 

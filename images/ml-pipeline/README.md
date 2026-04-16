@@ -26,7 +26,23 @@ Inferencja:
 2. buduje bucketed samples
 3. bierze najnowszy bucket dla każdego urządzenia
 4. ładuje model per-device
-5. zapisuje anomaly i aktualizuje `risk_score`
+5. buduje adaptive baseline z historii inferencji i flow
+6. uruchamia heurystyki behavior
+7. zapisuje anomaly i aktualizuje `risk_score`
+
+## Heurystyki Behavior
+
+Aktualnie inference dopina do ML także:
+
+- `destination_novelty`
+- `dns_burst`
+- `port_churn`
+- `traffic_pattern_drift`
+- `beaconing_suspected`
+- `dns_failure_spike`
+- `icmp_sweep_suspected`
+
+Wyniki trafiają do `device_behavior_alerts`, a najnowsze cechy do `device_inference_history`.
 
 ## Kluczowe env
 

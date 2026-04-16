@@ -21,6 +21,17 @@
 - `/api/v1/metrics/*`
 - `/api/v1/gateway/wifi/*`
 
+## Device Explainability
+
+Na device detail API są dostępne dodatkowe endpointy:
+
+- `/api/v1/devices/{id}/behavior-alerts`
+- `/api/v1/devices/{id}/risk-contributors`
+- `/api/v1/devices/{id}/behavior-baseline`
+- `/api/v1/devices/{id}/protocol-signals`
+
+Te endpointy składają razem wynik ML, heurystyki behavior i protocol-level signals z collectora.
+
 ## Presence Model
 
 Widoczność urządzeń opiera się na:

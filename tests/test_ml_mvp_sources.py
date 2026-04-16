@@ -90,9 +90,23 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("port_churn", inference)
         self.assertIn("traffic_pattern_drift", inference)
         self.assertIn("beaconing_suspected", inference)
+        self.assertIn("dns_failure_spike", inference)
+        self.assertIn("icmp_sweep_suspected", inference)
         self.assertIn("def _baseline_stats(values: list[float])", inference)
         self.assertIn("save_behavior_alert(", inference)
         self.assertIn("device_behavior_alerts", ml_core)
+
+    def test_protocol_enrichment_flows_into_ml_features(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        ml_core = (repo / "images" / "ml-pipeline" / "app" / "ml_core.py").read_text()
+
+        self.assertIn("flags", ml_core)
+        self.assertIn("json.loads", ml_core)
+        self.assertIn("dns_rcode", ml_core)
+        self.assertIn("icmp_type", ml_core)
+        self.assertIn("icmp_code", ml_core)
 
 
 if __name__ == "__main__":

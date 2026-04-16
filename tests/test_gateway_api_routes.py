@@ -22,6 +22,17 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn("gateway_wifi_router", routers_init.read_text())
         self.assertIn("app.include_router(gateway_wifi_router", main_file.read_text())
 
+    def test_device_detail_routes_exist(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        router_src = (repo / "images" / "gateway-api" / "app" / "routers" / "devices.py").read_text()
+
+        self.assertIn('@router.get("/{device_id}/traffic"', router_src)
+        self.assertIn('@router.get("/{device_id}/destinations"', router_src)
+        self.assertIn('@router.get("/{device_id}/anomalies"', router_src)
+        self.assertIn('@router.get("/{device_id}/inference-history"', router_src)
+
 
 if __name__ == "__main__":
     unittest.main()

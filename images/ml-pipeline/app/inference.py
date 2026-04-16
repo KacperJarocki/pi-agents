@@ -3,7 +3,7 @@ import os
 from datetime import datetime, UTC
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
-from .ml_core import save_anomaly, update_device_risk_score, log
+from .ml_core import save_anomaly, save_inference_result, update_device_risk_score, log
 
 
 def _risk_from_score(score: float) -> float:
@@ -40,18 +40,30 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         score = a["anomaly_score"]
         is_anomaly = bool(a.get("is_anomaly"))
         severity = a["severity"]
+        risk_score = _risk_from_score(score)
+        bucket_start = a.get("bucket_start")
 
         await update_device_risk_score(
             device_id=device_id,
-            risk_score=_risk_from_score(score),
+            risk_score=risk_score,
             last_inference_score=float(score),
+        )
+        await save_inference_result(
+            device_id=device_id,
+            bucket_start=bucket_start,
+            anomaly_score=float(score),
+            risk_score=risk_score,
+            is_anomaly=is_anomaly,
+            severity=severity,
+            features=a.get("features") or {},
+            retention_days=7,
         )
 
         log.info(
             "inference_device_score",
             device_id=device_id,
             score=float(score),
-            risk_score=_risk_from_score(score),
+            risk_score=risk_score,
             is_anomaly=is_anomaly,
         )
 

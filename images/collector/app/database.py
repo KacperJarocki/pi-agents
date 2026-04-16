@@ -78,6 +78,20 @@ class Database:
             
             CREATE INDEX IF NOT EXISTS idx_anomalies_device ON anomalies(device_id);
             CREATE INDEX IF NOT EXISTS idx_anomalies_timestamp ON anomalies(timestamp);
+
+            CREATE TABLE IF NOT EXISTS device_inference_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                bucket_start TIMESTAMP,
+                anomaly_score REAL NOT NULL,
+                risk_score REAL NOT NULL,
+                is_anomaly INTEGER DEFAULT 0,
+                severity TEXT NOT NULL,
+                features TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_inference_history_device_time ON device_inference_history(device_id, timestamp);
             
             CREATE TABLE IF NOT EXISTS model_metadata (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

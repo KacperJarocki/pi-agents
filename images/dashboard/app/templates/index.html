@@ -37,6 +37,15 @@
             transform: translateY(-2px);
             border-color: rgba(255, 255, 255, 0.2);
         }
+        .skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
         .risk-critical { border-left: 4px solid #ef4444; }
         .risk-warning { border-left: 4px solid #f59e0b; }
         .risk-ok { border-left: 4px solid #22c55e; }
@@ -187,21 +196,23 @@
                         <div id="devices-tab" class="tab-panel">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4"
                                  hx-get="/partial/devices"
-                                 hx-trigger="every 30s"
-                                 hx-swap="innerHTML">
+                                 hx-trigger="load, every 10s"
+                                  hx-swap="innerHTML">
+                                <div class="device-card skeleton h-40"></div>
+                                <div class="device-card skeleton h-40"></div>
                             </div>
                         </div>
                         <div id="timeline-tab" class="tab-panel hidden">
                             <div class="flex gap-2 items-end h-40"
                                  hx-get="/partial/timeline"
-                                 hx-trigger="every 60s"
-                                 hx-swap="innerHTML">
+                                 hx-trigger="load, every 20s"
+                                  hx-swap="innerHTML">
                             </div>
                         </div>
                         <div id="talkers-tab" class="tab-panel hidden">
                             <div hx-get="/partial/top-talkers"
-                                 hx-trigger="every 60s"
-                                 hx-swap="innerHTML">
+                                 hx-trigger="load, every 20s"
+                                  hx-swap="innerHTML">
                             </div>
                         </div>
                     </div>
@@ -218,8 +229,8 @@
                     </div>
                     <div class="p-4 space-y-3 max-h-96 overflow-y-auto"
                          hx-get="/partial/anomalies"
-                         hx-trigger="every 30s"
-                         hx-swap="innerHTML">
+                         hx-trigger="load, every 10s"
+                          hx-swap="innerHTML">
                     </div>
                 </div>
             </div>

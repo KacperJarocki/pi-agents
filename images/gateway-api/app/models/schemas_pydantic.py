@@ -150,6 +150,51 @@ class MlStatusResponse(BaseModel):
     devices: List[DeviceModelStatus]
 
 
+class DeviceTrafficPoint(BaseModel):
+    timestamp: datetime
+    total_traffic_mb: float
+    packets: int
+    unique_destinations: int
+
+
+class DeviceTrafficResponse(BaseModel):
+    device_id: int
+    hours: int
+    data: List[DeviceTrafficPoint]
+
+
+class DeviceInferenceHistoryPoint(BaseModel):
+    timestamp: datetime
+    bucket_start: Optional[datetime] = None
+    anomaly_score: float
+    risk_score: float
+    is_anomaly: bool
+    severity: str
+    features: Optional[dict] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceInferenceHistoryResponse(BaseModel):
+    device_id: int
+    days: int
+    data: List[DeviceInferenceHistoryPoint]
+
+
+class DeviceDestination(BaseModel):
+    value: str
+    total_bytes: int
+    connection_count: int
+
+
+class DeviceDestinationsResponse(BaseModel):
+    device_id: int
+    destinations: List[DeviceDestination]
+    ports: List[DeviceDestination]
+    dns_queries: List[DeviceDestination]
+
+
 class HealthResponse(BaseModel):
     status: str
     database: str

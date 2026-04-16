@@ -60,6 +60,24 @@ class Anomaly(Base):
     resolved_at = Column(DateTime, nullable=True)
 
 
+class DeviceInferenceHistory(Base):
+    __tablename__ = "device_inference_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, nullable=False, index=True)
+    timestamp = Column(DateTime, server_default=func.now(), index=True)
+    bucket_start = Column(DateTime, nullable=True)
+    anomaly_score = Column(Float, nullable=False)
+    risk_score = Column(Float, nullable=False)
+    is_anomaly = Column(Boolean, default=False)
+    severity = Column(String(10), nullable=False)
+    features = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index('idx_inference_history_device_time', 'device_id', 'timestamp'),
+    )
+
+
 class ModelMetadata(Base):
     __tablename__ = "model_metadata"
 

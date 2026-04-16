@@ -45,7 +45,7 @@ manager = ConnectionManager()
 
 
 async def fetch_api(endpoint: str):
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=6.0) as client:
         try:
             response = await client.get(f"{GATEWAY_API}{API_PREFIX}{endpoint}")
             response.raise_for_status()
@@ -72,6 +72,18 @@ async def root(request: Request):
         "index.html",
         {
             "gateway_api": GATEWAY_API,
+            "refresh_interval": REFRESH_INTERVAL,
+        },
+    )
+
+
+@app.get("/devices/{device_id}", response_class=HTMLResponse)
+async def device_detail(request: Request, device_id: int):
+    return templates.TemplateResponse(
+        request,
+        "device.html",
+        {
+            "device_id": device_id,
             "refresh_interval": REFRESH_INTERVAL,
         },
     )
@@ -151,6 +163,26 @@ async def get_device(device_id: int):
     return await fetch_api(f"/devices/{device_id}")
 
 
+@app.get("/api/devices/{device_id}/traffic")
+async def get_device_traffic(device_id: int, hours: int = 24):
+    return await fetch_api(f"/devices/{device_id}/traffic?hours={hours}")
+
+
+@app.get("/api/devices/{device_id}/destinations")
+async def get_device_destinations(device_id: int, hours: int = 24):
+    return await fetch_api(f"/devices/{device_id}/destinations?hours={hours}")
+
+
+@app.get("/api/devices/{device_id}/anomalies")
+async def get_device_anomalies(device_id: int, limit: int = 20):
+    return await fetch_api(f"/devices/{device_id}/anomalies?limit={limit}")
+
+
+@app.get("/api/devices/{device_id}/inference-history")
+async def get_device_inference_history(device_id: int, days: int = 7):
+    return await fetch_api(f"/devices/{device_id}/inference-history?days={days}")
+
+
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 20):
     return await fetch_api(f"/anomalies?limit={limit}")
@@ -174,12 +206,13 @@ async def get_top_talkers(limit: int = 10):
 @app.get("/partial/devices")
 async def partial_devices():
     devices_data = await fetch_api("/devices")
-    summary_data = await fetch_api("/metrics/summary")
-    
     devices = devices_data.get("devices", [])
     
     html = ""
     for device in devices:
+        device_id = device.get("id")
+        device_href = f'/devices/{device_id}' if isinstance(device_id, int) and device_id > 0 else '#'
+        open_label = 'OPEN' if device_href != '#' else 'LEASE ONLY'
         risk = device.get("risk_score", 0)
         status_class = "risk-critical" if risk > 70 else "risk-warning" if risk > 40 else "risk-ok"
         status_icon = "🔴" if risk > 70 else "🟡" if risk > 40 else "🟢"
@@ -200,10 +233,12 @@ async def partial_devices():
         )
         
         html += f"""
+        <a href="{device_href}" class="block">
         <div class="device-card {status_class}">
             <div class="device-header">
                 <span class="status-icon">{status_icon}</span>
                 <span class="device-name">{device.get('hostname', device.get('ip_address', 'Unknown'))}</span>
+                <span class="text-xs text-blue-300">{open_label}</span>
             </div>
             <div class="mt-2 mb-3 flex flex-wrap gap-2">{connection_badge}{model_badge}</div>
             <div class="device-details">
@@ -228,6 +263,7 @@ async def partial_devices():
             </div>
             <div class="risk-score">Risk: {risk:.1f}%</div>
         </div>
+        </a>
         """
     
     if not devices:

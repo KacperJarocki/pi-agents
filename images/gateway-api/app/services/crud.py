@@ -5,7 +5,8 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from pathlib import Path
-from ..models.schemas import Device, TrafficFlow, Anomaly, ModelMetadata
+from time import perf_counter
+from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
 )
@@ -123,8 +124,47 @@ class DeviceService:
         return result.scalar_one_or_none()
 
     async def list_devices(self, skip: int = 0, limit: int = 100, 
-                          active_only: bool = False) -> tuple[List[Device], int]:
-        query = select(Device).order_by(desc(Device.risk_score))
+                           active_only: bool = False) -> tuple[List[Device], int]:
+        started = perf_counter()
+
+        if active_only:
+            query = select(Device).order_by(desc(Device.risk_score), desc(Device.last_seen))
+            result = await self.db.execute(query)
+            devices = list(result.scalars().all())
+
+            present_macs, present_ips, source_map, clients = await self._presence_maps()
+            for device in devices:
+                self._decorate_device_presence(device, present_macs, present_ips, source_map)
+
+            seen_keys = set()
+            for device in devices:
+                if device.mac_address and not device.mac_address.startswith("ip:"):
+                    seen_keys.add(f"mac:{device.mac_address.lower()}")
+                if device.ip_address:
+                    seen_keys.add(f"ip:{device.ip_address}")
+
+            synthetic = []
+            for idx, client in enumerate(clients):
+                mac = (client.get("mac_address") or "").lower()
+                ip = client.get("ip_address") or ""
+                if (mac and f"mac:{mac}" in seen_keys) or (ip and f"ip:{ip}" in seen_keys):
+                    continue
+                synthetic.append(self._synthetic_device(client, idx))
+
+            devices.extend(synthetic)
+            devices = [d for d in devices if getattr(d, "connected", False)]
+            total = len(devices)
+            log.info("list_devices_timed", active_only=active_only, total=total, duration_ms=round((perf_counter() - started) * 1000, 2))
+            return devices[skip:skip + limit], total
+
+        count_result = await self.db.execute(select(func.count()).select_from(Device))
+        db_total = int(count_result.scalar() or 0)
+        query = (
+            select(Device)
+            .order_by(desc(Device.risk_score), desc(Device.last_seen))
+            .offset(skip)
+            .limit(limit)
+        )
         result = await self.db.execute(query)
         devices = list(result.scalars().all())
 
@@ -140,21 +180,35 @@ class DeviceService:
                 seen_keys.add(f"ip:{device.ip_address}")
 
         synthetic = []
+        synthetic_total = 0
         for idx, client in enumerate(clients):
             mac = (client.get("mac_address") or "").lower()
             ip = client.get("ip_address") or ""
             if (mac and f"mac:{mac}" in seen_keys) or (ip and f"ip:{ip}" in seen_keys):
                 continue
-            synthetic.append(self._synthetic_device(client, idx))
+            synthetic_total += 1
+            if skip == 0 and len(devices) + len(synthetic) < limit:
+                synthetic.append(self._synthetic_device(client, idx))
 
         devices.extend(synthetic)
-
-        if active_only:
-            devices = [d for d in devices if getattr(d, "connected", False)]
-
-        total = len(devices)
-        devices = devices[skip:skip + limit]
+        total = db_total + synthetic_total
+        log.info("list_devices_timed", active_only=active_only, total=total, duration_ms=round((perf_counter() - started) * 1000, 2))
         return devices, total
+
+    async def count_connected_devices(self) -> int:
+        started = perf_counter()
+        devices, _ = await self.list_devices(limit=1000, active_only=True)
+        count = len(devices)
+        log.info("count_connected_devices_timed", count=count, duration_ms=round((perf_counter() - started) * 1000, 2))
+        return count
+
+    async def get_decorated_device(self, device_id: int) -> Optional[Device]:
+        device = await self.get_device(device_id)
+        if not device:
+            return None
+        present_macs, present_ips, source_map, _ = await self._presence_maps()
+        self._decorate_device_presence(device, present_macs, present_ips, source_map)
+        return device
 
     async def update_device(self, device_id: int, data: DeviceUpdate) -> Optional[Device]:
         device = await self.get_device(device_id)
@@ -276,6 +330,7 @@ class TrafficService:
         return flow
 
     async def get_timeline_data(self, hours: int = 24, interval_minutes: int = 60) -> List[dict]:
+        started = perf_counter()
         since = datetime.utcnow() - timedelta(hours=hours)
 
         bucket_size = max(15, int(interval_minutes)) * 60
@@ -313,9 +368,11 @@ class TrafficService:
                     "active_devices": int(row.active_devices or 0),
                 }
             )
+        log.info("get_timeline_data_timed", hours=hours, points=len(data), duration_ms=round((perf_counter() - started) * 1000, 2))
         return data
 
     async def get_top_talkers(self, limit: int = 10, hours: int = 24) -> List[dict]:
+        started = perf_counter()
         since = datetime.utcnow() - timedelta(hours=hours)
         
         query = select(
@@ -331,5 +388,122 @@ class TrafficService:
         ).limit(limit)
         
         result = await self.db.execute(query)
-        return [{"ip_address": row.dst_ip, "total_bytes": row.total_bytes,
+        data = [{"ip_address": row.dst_ip, "total_bytes": row.total_bytes,
                  "connection_count": row.connection_count} for row in result]
+        log.info("get_top_talkers_timed", hours=hours, limit=limit, rows=len(data), duration_ms=round((perf_counter() - started) * 1000, 2))
+        return data
+
+    async def get_device_traffic(self, device_id: int, hours: int = 24, interval_minutes: int = 5) -> List[dict]:
+        bucket_size = max(5, int(interval_minutes)) * 60
+        since = datetime.utcnow() - timedelta(hours=hours)
+        flow_epoch = cast(func.strftime('%s', TrafficFlow.timestamp), Integer)
+        flow_bucket_epoch = cast(flow_epoch / bucket_size, Integer) * bucket_size
+        flow_bucket = func.datetime(flow_bucket_epoch, 'unixepoch').label('bucket')
+
+        query = (
+            select(
+                flow_bucket,
+                func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_traffic'),
+                func.count(TrafficFlow.id).label('packets'),
+                func.count(func.distinct(TrafficFlow.dst_ip)).label('unique_destinations'),
+            )
+            .where(and_(TrafficFlow.device_id == device_id, TrafficFlow.timestamp >= since))
+            .group_by(flow_bucket)
+            .order_by(flow_bucket)
+        )
+        result = await self.db.execute(query)
+        return [
+            {
+                "timestamp": row.bucket.replace(' ', 'T') + 'Z',
+                "total_traffic_mb": float((row.total_traffic or 0) / (1024 * 1024)),
+                "packets": int(row.packets or 0),
+                "unique_destinations": int(row.unique_destinations or 0),
+            }
+            for row in result
+            if row.bucket
+        ]
+
+    async def get_device_destinations(self, device_id: int, hours: int = 24, limit: int = 10) -> List[dict]:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        query = (
+            select(
+                TrafficFlow.dst_ip.label('value'),
+                func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_bytes'),
+                func.count(TrafficFlow.id).label('connection_count'),
+            )
+            .where(and_(TrafficFlow.device_id == device_id, TrafficFlow.timestamp >= since))
+            .group_by(TrafficFlow.dst_ip)
+            .order_by(desc('total_bytes'))
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        return [dict(row._mapping) for row in result]
+
+    async def get_device_ports(self, device_id: int, hours: int = 24, limit: int = 10) -> List[dict]:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        query = (
+            select(
+                cast(TrafficFlow.dst_port, Integer).label('value'),
+                func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_bytes'),
+                func.count(TrafficFlow.id).label('connection_count'),
+            )
+            .where(and_(TrafficFlow.device_id == device_id, TrafficFlow.timestamp >= since))
+            .group_by(TrafficFlow.dst_port)
+            .order_by(desc('total_bytes'))
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        return [
+            {
+                "value": str(row.value or 0),
+                "total_bytes": int(row.total_bytes or 0),
+                "connection_count": int(row.connection_count or 0),
+            }
+            for row in result
+        ]
+
+    async def get_device_dns_queries(self, device_id: int, hours: int = 24, limit: int = 10) -> List[dict]:
+        since = datetime.utcnow() - timedelta(hours=hours)
+        query = (
+            select(
+                TrafficFlow.dns_query.label('value'),
+                func.sum(TrafficFlow.bytes_sent + TrafficFlow.bytes_received).label('total_bytes'),
+                func.count(TrafficFlow.id).label('connection_count'),
+            )
+            .where(
+                and_(
+                    TrafficFlow.device_id == device_id,
+                    TrafficFlow.timestamp >= since,
+                    TrafficFlow.dns_query.is_not(None),
+                )
+            )
+            .group_by(TrafficFlow.dns_query)
+            .order_by(desc('connection_count'))
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+        return [dict(row._mapping) for row in result]
+
+
+class InferenceHistoryService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_device_history(self, device_id: int, days: int = 7, limit: int = 512) -> List[DeviceInferenceHistory]:
+        since = datetime.utcnow() - timedelta(days=days)
+        result = await self.db.execute(
+            select(DeviceInferenceHistory)
+            .where(and_(DeviceInferenceHistory.device_id == device_id, DeviceInferenceHistory.timestamp >= since))
+            .order_by(DeviceInferenceHistory.timestamp.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def latest_device_history(self, device_id: int) -> Optional[DeviceInferenceHistory]:
+        result = await self.db.execute(
+            select(DeviceInferenceHistory)
+            .where(DeviceInferenceHistory.device_id == device_id)
+            .order_by(desc(DeviceInferenceHistory.timestamp))
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

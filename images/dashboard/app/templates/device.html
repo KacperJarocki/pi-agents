@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Console</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        socbg: '#08111f',
+                        socpanel: '#0d1b2a',
+                        socline: '#17324d',
+                        socblue: '#38bdf8',
+                        socgreen: '#22c55e',
+                        socamber: '#f59e0b',
+                        socred: '#ef4444',
+                    },
+                    fontFamily: {
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background: radial-gradient(circle at top, #10233a 0%, #08111f 55%, #050b14 100%);
+            min-height: 100vh;
+        }
+        .panel {
+            background: rgba(13, 27, 42, 0.88);
+            border: 1px solid rgba(56, 189, 248, 0.14);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.02), 0 18px 40px rgba(0,0,0,0.35);
+        }
+        .gridline {
+            background-image: linear-gradient(to top, rgba(56, 189, 248, 0.08) 1px, transparent 1px);
+            background-size: 100% 25%;
+        }
+        .spark {
+            display: grid;
+            grid-auto-flow: column;
+            align-items: end;
+            gap: 3px;
+            height: 180px;
+        }
+        .spark-bar {
+            min-width: 8px;
+            border-radius: 6px 6px 0 0;
+            background: linear-gradient(180deg, rgba(56,189,248,0.95), rgba(14,165,233,0.18));
+        }
+        .spark-bar.alert {
+            background: linear-gradient(180deg, rgba(239,68,68,0.95), rgba(127,29,29,0.2));
+        }
+        .score-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            border-top: 1px dashed rgba(245, 158, 11, 0.85);
+        }
+        .terminal {
+            background: rgba(3, 8, 15, 0.92);
+            border: 1px solid rgba(56, 189, 248, 0.14);
+        }
+    </style>
+</head>
+<body class="text-slate-100 font-mono">
+    <nav class="border-b border-socline/80 bg-black/30 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-2.5 h-2.5 rounded-full bg-socgreen animate-pulse"></div>
+                <div>
+                    <div class="text-xs uppercase tracking-[0.25em] text-sky-300/80">Device Console</div>
+                    <div class="text-lg font-semibold">SOC View / Device #{{ device_id }}</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-slate-400">
+                <a href="/" class="text-sky-300 hover:text-white">Return to Grid</a>
+                <span id="live-clock">--:--:--</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        <section class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+            <div class="panel rounded-2xl p-4 xl:col-span-2">
+                <div class="flex items-center justify-between border-b border-socline/80 pb-3 mb-3">
+                    <div>
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Identity</div>
+                        <div id="device-name" class="text-2xl font-semibold text-white">Loading...</div>
+                    </div>
+                    <div id="connection-pill" class="text-xs px-3 py-1 rounded-full border border-slate-500/40 text-slate-300">Pending</div>
+                </div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                    <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
+                    <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac">-</div></div>
+                    <div><div class="text-slate-500 uppercase text-[11px]">Model</div><div id="device-model">-</div></div>
+                    <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen">-</div></div>
+                </div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Risk</div>
+                <div id="device-risk" class="text-4xl font-semibold text-sky-300">-</div>
+                <div class="mt-4 h-2 rounded-full bg-slate-800 overflow-hidden"><div id="risk-bar" class="h-full bg-gradient-to-r from-socgreen via-socamber to-socred" style="width:0%"></div></div>
+                <div class="mt-3 text-xs text-slate-400">Live risk score after each inference cycle</div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Inference</div>
+                <div id="device-score" class="text-3xl font-semibold text-white">-</div>
+                <div class="mt-3 text-xs text-slate-400">Last inference at</div>
+                <div id="device-inference-at" class="mt-1 text-sm text-sky-300">-</div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div class="panel rounded-2xl p-4 xl:col-span-2">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Traffic Profile</div>
+                        <div class="text-lg text-white">5-minute traffic buckets / last 24h</div>
+                    </div>
+                    <div class="text-xs text-slate-400">Near-real time network volume</div>
+                </div>
+                <div class="panel gridline rounded-xl p-3 min-h-[220px]">
+                    <div id="traffic-chart" class="spark"></div>
+                </div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Latest Feature Snapshot</div>
+                <div id="feature-snapshot" class="mt-3 space-y-2 text-sm text-slate-300"></div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="panel rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Inference Trail</div>
+                        <div class="text-lg text-white">Score and anomaly history / 7 days</div>
+                    </div>
+                    <div class="text-xs text-slate-400">Retention: 7 days</div>
+                </div>
+                <div class="panel gridline rounded-xl p-3 min-h-[220px] relative">
+                    <div class="score-line" style="top:50%"></div>
+                    <div id="inference-chart" class="spark"></div>
+                </div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Anomalies</div>
+                <div id="anomaly-feed" class="mt-3 space-y-3"></div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Top Destinations</div>
+                <div id="destinations-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Ports</div>
+                <div id="ports-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            </div>
+            <div class="panel rounded-2xl p-4">
+                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">DNS Queries</div>
+                <div id="dns-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const deviceId = {{ device_id }};
+        const refreshMs = Math.max(5000, {{ refresh_interval }} * 1000);
+
+        function setClock() {
+            document.getElementById('live-clock').textContent = new Date().toLocaleTimeString();
+        }
+
+        function fmtTs(value) {
+            if (!value) return 'N/A';
+            return new Date(value).toLocaleString();
+        }
+
+        function fmtMb(value) {
+            return `${Number(value || 0).toFixed(2)} MB`;
+        }
+
+        function renderKeyValues(targetId, rows, emptyText='No data') {
+            const node = document.getElementById(targetId);
+            if (!rows.length) {
+                node.innerHTML = `<div class="text-slate-500">${emptyText}</div>`;
+                return;
+            }
+            node.innerHTML = rows.map(row => `
+                <div class="flex items-center justify-between gap-3 border-b border-socline/40 pb-2 last:border-0 last:pb-0">
+                    <div class="truncate text-slate-200">${row.label}</div>
+                    <div class="text-right text-sky-300">${row.value}</div>
+                </div>
+            `).join('');
+        }
+
+        function renderBars(targetId, data, valueKey, alertKey=null) {
+            const node = document.getElementById(targetId);
+            if (!data.length) {
+                node.innerHTML = '<div class="text-slate-500 col-span-full self-center">No samples captured yet</div>';
+                return;
+            }
+            const maxValue = Math.max(...data.map(item => Number(item[valueKey] || 0)), 1);
+            node.innerHTML = data.map(item => {
+                const height = Math.max(6, (Number(item[valueKey] || 0) / maxValue) * 100);
+                const alertClass = alertKey && item[alertKey] ? 'alert' : '';
+                const title = `${fmtTs(item.timestamp)} :: ${valueKey}=${Number(item[valueKey] || 0).toFixed(4)}`;
+                return `<div class="spark-bar ${alertClass}" style="height:${height}%" title="${title}"></div>`;
+            }).join('');
+        }
+
+        async function loadDevice() {
+            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes] = await Promise.all([
+                fetch(`/api/devices/${deviceId}`),
+                fetch(`/api/devices/${deviceId}/traffic?hours=24`),
+                fetch(`/api/devices/${deviceId}/anomalies?limit=10`),
+                fetch(`/api/devices/${deviceId}/destinations?hours=24`),
+                fetch(`/api/devices/${deviceId}/inference-history?days=7`),
+            ]);
+
+            const device = await deviceRes.json();
+            const traffic = await trafficRes.json();
+            const anomalies = await anomalyRes.json();
+            const destinations = await destinationRes.json();
+            const history = await historyRes.json();
+
+            document.getElementById('device-name').textContent = device.hostname || device.ip_address || `Device #${device.id}`;
+            document.getElementById('device-ip').textContent = device.ip_address || '-';
+            document.getElementById('device-mac').textContent = device.mac_address || '-';
+            document.getElementById('device-model').textContent = device.model_status || 'missing';
+            document.getElementById('device-last-seen').textContent = fmtTs(device.last_seen);
+            document.getElementById('device-risk').textContent = `${Number(device.risk_score || 0).toFixed(1)}%`;
+            document.getElementById('device-score').textContent = device.last_inference_score == null ? 'N/A' : Number(device.last_inference_score).toFixed(4);
+            document.getElementById('device-inference-at').textContent = fmtTs(device.last_inference_at);
+            document.getElementById('risk-bar').style.width = `${Math.max(0, Math.min(100, Number(device.risk_score || 0)))}%`;
+
+            const pill = document.getElementById('connection-pill');
+            if (device.connected) {
+                pill.className = 'text-xs px-3 py-1 rounded-full border border-socgreen/30 text-socgreen bg-socgreen/10';
+                pill.textContent = `CONNECTED / ${device.connection_source || 'unknown'}`;
+            } else {
+                pill.className = 'text-xs px-3 py-1 rounded-full border border-slate-500/40 text-slate-300';
+                pill.textContent = 'DISCONNECTED';
+            }
+
+            renderBars('traffic-chart', traffic.data || [], 'total_traffic_mb');
+            renderBars('inference-chart', history.data || [], 'risk_score', 'is_anomaly');
+
+            const latestHistory = (history.data || []).at(-1);
+            const features = latestHistory?.features || {};
+            renderKeyValues('feature-snapshot', [
+                {label: 'total_bytes', value: Number(features.total_bytes || 0).toFixed(0)},
+                {label: 'packets', value: Number(features.packets || 0).toFixed(0)},
+                {label: 'unique_destinations', value: Number(features.unique_destinations || 0).toFixed(0)},
+                {label: 'unique_ports', value: Number(features.unique_ports || 0).toFixed(0)},
+                {label: 'dns_queries', value: Number(features.dns_queries || 0).toFixed(0)},
+                {label: 'packet_rate', value: Number(features.packet_rate || 0).toFixed(4)},
+            ], 'No inference snapshot yet');
+
+            renderKeyValues('destinations-list', (destinations.destinations || []).map(item => ({
+                label: item.value,
+                value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
+            })), 'No destinations yet');
+            renderKeyValues('ports-list', (destinations.ports || []).map(item => ({
+                label: item.value,
+                value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
+            })), 'No ports yet');
+            renderKeyValues('dns-list', (destinations.dns_queries || []).map(item => ({
+                label: item.value,
+                value: `${item.connection_count} lookups`,
+            })), 'No DNS queries yet');
+
+            const anomalyNode = document.getElementById('anomaly-feed');
+            const anomalyRows = anomalies.anomalies || [];
+            if (!anomalyRows.length) {
+                anomalyNode.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No anomalies for this device yet</div>';
+            } else {
+                anomalyNode.innerHTML = anomalyRows.map(item => `
+                    <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="text-white">${item.anomaly_type}</div>
+                            <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
+                        </div>
+                        <div class="mt-2 text-sm text-slate-300">${item.description || 'No description'}</div>
+                        <div class="mt-2 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${item.severity}</div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        setClock();
+        setInterval(setClock, 1000);
+        loadDevice();
+        setInterval(loadDevice, refreshMs);
+    </script>
+</body>
+</html>

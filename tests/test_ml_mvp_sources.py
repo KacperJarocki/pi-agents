@@ -53,6 +53,17 @@ class TestMlMvpSources(unittest.TestCase):
 
         self.assertIn('@router.get("/ml-status"', src)
 
+    def test_inference_persists_history_with_retention(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        ml_core = (repo / "images" / "ml-pipeline" / "app" / "ml_core.py").read_text()
+        inference = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+
+        self.assertIn("device_inference_history", ml_core)
+        self.assertIn("retention_days=7", inference)
+        self.assertIn("save_inference_result(", inference)
+
 
 if __name__ == "__main__":
     unittest.main()

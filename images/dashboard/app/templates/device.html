@@ -261,6 +261,13 @@
             return `${Number(value || 0).toFixed(2)} MB`;
         }
 
+        // Escape user-controlled strings before inserting into innerHTML.
+        const _escDiv = document.createElement('div');
+        function esc(str) {
+            _escDiv.textContent = String(str == null ? '' : str);
+            return _escDiv.innerHTML;
+        }
+
         function fmtShortTs(value) {
             if (!value) return '';
             const ts = new Date(value);
@@ -275,8 +282,8 @@
             }
             node.innerHTML = rows.map(row => `
                 <div class="flex items-center justify-between gap-3 border-b border-socline/40 pb-2 last:border-0 last:pb-0">
-                    <div class="truncate text-slate-200">${row.label}</div>
-                    <div class="text-right text-sky-300">${row.value}</div>
+                    <div class="truncate text-slate-200">${esc(row.label)}</div>
+                    <div class="text-right text-sky-300">${esc(row.value)}</div>
                 </div>
             `).join('');
         }
@@ -302,7 +309,7 @@
                 const height = Math.max(6, (Number(item[valueKey] || 0) / maxValue) * 100);
                 const alertClass = alertKey && item[alertKey] ? 'alert' : '';
                 const prettyValue = formatter ? formatter(item[valueKey]) : Number(item[valueKey] || 0).toFixed(4);
-                const title = `${fmtTs(item.timestamp)} :: ${valueKey}=${prettyValue}`;
+                const title = `${esc(fmtTs(item.timestamp))} :: ${esc(valueKey)}=${esc(prettyValue)}`;
                 return `<div class="spark-bar ${alertClass}" style="height:${height}%" title="${title}"></div>`;
             }).join('');
             labelsNode.innerHTML = data.map((item, idx) => {
@@ -372,8 +379,8 @@
             ], 'No risk breakdown yet');
 
             renderKeyValues('risk-contributors', (contributors.contributors || []).map(item => ({
-                label: `${item.category}:${item.contributor} / ${Number(item.effective_score || 0).toFixed(2)}`,
-                value: `${item.reason} / raw=${Number(item.raw_score || 0).toFixed(2)} / ${fmtTs(item.last_seen)}`,
+                label: `${esc(item.category)}:${esc(item.contributor)} / ${Number(item.effective_score || 0).toFixed(2)}`,
+                value: `${esc(item.reason)} / raw=${Number(item.raw_score || 0).toFixed(2)} / ${fmtTs(item.last_seen)}`,
             })), 'No active contributors');
             document.getElementById('risk-top-reason').textContent = `Top reason: ${contributors.top_reason || 'N/A'}`;
 
@@ -386,21 +393,21 @@
                 const behaviorHtml = behaviorRows.map(item => `
                     <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
                         <div class="flex items-center justify-between gap-3">
-                            <div class="text-white">${item.title}</div>
+                            <div class="text-white">${esc(item.title)}</div>
                             <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
                         </div>
-                        <div class="mt-2 text-sm text-slate-300">${item.description || 'No description'}</div>
-                        <div class="mt-2 text-xs text-sky-300">${item.alert_type} / score=${Number(item.score || 0).toFixed(2)}</div>
+                        <div class="mt-2 text-sm text-slate-300">${esc(item.description || 'No description')}</div>
+                        <div class="mt-2 text-xs text-sky-300">${esc(item.alert_type)} / score=${Number(item.score || 0).toFixed(2)}</div>
                     </div>
                 `).join('');
                 const anomalyHtml = anomalyRows.map(item => `
                     <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
                         <div class="flex items-center justify-between gap-3">
-                            <div class="text-white">${item.anomaly_type}</div>
+                            <div class="text-white">${esc(item.anomaly_type)}</div>
                             <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
                         </div>
-                        <div class="mt-2 text-sm text-slate-300">${item.description || 'No description'}</div>
-                        <div class="mt-2 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${item.severity}</div>
+                        <div class="mt-2 text-sm text-slate-300">${esc(item.description || 'No description')}</div>
+                        <div class="mt-2 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${esc(item.severity)}</div>
                     </div>
                 `).join('');
                 anomalyNode.innerHTML = behaviorHtml + anomalyHtml;

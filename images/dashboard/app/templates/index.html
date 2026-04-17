@@ -279,6 +279,13 @@
     </main>
 
     <script>
+        /* ── Escape helper for innerHTML interpolation ── */
+        const _escDiv = document.createElement('div');
+        function esc(str) {
+            _escDiv.textContent = String(str == null ? '' : str);
+            return _escDiv.innerHTML;
+        }
+
         /* ── Tab switching ── */
         function showTab(tabName) {
             document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
@@ -334,9 +341,9 @@
                 <div class="flex items-start justify-between gap-2">
                     <div>
                         <div class="font-semibold text-sm ${isCritical ? 'text-red-400' : 'text-amber-400'}">
-                            ${isCritical ? '🔴' : '🟡'} ${anomaly.anomaly_type || 'Anomaly Detected'}
+                            ${isCritical ? '🔴' : '🟡'} ${esc(anomaly.anomaly_type || 'Anomaly Detected')}
                         </div>
-                        <div class="text-xs text-gray-300 mt-0.5">${anomaly.description || ''}</div>
+                        <div class="text-xs text-gray-300 mt-0.5">${esc(anomaly.description || '')}</div>
                         <div class="text-xs text-gray-500 mt-1">score ${Number(anomaly.score || 0).toFixed(3)} &middot; ${new Date().toLocaleTimeString()}</div>
                     </div>
                     <button onclick="this.closest('.toast-item').remove()" class="text-gray-500 hover:text-white text-lg leading-none ml-2">&times;</button>

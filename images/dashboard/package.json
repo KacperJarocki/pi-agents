@@ -1,0 +1,11 @@
+{
+  "name": "iot-dashboard",
+  "private": true,
+  "scripts": {
+    "build:css": "npx tailwindcss -i ./app/static/input.css -o ./app/static/dist.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17",
+    "daisyui": "^4.12.23"
+  }
+}

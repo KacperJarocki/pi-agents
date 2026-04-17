@@ -195,19 +195,21 @@ class Database:
         return cursor.lastrowid
     
     async def insert_flows(self, flows: List[Dict]) -> List[int]:
-        ids = []
+        # Pre-resolve device IDs per unique (ip, mac) pair to minimise DB round-trips,
+        # then insert all flow rows in a single executemany() call.
+        identity_cache: dict[tuple, int] = {}
+        flow_rows = []
+
         for flow in flows:
-            device_id = await self.get_or_create_device(
-                flow["device_ip"],
-                flow.get("device_mac"),
-                flow.get("hostname"),
-            )
-            
-            cursor = await self.conn.execute("""
-                INSERT INTO traffic_flows 
-                (device_id, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            ip = flow["device_ip"]
+            mac = flow.get("device_mac")
+            hostname = flow.get("hostname")
+            key = (ip, mac)
+            if key not in identity_cache:
+                identity_cache[key] = await self.get_or_create_device(ip, mac, hostname)
+            device_id = identity_cache[key]
+
+            flow_rows.append((
                 device_id,
                 flow["src_ip"],
                 flow["dst_ip"],
@@ -218,10 +220,22 @@ class Database:
                 flow.get("dns_query"),
                 json.dumps(flow.get("flags")) if flow.get("flags") is not None else None,
             ))
-            ids.append(cursor.lastrowid)
-        
+
+        if not flow_rows:
+            return []
+
+        await self.conn.executemany(
+            """
+            INSERT INTO traffic_flows
+            (device_id, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            flow_rows,
+        )
         await self.conn.commit()
-        return ids
+
+        # Return row count rather than lastrowid list (executemany doesn't give per-row IDs)
+        return list(range(len(flow_rows)))
     
     async def update_device_stats(self, aggregated: Dict[str, Dict]):
         for ip, stats in aggregated.items():

@@ -10,6 +10,9 @@ DATABASE_URL = f"sqlite+aiosqlite:///{settings.database_path}"
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
+    connect_args={
+        "timeout": 5.0,
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -23,6 +26,11 @@ Base = declarative_base()
 
 async def init_db():
     async with engine.begin() as conn:
+        # Enable WAL mode for better concurrent read/write performance
+        await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+        await conn.exec_driver_sql("PRAGMA synchronous=NORMAL")
+        await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
+        
         await conn.run_sync(Base.metadata.create_all)
 
         # Lightweight SQLite schema alignment for existing DBs.

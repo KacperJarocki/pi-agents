@@ -42,6 +42,20 @@ Collector odrzuca jako identity:
 - `0.0.0.0`
 - flow bez prywatnego IP z podsieci LAN
 
+## SQLite Optimization
+
+Collector używa SQLite w trybie WAL (Write-Ahead Logging) dla lepszej wydajności read/write:
+
+- `PRAGMA journal_mode=WAL` — writers nie blokują readers
+- `PRAGMA synchronous=NORMAL` — balans spójność/wydajność
+- `PRAGMA busy_timeout=5000` — retry przy write contention
+
+Indeksy:
+
+- `idx_flows_device_time` — szybsze per-device time-range queries
+- `idx_flows_timestamp` — szybsze globalne time-range queries
+- `idx_anomaly_device_time` — szybsze per-device anomaly lookups
+
 ## Wymagane środowisko
 
 Typowe env:

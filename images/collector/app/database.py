@@ -23,6 +23,11 @@ class Database:
         self.conn = await aiosqlite.connect(self.db_path)
         self.conn.row_factory = aiosqlite.Row
         
+        # Enable WAL mode for better concurrent read/write performance
+        await self.conn.execute("PRAGMA journal_mode=WAL")
+        await self.conn.execute("PRAGMA synchronous=NORMAL")
+        await self.conn.execute("PRAGMA busy_timeout=5000")
+        
         await self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +66,7 @@ class Database:
             
             CREATE INDEX IF NOT EXISTS idx_flows_device_time ON traffic_flows(device_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_flows_dst_ip ON traffic_flows(dst_ip);
+            CREATE INDEX IF NOT EXISTS idx_flows_timestamp ON traffic_flows(timestamp);
             
             CREATE TABLE IF NOT EXISTS anomalies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +84,7 @@ class Database:
             
             CREATE INDEX IF NOT EXISTS idx_anomalies_device ON anomalies(device_id);
             CREATE INDEX IF NOT EXISTS idx_anomalies_timestamp ON anomalies(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_anomaly_device_time ON anomalies(device_id, timestamp);
 
             CREATE TABLE IF NOT EXISTS device_inference_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

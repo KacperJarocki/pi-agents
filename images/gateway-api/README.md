@@ -54,6 +54,21 @@ Widoczność urządzeń opiera się na:
 
 Urządzenia mogą być chwilowo syntetyczne, zanim collector zapisze trwały rekord w DB.
 
+## SQLite Optimization
+
+API używa SQLAlchemy + aiosqlite z trybem WAL:
+
+- `PRAGMA journal_mode=WAL` — writers nie blokują readers
+- `PRAGMA synchronous=NORMAL` — balans spójność/wydajność
+- `PRAGMA busy_timeout=5000` — retry przy write contention
+
+Indeksy:
+
+- `idx_flows_timestamp` — szybsze globalne time-range queries
+- `idx_anomaly_device_time` — szybsze per-device anomaly lookups
+- `idx_flow_device_time` — composite index dla per-device traffic
+- `idx_behavior_alert_device_time` — szybsze behavior alert queries
+
 ## ML Status
 
 `/api/v1/metrics/ml-status` pokazuje:

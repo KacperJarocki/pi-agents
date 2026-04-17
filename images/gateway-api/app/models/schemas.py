@@ -41,6 +41,7 @@ class TrafficFlow(Base):
     __table_args__ = (
         Index('idx_flow_device_time', 'device_id', 'timestamp'),
         Index('idx_flow_dst_ip', 'dst_ip'),
+        Index('idx_flows_timestamp', 'timestamp'),
     )
 
 
@@ -58,6 +59,10 @@ class Anomaly(Base):
     features = Column(JSON, nullable=True)
     resolved = Column(Boolean, default=False)
     resolved_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index('idx_anomaly_device_time', 'device_id', 'timestamp'),
+    )
 
 
 class DeviceInferenceHistory(Base):

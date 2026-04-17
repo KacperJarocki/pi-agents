@@ -159,6 +159,11 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     conn = await aiosqlite.connect(DB_PATH)
     conn.row_factory = aiosqlite.Row
     
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    
     cursor = await conn.execute("""
         SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
                protocol, bytes_sent, bytes_received, dns_query, flags
@@ -187,6 +192,11 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
     conn = await aiosqlite.connect(DB_PATH)
     conn.row_factory = aiosqlite.Row
     
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    
     cursor = await conn.execute("""
         SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
                protocol, bytes_sent, bytes_received, dns_query, flags
@@ -214,6 +224,11 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
 async def save_anomaly(device_id: int, anomaly_type: str, severity: str, 
                        score: float, description: str, features: dict):
     conn = await aiosqlite.connect(DB_PATH)
+    
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
     
     await conn.execute("""
         INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
@@ -288,6 +303,12 @@ async def _ensure_behavior_alerts_table(conn: aiosqlite.Connection):
 
 async def update_device_risk_score(device_id: int, risk_score: float, last_inference_score: float | None = None):
     conn = await aiosqlite.connect(DB_PATH)
+    
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    
     await _ensure_device_inference_columns(conn)
     
     await conn.execute("""
@@ -313,6 +334,12 @@ async def save_inference_result(
     retention_days: int = 7,
 ):
     conn = await aiosqlite.connect(DB_PATH)
+    
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    
     await _ensure_inference_history_table(conn)
     await conn.execute(
         """
@@ -350,6 +377,12 @@ async def save_behavior_alert(
     retention_days: int = 7,
 ):
     conn = await aiosqlite.connect(DB_PATH)
+    
+    # Enable WAL mode for better concurrent read/write performance
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    
     await _ensure_behavior_alerts_table(conn)
     bucket_value = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
     cursor = await conn.execute(

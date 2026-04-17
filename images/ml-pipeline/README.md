@@ -57,6 +57,20 @@ Finalny `risk_score` jest składany z:
 
 Breakdown jest zapisywany do `device_inference_history.features`, żeby API i dashboard mogły pokazać delta risk i top reason bez dodatkowej migracji DB.
 
+## SQLite Optimization
+
+ML pipeline używa aiosqlite z trybem WAL dla lepszej wydajności:
+
+- `PRAGMA journal_mode=WAL` — writers nie blokują readers
+- `PRAGMA synchronous=NORMAL` — balans spójność/wydajność
+- `PRAGMA busy_timeout=5000` — retry przy write contention
+
+Indeksy używane przez ML:
+
+- `idx_flows_timestamp` — globalne time-range queries
+- `idx_inference_history_device_time` — odczyt baseline z historii
+- `idx_behavior_alert_device_time` — szybkie per-device alert queries
+
 ## Kluczowe env
 
 - `TRAINING_HOURS`

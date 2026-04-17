@@ -724,6 +724,9 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
 
     Stores per-device per-model training run stats so the gateway-api and
     dashboard can display model health information without re-reading joblib files.
+
+    Uses ALTER TABLE ADD COLUMN (idempotent via OperationalError catch) to migrate
+    pre-existing tables that were created without the ``device_id`` column.
     """
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS model_metadata (
@@ -749,6 +752,34 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, timestamp)"
     )
+
+    # Migration: add columns that may be missing in tables created by older code.
+    # SQLite does not support IF NOT EXISTS for ALTER TABLE ADD COLUMN, so we catch
+    # the OperationalError that is raised when the column already exists.
+    migration_columns = [
+        ("device_id", "INTEGER"),
+        ("trained_at", "TEXT"),
+        ("samples", "INTEGER"),
+        ("features", "INTEGER"),
+        ("contamination", "REAL"),
+        ("threshold", "REAL"),
+        ("score_mean", "REAL"),
+        ("score_std", "REAL"),
+        ("score_p5", "REAL"),
+        ("score_p50", "REAL"),
+        ("score_p95", "REAL"),
+        ("estimated_anomaly_rate", "REAL"),
+        ("training_hours", "INTEGER"),
+        ("extra", "TEXT"),
+    ]
+    for col_name, col_type in migration_columns:
+        try:
+            await conn.execute(
+                f"ALTER TABLE model_metadata ADD COLUMN {col_name} {col_type}"
+            )
+        except Exception:
+            # Column already exists — safe to ignore
+            pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────

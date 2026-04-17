@@ -246,6 +246,7 @@
     <script>
         const deviceId = {{ device_id }};
         const refreshMs = Math.max(5000, {{ refresh_interval }} * 1000);
+        let _refreshCycle = 0;
 
         function setClock() {
             document.getElementById('live-clock').textContent = new Date().toLocaleTimeString();
@@ -312,27 +313,34 @@
         }
 
         async function loadDevice() {
-            const [deviceRes, trafficRes, anomalyRes, destinationRes, historyRes, behaviorRes, contributorRes, baselineRes, protocolRes] = await Promise.all([
+            _refreshCycle++;
+            const heavy = (_refreshCycle % 2 === 1); // heavy every other cycle
+
+            const lightFetches = [
                 fetch(`/api/devices/${deviceId}`),
-                fetch(`/api/devices/${deviceId}/traffic?hours=24`),
                 fetch(`/api/devices/${deviceId}/anomalies?limit=10`),
+                fetch(`/api/devices/${deviceId}/risk-contributors`),
+                fetch(`/api/devices/${deviceId}/behavior-alerts?limit=10&since_hours=168`),
+            ];
+            const heavyFetches = heavy ? [
+                fetch(`/api/devices/${deviceId}/traffic?hours=24`),
                 fetch(`/api/devices/${deviceId}/destinations?hours=24`),
                 fetch(`/api/devices/${deviceId}/inference-history?days=7`),
-                fetch(`/api/devices/${deviceId}/behavior-alerts?limit=10&since_hours=168`),
-                fetch(`/api/devices/${deviceId}/risk-contributors`),
                 fetch(`/api/devices/${deviceId}/behavior-baseline?days=7`),
                 fetch(`/api/devices/${deviceId}/protocol-signals?hours=24`),
-            ]);
+            ] : [];
+
+            const [deviceRes, anomalyRes, contributorRes, behaviorRes, ...heavyRes] = await Promise.all([...lightFetches, ...heavyFetches]);
 
             const device = await deviceRes.json();
-            const traffic = await trafficRes.json();
             const anomalies = await anomalyRes.json();
-            const destinations = await destinationRes.json();
-            const history = await historyRes.json();
-            const behaviorAlerts = await behaviorRes.json();
             const contributors = await contributorRes.json();
-            const baseline = await baselineRes.json();
-            const protocolSignals = await protocolRes.json();
+            const behaviorAlerts = await behaviorRes.json();
+
+            let traffic, destinations, history, baseline, protocol;
+            if (heavy) {
+                [traffic, destinations, history, baseline, protocol] = await Promise.all(heavyRes.map(r => r.json()));
+            }
 
             document.getElementById('device-name').textContent = device.hostname || device.ip_address || `Device #${device.id}`;
             document.getElementById('device-ip').textContent = device.ip_address || '-';
@@ -354,19 +362,6 @@
                 pill.textContent = 'DISCONNECTED';
             }
 
-            renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
-            renderBars('inference-chart', 'inference-labels', 'inference-meta', 'inference-chart-frame', history.data || [], 'risk_score', 'is_anomaly', value => `${Number(value || 0).toFixed(1)}%`);
-
-            const latestHistory = (history.data || []).at(-1);
-            const features = latestHistory?.features || {};
-            renderKeyValues('feature-snapshot', [
-                {label: 'total_bytes', value: Number(features.total_bytes || 0).toFixed(0)},
-                {label: 'packets', value: Number(features.packets || 0).toFixed(0)},
-                {label: 'unique_destinations', value: Number(features.unique_destinations || 0).toFixed(0)},
-                {label: 'unique_ports', value: Number(features.unique_ports || 0).toFixed(0)},
-                {label: 'dns_queries', value: Number(features.dns_queries || 0).toFixed(0)},
-                {label: 'packet_rate', value: Number(features.packet_rate || 0).toFixed(4)},
-            ], 'No inference snapshot yet');
             renderKeyValues('risk-breakdown', [
                 {label: 'ml_risk', value: Number(contributors.ml_risk || 0).toFixed(2)},
                 {label: 'behavior_risk', value: Number(contributors.behavior_risk || 0).toFixed(2)},
@@ -376,32 +371,11 @@
                 {label: 'final_risk', value: Number(contributors.risk_score || 0).toFixed(2)},
             ], 'No risk breakdown yet');
 
-            renderKeyValues('destinations-list', (destinations.destinations || []).map(item => ({
-                label: item.value,
-                value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
-            })), 'No destinations yet');
-            renderKeyValues('ports-list', (destinations.ports || []).map(item => ({
-                label: item.value,
-                value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
-            })), 'No ports yet');
-            renderKeyValues('dns-list', (destinations.dns_queries || []).map(item => ({
-                label: item.value,
-                value: `${item.connection_count} lookups`,
-            })), 'No DNS queries yet');
-
             renderKeyValues('risk-contributors', (contributors.contributors || []).map(item => ({
                 label: `${item.category}:${item.contributor} / ${Number(item.effective_score || 0).toFixed(2)}`,
                 value: `${item.reason} / raw=${Number(item.raw_score || 0).toFixed(2)} / ${fmtTs(item.last_seen)}`,
             })), 'No active contributors');
             document.getElementById('risk-top-reason').textContent = `Top reason: ${contributors.top_reason || 'N/A'}`;
-            renderKeyValues('behavior-baseline', (baseline.metrics || []).map(item => ({
-                label: `${item.metric} median=${Number(item.median || 0).toFixed(2)} p95=${Number(item.p95 || 0).toFixed(2)}`,
-                value: item.latest == null ? 'latest=N/A' : `latest=${Number(item.latest).toFixed(2)}`,
-            })), 'No baseline history yet');
-            renderKeyValues('protocol-signals', (protocolSignals.signals || []).map(item => ({
-                label: item.label,
-                value: `${Number(item.value || 0).toFixed(0)} / ${item.note}`,
-            })), 'No DNS/ICMP signals yet');
 
             const anomalyNode = document.getElementById('behavior-alert-feed');
             const behaviorRows = behaviorAlerts.alerts || [];
@@ -430,6 +404,45 @@
                     </div>
                 `).join('');
                 anomalyNode.innerHTML = behaviorHtml + anomalyHtml;
+            }
+
+            // Heavy (charts, destinations, baseline, protocol) — every 2nd cycle.
+            if (heavy) {
+                renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
+                renderBars('inference-chart', 'inference-labels', 'inference-meta', 'inference-chart-frame', history.data || [], 'risk_score', 'is_anomaly', value => `${Number(value || 0).toFixed(1)}%`);
+
+                const latestHistory = (history.data || []).at(-1);
+                const features = latestHistory?.features || {};
+                renderKeyValues('feature-snapshot', [
+                    {label: 'total_bytes', value: Number(features.total_bytes || 0).toFixed(0)},
+                    {label: 'packets', value: Number(features.packets || 0).toFixed(0)},
+                    {label: 'unique_destinations', value: Number(features.unique_destinations || 0).toFixed(0)},
+                    {label: 'unique_ports', value: Number(features.unique_ports || 0).toFixed(0)},
+                    {label: 'dns_queries', value: Number(features.dns_queries || 0).toFixed(0)},
+                    {label: 'packet_rate', value: Number(features.packet_rate || 0).toFixed(4)},
+                ], 'No inference snapshot yet');
+
+                renderKeyValues('destinations-list', (destinations.destinations || []).map(item => ({
+                    label: item.value,
+                    value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
+                })), 'No destinations yet');
+                renderKeyValues('ports-list', (destinations.ports || []).map(item => ({
+                    label: item.value,
+                    value: `${fmtMb(item.total_bytes / (1024 * 1024))} / ${item.connection_count}`,
+                })), 'No ports yet');
+                renderKeyValues('dns-list', (destinations.dns_queries || []).map(item => ({
+                    label: item.value,
+                    value: `${item.connection_count} lookups`,
+                })), 'No DNS queries yet');
+
+                renderKeyValues('behavior-baseline', (baseline.metrics || []).map(item => ({
+                    label: `${item.metric} median=${Number(item.median || 0).toFixed(2)} p95=${Number(item.p95 || 0).toFixed(2)}`,
+                    value: item.latest == null ? 'latest=N/A' : `latest=${Number(item.latest).toFixed(2)}`,
+                })), 'No baseline history yet');
+                renderKeyValues('protocol-signals', (protocol.signals || []).map(item => ({
+                    label: item.label,
+                    value: `${Number(item.value || 0).toFixed(0)} / ${item.note}`,
+                })), 'No DNS/ICMP signals yet');
             }
         }
 

@@ -58,17 +58,20 @@ spec:
           livenessProbe:
             exec:
               command:
-                - python
+                - sh
                 - -c
-                - "import sys; sys.exit(0)"
-            initialDelaySeconds: 30
+                - |
+                  test -f /tmp/inference-heartbeat && \
+                  test $(( $(date +%s) - $(cat /tmp/inference-heartbeat) )) -lt 900
+            initialDelaySeconds: 120
             periodSeconds: 60
+            failureThreshold: 3
           readinessProbe:
             exec:
               command:
-                - python
+                - sh
                 - -c
-                - "import sys; sys.exit(0)"
+                - "test -f /tmp/inference-heartbeat"
             initialDelaySeconds: 10
             periodSeconds: 30
       volumes:

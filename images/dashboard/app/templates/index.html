@@ -196,7 +196,7 @@
                         <div id="devices-tab" class="tab-panel">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4"
                                  hx-get="/partial/devices"
-                                 hx-trigger="load, every 10s"
+                                 hx-trigger="load, every 30s"
                                   hx-swap="innerHTML">
                                 <div class="device-card skeleton h-40"></div>
                                 <div class="device-card skeleton h-40"></div>
@@ -205,13 +205,13 @@
                         <div id="timeline-tab" class="tab-panel hidden">
                             <div class="flex gap-2 items-end h-40"
                                  hx-get="/partial/timeline"
-                                 hx-trigger="load, every 20s"
+                                 hx-trigger="load, every 30s"
                                   hx-swap="innerHTML">
                             </div>
                         </div>
                         <div id="talkers-tab" class="tab-panel hidden">
                             <div hx-get="/partial/top-talkers"
-                                 hx-trigger="load, every 20s"
+                                 hx-trigger="load, every 30s"
                                   hx-swap="innerHTML">
                             </div>
                         </div>
@@ -229,8 +229,8 @@
                     </div>
                     <div class="p-4 space-y-3 max-h-96 overflow-y-auto"
                          hx-get="/partial/anomalies"
-                         hx-trigger="load, every 10s"
-                          hx-swap="innerHTML">
+                                 hx-trigger="load, every 30s"
+                                  hx-swap="innerHTML">
                     </div>
                 </div>
             </div>
@@ -280,7 +280,7 @@
             }
         }
 
-        setInterval(loadMetrics, 10000);
+        setInterval(loadMetrics, 30000);
         loadMetrics();
         htmx.process(document.body);
     </script>

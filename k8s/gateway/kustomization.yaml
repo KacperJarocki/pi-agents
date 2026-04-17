@@ -16,6 +16,7 @@ resources:
   - dashboard-service.yaml
   - dashboard-ingress.yaml
   - dashboard-certificate.yaml
+  - pdb.yaml
 
 labels:
   - pairs:

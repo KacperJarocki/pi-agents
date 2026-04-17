@@ -543,6 +543,7 @@ async def run_inference_loop():
     interval = int(os.getenv("INFERENCE_INTERVAL", "300"))
     hours = int(os.getenv("INFERENCE_HOURS", "24"))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
+    heartbeat_path = os.getenv("HEARTBEAT_PATH", "/tmp/inference-heartbeat")
 
     detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
 
@@ -557,6 +558,9 @@ async def run_inference_loop():
                 log.warning("inference_model_missing")
             else:
                 await run_inference_once(detector, hours=hours)
+            # Write heartbeat after a successful cycle.
+            with open(heartbeat_path, "w") as f:
+                f.write(str(int(__import__("time").time())))
         except Exception as e:
             log.error("inference_error", error=str(e))
 

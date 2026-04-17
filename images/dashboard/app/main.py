@@ -17,6 +17,14 @@ REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", "30"))
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["now"] = datetime.utcnow
 
+# Singleton httpx client — avoids TCP handshake overhead per request.
+_http_client: httpx.AsyncClient | None = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    assert _http_client is not None, "HTTP client not initialised"
+    return _http_client
+
 
 class ConnectionManager:
     def __init__(self):
@@ -45,24 +53,24 @@ manager = ConnectionManager()
 
 
 async def fetch_api(endpoint: str):
-    async with httpx.AsyncClient(timeout=6.0) as client:
-        try:
-            response = await client.get(f"{GATEWAY_API}{API_PREFIX}{endpoint}")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
+    client = get_http_client()
+    try:
+        response = await client.get(f"{GATEWAY_API}{API_PREFIX}{endpoint}")
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 
 async def call_api(method: str, endpoint: str, payload: dict | None = None):
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            url = f"{GATEWAY_API}{API_PREFIX}{endpoint}"
-            r = await client.request(method, url, json=payload)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            return {"error": str(e)}
+    client = get_http_client()
+    try:
+        url = f"{GATEWAY_API}{API_PREFIX}{endpoint}"
+        r = await client.request(method, url, json=payload)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -424,7 +432,15 @@ async def poll_gateway_alerts():
 
 @app.on_event("startup")
 async def startup():
+    global _http_client
+    _http_client = httpx.AsyncClient(timeout=httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=8.0))
     asyncio.create_task(poll_gateway_alerts())
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if _http_client:
+        await _http_client.aclose()
 
 
 if __name__ == "__main__":

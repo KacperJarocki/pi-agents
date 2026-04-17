@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-api-pdb
+  namespace: iot-security
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: dashboard-pdb
+  namespace: iot-security
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: dashboard

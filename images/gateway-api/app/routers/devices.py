@@ -3,12 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from ..core.database import get_db
 from ..core.cache import cache
-from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService, BehaviorAlertService
+from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService, BehaviorAlertService, DeviceModelConfigService
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
     AnomalyListResponse, DeviceBehaviorAlertListResponse, DeviceRiskContributorsResponse,
     DeviceBehaviorBaselineResponse, DeviceProtocolSignalsResponse,
+    DeviceModelConfigResponse, DeviceModelConfigUpdate,
 )
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -276,6 +277,33 @@ async def get_device_protocol_signals(
         lambda: traffic_service.get_device_protocol_signals(device_id, hours=hours),
     )
     return DeviceProtocolSignalsResponse(device_id=device_id, hours=hours, signals=signals)
+
+
+@router.get("/{device_id}/model-config", response_model=DeviceModelConfigResponse)
+async def get_device_model_config(
+    device_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    return await config_service.get_config(device_id)
+
+
+@router.put("/{device_id}/model-config", response_model=DeviceModelConfigResponse)
+async def set_device_model_config(
+    device_id: int,
+    data: DeviceModelConfigUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    return await config_service.set_config(device_id, data.model_type)
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

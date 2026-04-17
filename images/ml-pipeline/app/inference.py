@@ -7,7 +7,7 @@ import pandas as pd
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import log
-from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH
+from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH, get_detector, get_device_model_configs
 import aiosqlite
 
 
@@ -433,15 +433,24 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     
     baseline_features = extractor.extract_features(baseline_flows)
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
+    default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
     scored_results = []
+
+    # Load per-device model type configs
+    device_model_configs = await get_device_model_configs()
 
     if per_device_models:
         for device_id, group in features.groupby('device_id'):
             latest = group.sort_values('bucket_start').tail(1)
-            device_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+            model_type = device_model_configs.get(int(device_id), default_model_type)
+            device_detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
             if not device_detector.load_model(device_id=int(device_id)):
-                log.warning("inference_model_missing_for_device", device_id=int(device_id))
-                continue
+                # Fall back to legacy isolation_forest model file
+                legacy_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+                if not legacy_detector.load_model(device_id=int(device_id)):
+                    log.warning("inference_model_missing_for_device", device_id=int(device_id), model_type=model_type)
+                    continue
+                device_detector = legacy_detector
             scored_results.extend(
                 {**row, "threshold": device_detector.threshold} for row in device_detector.score(latest)
             )

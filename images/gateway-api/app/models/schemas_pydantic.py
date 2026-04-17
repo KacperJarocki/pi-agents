@@ -327,3 +327,13 @@ class GatewayAgentStatusResponse(BaseModel):
 class WifiApplyResponse(BaseModel):
     ok: bool
     message: str
+
+
+class DeviceModelConfigResponse(BaseModel):
+    device_id: int
+    model_type: str
+    params: Optional[dict] = None
+
+
+class DeviceModelConfigUpdate(BaseModel):
+    model_type: str = Field(..., pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$")

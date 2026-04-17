@@ -217,6 +217,17 @@ async def get_device_protocol_signals(device_id: int, hours: int = 24):
     return await fetch_api(f"/devices/{device_id}/protocol-signals?hours={hours}")
 
 
+@app.get("/api/devices/{device_id}/model-config")
+async def get_device_model_config(device_id: int):
+    return await fetch_api(f"/devices/{device_id}/model-config")
+
+
+@app.put("/api/devices/{device_id}/model-config")
+async def set_device_model_config(request: Request, device_id: int):
+    body = await request.json()
+    return await call_api("PUT", f"/devices/{device_id}/model-config", body)
+
+
 @app.get("/api/alerts")
 async def get_alerts(limit: int = 50, since_hours: int = 24, severity: str | None = None):
     qs = f"?limit={limit}&since_hours={since_hours}"

@@ -20,7 +20,7 @@ class TestMlMvpSources(unittest.TestCase):
 
         self.assertIn('PER_DEVICE_MODELS', src)
         self.assertIn("training_complete_for_device", src)
-        self.assertIn("save_model(model, device_id=int(device_id))", src)
+        self.assertIn("save_model(detector.model, device_id=int(device_id))", src)
 
     def test_inference_uses_latest_bucket_per_device(self):
         from pathlib import Path

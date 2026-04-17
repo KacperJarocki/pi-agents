@@ -836,3 +836,44 @@ class AlertService:
                 }
             )
         return items, total
+
+
+class DeviceModelConfigService:
+    def __init__(self, db: "AsyncSession"):
+        self.db = db
+
+    async def get_config(self, device_id: int):
+        result = await self.db.execute(
+            text("SELECT device_id, model_type, params FROM device_model_config WHERE device_id = :did"),
+            {"did": device_id},
+        )
+        row = result.first()
+        if row is None:
+            return {"device_id": device_id, "model_type": "isolation_forest", "params": {}}
+        import json as _json
+        return {
+            "device_id": row.device_id,
+            "model_type": row.model_type,
+            "params": _json.loads(row.params) if row.params else {},
+        }
+
+    async def set_config(self, device_id: int, model_type: str):
+        # Ensure table exists
+        await self.db.execute(text("""
+            CREATE TABLE IF NOT EXISTS device_model_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL UNIQUE,
+                model_type TEXT NOT NULL DEFAULT 'isolation_forest',
+                params TEXT DEFAULT '{}'
+            )
+        """))
+        await self.db.execute(
+            text("""
+                INSERT INTO device_model_config (device_id, model_type)
+                VALUES (:did, :mt)
+                ON CONFLICT(device_id) DO UPDATE SET model_type = :mt
+            """),
+            {"did": device_id, "mt": model_type},
+        )
+        await self.db.commit()
+        return {"device_id": device_id, "model_type": model_type, "params": {}}

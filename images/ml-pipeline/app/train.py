@@ -4,8 +4,10 @@ from datetime import datetime
 
 from sklearn.ensemble import IsolationForest
 
-from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
-from .ml_core import log
+from .ml_core import (
+    FeatureExtractor, AnomalyDetector, get_all_recent_flows,
+    get_detector, get_device_model_configs, ensure_schema, log,
+)
 
 
 async def train_model():
@@ -13,6 +15,10 @@ async def train_model():
     min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "10"))
     contamination = float(os.getenv("CONTAMINATION", "0.05"))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
+    default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
+
+    # Ensure schema (creates device_model_config table if missing)
+    await ensure_schema()
 
     flows = await get_all_recent_flows(hours=hours)
     if flows.empty:
@@ -34,15 +40,14 @@ async def train_model():
         log.warning("training_no_features")
         return 0
 
-    detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+    # Load per-device model type configs
+    device_model_configs = await get_device_model_configs()
 
     if per_device_models:
         trained_devices = 0
-        total_samples = 0
 
         for device_id, group in features.groupby('device_id'):
             samples = int(len(group))
-            total_samples += samples
             if samples < min_samples:
                 log.warning(
                     "training_not_enough_samples_for_device",
@@ -52,16 +57,23 @@ async def train_model():
                 )
                 continue
 
+            model_type = device_model_configs.get(int(device_id), default_model_type)
+            detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+
             X = group[FeatureExtractor.FEATURE_COLUMNS].values
             adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
-            model = IsolationForest(
-                n_estimators=int(os.getenv("N_ESTIMATORS", "200")),
-                contamination=adaptive_contamination,
-                random_state=42,
-                n_jobs=1,
-            )
-            model.fit(X)
-            detector.save_model(model, device_id=int(device_id))
+
+            # Build kwargs based on model type
+            fit_kwargs = {"contamination": adaptive_contamination}
+            if model_type == "isolation_forest":
+                fit_kwargs["n_estimators"] = int(os.getenv("N_ESTIMATORS", "200"))
+            elif model_type == "lof":
+                fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
+            elif model_type == "ocsvm":
+                fit_kwargs["nu"] = adaptive_contamination
+
+            detector.fit(X, **fit_kwargs)
+            detector.save_model(detector.model, device_id=int(device_id))
             trained_devices += 1
 
             log.info(
@@ -70,12 +82,14 @@ async def train_model():
                 device_id=int(device_id),
                 samples=samples,
                 features=len(FeatureExtractor.FEATURE_COLUMNS),
+                model_type=model_type,
             )
 
         if trained_devices == 0:
             log.warning("training_no_device_models", sample_count=int(len(features)), min_samples=min_samples)
         return trained_devices
 
+    # Global model (non per-device)
     X = features[FeatureExtractor.FEATURE_COLUMNS].values
     if X.shape[0] < min_samples:
         log.warning(
@@ -85,20 +99,16 @@ async def train_model():
         )
         return int(X.shape[0])
 
-    model = IsolationForest(
-        n_estimators=int(os.getenv("N_ESTIMATORS", "200")),
-        contamination=contamination,
-        random_state=42,
-        n_jobs=1,
-    )
-    model.fit(X)
-    detector.save_model(model)
+    detector = get_detector(default_model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+    detector.fit(X, contamination=contamination, n_estimators=int(os.getenv("N_ESTIMATORS", "200")))
+    detector.save_model(detector.model)
 
     log.info(
         "training_complete",
         trained_at=datetime.utcnow().isoformat(),
         samples=int(X.shape[0]),
         features=len(FeatureExtractor.FEATURE_COLUMNS),
+        model_type=default_model_type,
     )
 
     return int(X.shape[0])

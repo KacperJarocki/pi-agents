@@ -4,6 +4,7 @@ import aiosqlite
 import pandas as pd
 import numpy as np
 import json
+from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
@@ -76,92 +77,216 @@ class FeatureExtractor:
         return pd.DataFrame(features)
 
 
-class AnomalyDetector:
-    # Module-level model cache: device_id -> (mtime, model)
+class BaseDetector(ABC):
+    """Abstract base class for anomaly detection models."""
+
+    MODEL_TYPE: str = "base"
     _model_cache: dict = {}
 
     def __init__(self, model_path: str):
         self.model_path = model_path
         self.model = None
         self.threshold = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
-    
+
     def _model_file(self, device_id: int | None = None) -> str:
-        name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
+        name = f"{self.MODEL_TYPE}_model_device_{device_id}.joblib" if device_id is not None else f"{self.MODEL_TYPE}_model.joblib"
         return os.path.join(self.model_path, name)
-
-    def load_model(self, device_id: int | None = None):
-        import joblib
-        
-        model_file = self._model_file(device_id)
-        if not os.path.exists(model_file):
-            return False
-
-        mtime = os.path.getmtime(model_file)
-        cached = AnomalyDetector._model_cache.get(device_id)
-        if cached is not None and cached[0] == mtime:
-            self.model = cached[1]
-            return True
-
-        self.model = joblib.load(model_file)
-        AnomalyDetector._model_cache[device_id] = (mtime, self.model)
-        log.info("model_loaded", path=model_file, device_id=device_id)
-        return True
-    
-    def save_model(self, model, device_id: int | None = None):
-        import joblib
-        
-        os.makedirs(self.model_path, exist_ok=True)
-        model_file = self._model_file(device_id)
-        joblib.dump(model, model_file)
-        log.info("model_saved", path=model_file, device_id=device_id)
-        self.model = model
 
     def model_exists(self, device_id: int | None = None) -> bool:
         return os.path.exists(self._model_file(device_id))
-    
-    def detect(self, features: pd.DataFrame) -> List[Dict]:
-        if self.model is None or features.empty:
-            return []
 
-        # Use the feature set defined by the extractor.
-        X = features[FeatureExtractor.FEATURE_COLUMNS].values
-        
-        scores = self.model.decision_function(X)
-        predictions = self.model.predict(X)
-        
-        anomalies = []
-        for idx, (score, pred) in enumerate(zip(scores, predictions)):
-            if score < self.threshold:
-                device_id = features.iloc[idx]['device_id']
-                anomalies.append({
-                    'device_id': int(device_id),
-                    'anomaly_score': float(score),
-                    'severity': 'critical' if score < self.threshold * 2 else 'warning',
-                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict()
-                })
-        
-        return anomalies
+    def load_model(self, device_id: int | None = None) -> bool:
+        import joblib
+        model_file = self._model_file(device_id)
+        if not os.path.exists(model_file):
+            return False
+        mtime = os.path.getmtime(model_file)
+        cache_key = (self.MODEL_TYPE, device_id)
+        cached = BaseDetector._model_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime:
+            self.model = cached[1]
+            return True
+        self.model = joblib.load(model_file)
+        BaseDetector._model_cache[cache_key] = (mtime, self.model)
+        log.info("model_loaded", path=model_file, device_id=device_id, model_type=self.MODEL_TYPE)
+        return True
+
+    def save_model(self, model, device_id: int | None = None):
+        import joblib
+        os.makedirs(self.model_path, exist_ok=True)
+        model_file = self._model_file(device_id)
+        joblib.dump(model, model_file)
+        log.info("model_saved", path=model_file, device_id=device_id, model_type=self.MODEL_TYPE)
+        self.model = model
+
+    @abstractmethod
+    def fit(self, X: np.ndarray, **kwargs):
+        """Train the model on feature matrix X."""
+
+    @abstractmethod
+    def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        """Return anomaly scores (lower = more anomalous, matching IsolationForest convention)."""
 
     def score(self, features: pd.DataFrame) -> List[Dict]:
         if self.model is None or features.empty:
             return []
-
         X = features[FeatureExtractor.FEATURE_COLUMNS].values
-        scores = self.model.decision_function(X)
-
+        scores = self.decision_scores(X)
         rows = []
-        for idx, score in enumerate(scores):
-            rows.append(
-                {
-                    'device_id': int(features.iloc[idx]['device_id']),
-                    'bucket_start': features.iloc[idx].get('bucket_start'),
-                    'anomaly_score': float(score),
-                    'is_anomaly': bool(score < self.threshold),
-                    'severity': 'critical' if score < self.threshold * 2 else 'warning',
-                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
-                }
-            )
+        for idx, s in enumerate(scores):
+            rows.append({
+                'device_id': int(features.iloc[idx]['device_id']),
+                'bucket_start': features.iloc[idx].get('bucket_start'),
+                'anomaly_score': float(s),
+                'is_anomaly': bool(s < self.threshold),
+                'severity': 'critical' if s < self.threshold * 2 else 'warning',
+                'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
+            })
         return rows
+
+    def detect(self, features: pd.DataFrame) -> List[Dict]:
+        if self.model is None or features.empty:
+            return []
+        X = features[FeatureExtractor.FEATURE_COLUMNS].values
+        scores = self.decision_scores(X)
+        anomalies = []
+        for idx, s in enumerate(scores):
+            if s < self.threshold:
+                anomalies.append({
+                    'device_id': int(features.iloc[idx]['device_id']),
+                    'anomaly_score': float(s),
+                    'severity': 'critical' if s < self.threshold * 2 else 'warning',
+                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
+                })
+        return anomalies
+
+
+class IsolationForestDetector(BaseDetector):
+    MODEL_TYPE = "isolation_forest"
+
+    def fit(self, X: np.ndarray, **kwargs):
+        from sklearn.ensemble import IsolationForest
+        contamination = kwargs.get("contamination", 0.05)
+        n_estimators = kwargs.get("n_estimators", 200)
+        model = IsolationForest(
+            n_estimators=n_estimators,
+            contamination=contamination,
+            random_state=42,
+            n_jobs=1,
+        )
+        model.fit(X)
+        self.model = model
+        return model
+
+    def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        return self.model.decision_function(X)
+
+
+class LOFDetector(BaseDetector):
+    MODEL_TYPE = "lof"
+
+    def fit(self, X: np.ndarray, **kwargs):
+        from sklearn.neighbors import LocalOutlierFactor
+        contamination = kwargs.get("contamination", 0.05)
+        n_neighbors = kwargs.get("n_neighbors", min(20, max(5, X.shape[0] // 5)))
+        model = LocalOutlierFactor(
+            n_neighbors=n_neighbors,
+            contamination=contamination,
+            novelty=True,
+        )
+        model.fit(X)
+        self.model = model
+        return model
+
+    def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        return self.model.decision_function(X)
+
+
+class OneClassSVMDetector(BaseDetector):
+    MODEL_TYPE = "ocsvm"
+
+    def fit(self, X: np.ndarray, **kwargs):
+        from sklearn.svm import OneClassSVM
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        model = OneClassSVM(kernel='rbf', gamma='scale', nu=kwargs.get("nu", 0.05))
+        model.fit(X_scaled)
+        self.model = {"svm": model, "scaler": scaler}
+        return self.model
+
+    def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        scaler = self.model["scaler"]
+        svm = self.model["svm"]
+        X_scaled = scaler.transform(X)
+        return svm.decision_function(X_scaled)
+
+
+class AutoencoderDetector(BaseDetector):
+    """Autoencoder using sklearn MLPRegressor (reconstruction error as anomaly signal)."""
+    MODEL_TYPE = "autoencoder"
+
+    def fit(self, X: np.ndarray, **kwargs):
+        from sklearn.neural_network import MLPRegressor
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        n_features = X.shape[1]
+        hidden = max(3, n_features // 2)
+        model = MLPRegressor(
+            hidden_layer_sizes=(hidden, max(2, hidden // 2), hidden),
+            activation='relu',
+            max_iter=kwargs.get("max_iter", 500),
+            random_state=42,
+            early_stopping=True,
+            validation_fraction=0.1 if X.shape[0] >= 30 else 0.0,
+        )
+        model.fit(X_scaled, X_scaled)
+        # Compute training reconstruction errors for threshold calibration
+        reconstructed = model.predict(X_scaled)
+        errors = np.mean((X_scaled - reconstructed) ** 2, axis=1)
+        self.model = {"mlp": model, "scaler": scaler, "error_stats": {"mean": float(np.mean(errors)), "std": float(np.std(errors))}}
+        return self.model
+
+    def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        scaler = self.model["scaler"]
+        mlp = self.model["mlp"]
+        stats = self.model["error_stats"]
+        X_scaled = scaler.transform(X)
+        reconstructed = mlp.predict(X_scaled)
+        errors = np.mean((X_scaled - reconstructed) ** 2, axis=1)
+        # Convert to IsolationForest-like scores (lower = more anomalous)
+        # Use z-score: negative z-score means high error = anomalous
+        z_scores = -(errors - stats["mean"]) / max(stats["std"], 1e-8)
+        return z_scores
+
+
+DETECTOR_REGISTRY = {
+    "isolation_forest": IsolationForestDetector,
+    "lof": LOFDetector,
+    "ocsvm": OneClassSVMDetector,
+    "autoencoder": AutoencoderDetector,
+}
+
+AVAILABLE_MODEL_TYPES = list(DETECTOR_REGISTRY.keys())
+
+
+def get_detector(model_type: str, model_path: str | None = None) -> BaseDetector:
+    """Factory: return a detector instance for the given model type."""
+    path = model_path or os.getenv("MODEL_PATH", "/data/models")
+    cls = DETECTOR_REGISTRY.get(model_type)
+    if cls is None:
+        raise ValueError(f"Unknown model type '{model_type}'. Available: {AVAILABLE_MODEL_TYPES}")
+    return cls(model_path=path)
+
+
+class AnomalyDetector(IsolationForestDetector):
+    """Backward-compatible wrapper around IsolationForestDetector."""
+
+    # Keep the old _model_file behavior for backward compat with existing model files
+    def _model_file(self, device_id: int | None = None) -> str:
+        name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
+        return os.path.join(self.model_path, name)
 
 
 async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
@@ -247,6 +372,7 @@ async def ensure_schema():
         await _ensure_device_inference_columns(conn)
         await _ensure_inference_history_table(conn)
         await _ensure_behavior_alerts_table(conn)
+        await _ensure_device_model_config_table(conn)
         await conn.commit()
         log.info("schema_ensured")
     finally:
@@ -340,6 +466,33 @@ async def _ensure_behavior_alerts_table(conn: aiosqlite.Connection):
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start)"
     )
+
+
+async def _ensure_device_model_config_table(conn: aiosqlite.Connection):
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_model_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL UNIQUE,
+            model_type TEXT NOT NULL DEFAULT 'isolation_forest',
+            params TEXT DEFAULT '{}'
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_model_config_device ON device_model_config(device_id)"
+    )
+
+
+async def get_device_model_configs() -> dict[int, str]:
+    """Return {device_id: model_type} for all configured devices."""
+    conn = await get_db_connection()
+    try:
+        cursor = await conn.execute("SELECT device_id, model_type FROM device_model_config")
+        rows = await cursor.fetchall()
+        return {int(row[0]): str(row[1]) for row in rows}
+    finally:
+        await conn.close()
 
 
 async def update_device_risk_score(

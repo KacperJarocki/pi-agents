@@ -138,7 +138,18 @@
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                     <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
                     <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac">-</div></div>
-                    <div><div class="text-slate-500 uppercase text-[11px]">Model</div><div id="device-model">-</div></div>
+                    <div>
+                        <div class="text-slate-500 uppercase text-[11px]">ML Model</div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <div id="device-model" class="text-sm">-</div>
+                            <select id="model-select" class="bg-slate-800 border border-socline text-xs text-white rounded px-1.5 py-0.5 focus:outline-none focus:border-socblue" onchange="changeModel(this.value)">
+                                <option value="isolation_forest">Isolation Forest</option>
+                                <option value="lof">LOF</option>
+                                <option value="ocsvm">One-Class SVM</option>
+                                <option value="autoencoder">Autoencoder</option>
+                            </select>
+                        </div>
+                    </div>
                     <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen">-</div></div>
                 </div>
             </div>
@@ -267,6 +278,27 @@
             return new Date(value).toLocaleString();
         }
 
+        async function loadModelConfig() {
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/model-config`);
+                if (res.ok) {
+                    const cfg = await res.json();
+                    document.getElementById('model-select').value = cfg.model_type || 'isolation_forest';
+                }
+            } catch(e) { console.warn('model-config load failed', e); }
+        }
+
+        async function changeModel(modelType) {
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/model-config`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model_type: modelType}),
+                });
+                if (!res.ok) console.error('model-config update failed', await res.text());
+            } catch(e) { console.error('model-config update error', e); }
+        }
+
         function fmtMb(value) {
             return `${Number(value || 0).toFixed(2)} MB`;
         }
@@ -363,6 +395,7 @@
             document.getElementById('device-ip').textContent = device.ip_address || '-';
             document.getElementById('device-mac').textContent = device.mac_address || '-';
             document.getElementById('device-model').textContent = device.model_status || 'missing';
+            loadModelConfig();
             document.getElementById('device-last-seen').textContent = fmtTs(device.last_seen);
             document.getElementById('device-risk').textContent = `${Number(device.risk_score || 0).toFixed(1)}%`;
             document.getElementById('device-score').textContent = device.last_inference_score == null ? 'N/A' : Number(device.last_inference_score).toFixed(4);

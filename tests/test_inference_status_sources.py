@@ -15,11 +15,15 @@ class TestInferenceStatusSources(unittest.TestCase):
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[1]
-        src = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+        inference = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+        ml_core = (repo / "images" / "ml-pipeline" / "app" / "ml_core.py").read_text()
 
-        self.assertIn("inference_device_score", src)
-        self.assertIn("last_inference_score=float(score)", src)
-        self.assertIn("update_device_risk_score(", src)
+        # inference.py logs per-device score and delegates DB writes to batch function
+        self.assertIn("inference_device_score", inference)
+        self.assertIn("batch_save_inference_cycle(", inference)
+        # ml_core.py contains the actual UPDATE with last_inference_score
+        self.assertIn("last_inference_score", ml_core)
+        self.assertIn("last_inference_at = CURRENT_TIMESTAMP", ml_core)
 
     def test_ml_core_updates_last_inference_columns(self):
         from pathlib import Path

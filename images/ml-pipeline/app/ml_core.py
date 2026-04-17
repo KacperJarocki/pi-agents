@@ -36,10 +36,10 @@ class FeatureExtractor:
         
         features = []
         bucket = f"{self.bucket_minutes}min"
-        flows = flows.copy()
-        flows['bucket_start'] = flows['timestamp'].dt.floor(bucket)
+        # Avoid full copy: assign() returns a new df with added column
+        flows_with_bucket = flows.assign(bucket_start=flows['timestamp'].dt.floor(bucket))
         
-        for (device_id, bucket_start), group in flows.groupby(['device_id', 'bucket_start']):
+        for (device_id, bucket_start), group in flows_with_bucket.groupby(['device_id', 'bucket_start']):
             device_flows = group.sort_values('timestamp')
             
             total_bytes = device_flows['bytes_sent'].sum() + device_flows['bytes_received'].sum()
@@ -77,6 +77,9 @@ class FeatureExtractor:
 
 
 class AnomalyDetector:
+    # Module-level model cache: device_id -> (mtime, model)
+    _model_cache: dict = {}
+
     def __init__(self, model_path: str):
         self.model_path = model_path
         self.model = None
@@ -91,11 +94,19 @@ class AnomalyDetector:
         import joblib
         
         model_file = self._model_file(device_id)
-        if os.path.exists(model_file):
-            self.model = joblib.load(model_file)
-            log.info("model_loaded", path=model_file, device_id=device_id)
+        if not os.path.exists(model_file):
+            return False
+
+        mtime = os.path.getmtime(model_file)
+        cached = AnomalyDetector._model_cache.get(device_id)
+        if cached is not None and cached[0] == mtime:
+            self.model = cached[1]
             return True
-        return False
+
+        self.model = joblib.load(model_file)
+        AnomalyDetector._model_cache[device_id] = (mtime, self.model)
+        log.info("model_loaded", path=model_file, device_id=device_id)
+        return True
     
     def save_model(self, model, device_id: int | None = None):
         import joblib
@@ -219,6 +230,29 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
         df['icmp_type'] = df['flags'].apply(lambda value: value.get('icmp_type') if isinstance(value, dict) else None)
         df['icmp_code'] = df['flags'].apply(lambda value: value.get('icmp_code') if isinstance(value, dict) else None)
     return df
+
+
+async def get_db_connection() -> aiosqlite.Connection:
+    """Open a single SQLite connection with WAL mode. Caller is responsible for closing."""
+    conn = await aiosqlite.connect(DB_PATH)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA synchronous=NORMAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
+
+async def ensure_schema():
+    """Run all schema migrations once at startup, not per-cycle."""
+    conn = await get_db_connection()
+    try:
+        await _ensure_device_inference_columns(conn)
+        await _ensure_inference_history_table(conn)
+        await _ensure_behavior_alerts_table(conn)
+        await conn.commit()
+        log.info("schema_ensured")
+    finally:
+        await conn.close()
 
 
 async def save_anomaly(device_id: int, anomaly_type: str, severity: str, 
@@ -416,9 +450,126 @@ async def save_behavior_alert(
             json.dumps(evidence),
         ),
     )
-    await conn.execute(
-        "DELETE FROM device_behavior_alerts WHERE timestamp < datetime('now', '-' || ? || ' days')",
-        (retention_days,),
-    )
     await conn.commit()
     await conn.close()
+
+
+async def batch_save_inference_cycle(results: list[dict], retention_days: int = 7):
+    """
+    Write all inference results, behavior alerts and anomalies for one cycle using a
+    single DB connection, eliminating the N+1 connect/close pattern.
+
+    Each item in `results` is a dict with keys:
+        device_id, bucket_start, anomaly_score, risk_score, is_anomaly, severity,
+        features (dict), behavior_alerts (list[dict]), is_isolation_forest_anomaly (bool)
+    """
+    if not results:
+        return
+
+    conn = await get_db_connection()
+    try:
+        for r in results:
+            device_id = r["device_id"]
+            bucket_start = r["bucket_start"]
+            risk_score = r["risk_score"]
+            anomaly_score = r["anomaly_score"]
+            is_anomaly = r["is_anomaly"]
+            severity = r["severity"]
+            features = r["features"]
+            behavior_alerts = r.get("behavior_alerts", [])
+            bucket_value = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
+
+            # 1. Update device risk score
+            await conn.execute(
+                """
+                UPDATE devices
+                SET risk_score = ?,
+                    last_inference_score = ?,
+                    last_inference_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (risk_score, float(anomaly_score), device_id),
+            )
+
+            # 2. Insert inference history
+            await conn.execute(
+                """
+                INSERT INTO device_inference_history (
+                    device_id, bucket_start, anomaly_score, risk_score, is_anomaly, severity, features
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    device_id,
+                    bucket_value,
+                    float(anomaly_score),
+                    float(risk_score),
+                    1 if is_anomaly else 0,
+                    severity,
+                    json.dumps(features),
+                ),
+            )
+
+            # 3. Insert behavior alerts (skip duplicates)
+            for alert in behavior_alerts:
+                alert_type = alert["alert_type"]
+                alert_bucket = bucket_value
+                cursor = await conn.execute(
+                    """
+                    SELECT id FROM device_behavior_alerts
+                    WHERE device_id = ? AND alert_type = ?
+                      AND ((bucket_start IS NULL AND ? IS NULL) OR bucket_start = ?)
+                    LIMIT 1
+                    """,
+                    (device_id, alert_type, alert_bucket, alert_bucket),
+                )
+                existing = await cursor.fetchone()
+                if existing:
+                    continue
+                await conn.execute(
+                    """
+                    INSERT INTO device_behavior_alerts (
+                        device_id, bucket_start, alert_type, severity, score, title, description, evidence
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        device_id,
+                        alert_bucket,
+                        alert_type,
+                        alert["severity"],
+                        float(alert["score"]),
+                        alert["title"],
+                        alert["description"],
+                        json.dumps(alert["evidence"]),
+                    ),
+                )
+
+            # 4. Insert anomaly if flagged
+            if r.get("is_isolation_forest_anomaly"):
+                await conn.execute(
+                    """
+                    INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        device_id,
+                        "isolation_forest",
+                        severity,
+                        float(anomaly_score),
+                        f"IsolationForest anomaly score={anomaly_score:.4f}",
+                        json.dumps(r.get("raw_features") or {}),
+                    ),
+                )
+
+        # Prune old data in one pass
+        await conn.execute(
+            "DELETE FROM device_inference_history WHERE timestamp < datetime('now', '-' || ? || ' days')",
+            (retention_days,),
+        )
+        await conn.execute(
+            "DELETE FROM device_behavior_alerts WHERE timestamp < datetime('now', '-' || ? || ' days')",
+            (retention_days,),
+        )
+
+        await conn.commit()
+    finally:
+        await conn.close()

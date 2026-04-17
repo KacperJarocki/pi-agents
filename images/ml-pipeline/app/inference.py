@@ -7,6 +7,7 @@ import pandas as pd
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import save_anomaly, save_behavior_alert, save_inference_result, update_device_risk_score, log
+from .ml_core import batch_save_inference_cycle, ensure_schema
 
 
 PROTOCOL_ALERT_TYPES = {
@@ -150,6 +151,11 @@ def _build_behavior_alerts(
     baseline_ports = _baseline_stats(history_buckets.get("unique_ports", pd.Series(dtype=float)).tolist())
     baseline_packet_rate = _baseline_stats(history_buckets.get("packet_rate", pd.Series(dtype=float)).tolist())
 
+    # Pre-compute per-bucket groupby once to avoid 4 repeated groupby calls below
+    _history_by_bucket: dict = {}
+    if not history_flows.empty and "bucket_start" in history_flows.columns:
+        _history_by_bucket = {k: v for k, v in history_flows.groupby("bucket_start")}
+
     latest_destinations = set(latest_bucket["dst_ip"].dropna().astype(str))
     latest_destination_count = float(len(latest_destinations))
     previous_destinations = set(history_flows["dst_ip"].dropna().astype(str)) if not history_flows.empty else set()
@@ -179,9 +185,9 @@ def _build_behavior_alerts(
     latest_dns_queries = int(latest_bucket["dns_query"].notna().sum())
     latest_unique_dns = int(latest_bucket["dns_query"].dropna().nunique())
     baseline_unique_dns = _median(
-        [float(group["dns_query"].dropna().nunique()) for _, group in history_flows.groupby("bucket_start")],
+        [float(grp["dns_query"].dropna().nunique()) for grp in _history_by_bucket.values()],
         default=0.0,
-    ) if not history_flows.empty else 0.0
+    ) if _history_by_bucket else 0.0
     dns_ratio = latest_dns_queries / max(baseline_dns["median"], 1.0)
     unique_dns_ratio = latest_unique_dns / max(baseline_unique_dns, 1.0)
     if latest_dns_queries >= max(5, baseline_dns["p95"] + 2, baseline_dns["median"] * 2) and latest_unique_dns >= max(3, baseline_unique_dns * 2, 3):
@@ -301,9 +307,9 @@ def _build_behavior_alerts(
 
     latest_dns_failures = int((latest_bucket.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) > 0).sum())
     historical_dns_failures = []
-    if not history_flows.empty and "dns_rcode" in history_flows.columns:
-        for _, group in history_flows.groupby("bucket_start"):
-            historical_dns_failures.append(float((group.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) > 0).sum()))
+    if _history_by_bucket and "dns_rcode" in history_flows.columns:
+        for grp in _history_by_bucket.values():
+            historical_dns_failures.append(float((grp.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) > 0).sum()))
     dns_failure_baseline = _baseline_stats(historical_dns_failures)
     if latest_dns_failures >= max(3, dns_failure_baseline["p95"] + 1):
         score = min(100.0, latest_dns_failures * 16.0 + dns_failure_baseline["p95"] * 5.0)
@@ -326,9 +332,9 @@ def _build_behavior_alerts(
 
     latest_nxdomain_failures = int((latest_bucket.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) == 3).sum())
     historical_nxdomain_failures = []
-    if not history_flows.empty and "dns_rcode" in history_flows.columns:
-        for _, group in history_flows.groupby("bucket_start"):
-            historical_nxdomain_failures.append(float((group.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) == 3).sum()))
+    if _history_by_bucket and "dns_rcode" in history_flows.columns:
+        for grp in _history_by_bucket.values():
+            historical_nxdomain_failures.append(float((grp.get("dns_rcode", pd.Series(dtype=float)).fillna(0).astype(float) == 3).sum()))
     nxdomain_baseline = _baseline_stats(historical_nxdomain_failures)
     if latest_nxdomain_failures >= max(3, nxdomain_baseline["p95"] + 1):
         score = min(100.0, latest_nxdomain_failures * 18.0 + nxdomain_baseline["p95"] * 4.0)
@@ -355,9 +361,9 @@ def _build_behavior_alerts(
     latest_icmp_request_count = int(len(latest_icmp_requests))
     latest_icmp_destinations = int(latest_icmp_requests["dst_ip"].nunique()) if not latest_icmp_requests.empty else 0
     historical_icmp_counts = []
-    if not history_flows.empty and "icmp_type" in history_flows.columns:
-        for _, group in history_flows.groupby("bucket_start"):
-            icmp_requests = group[group.get("icmp_type", pd.Series(dtype=float)).fillna(-1).astype(float) == 8]
+    if _history_by_bucket and "icmp_type" in history_flows.columns:
+        for grp in _history_by_bucket.values():
+            icmp_requests = grp[grp.get("icmp_type", pd.Series(dtype=float)).fillna(-1).astype(float) == 8]
             historical_icmp_counts.append(float(len(icmp_requests)))
     icmp_baseline = _baseline_stats(historical_icmp_counts)
     if latest_icmp_request_count >= max(4, icmp_baseline["p95"] + 1) and latest_icmp_destinations >= 3:
@@ -404,18 +410,26 @@ def _build_behavior_alerts(
 
 
 async def run_inference_once(detector: AnomalyDetector, hours: int):
-    flows = await get_all_recent_flows(hours=hours)
-    if flows.empty:
+    # Load flows once (baseline_hours >= hours, so we load the larger window)
+    baseline_hours = int(os.getenv("BEHAVIOR_BASELINE_HOURS", "168"))
+    all_flows = await get_all_recent_flows(hours=max(hours, baseline_hours))
+    
+    if all_flows.empty:
         log.info("inference_no_data")
         return 0
 
+    # Filter flows for feature extraction (recent window)
+    cutoff = pd.Timestamp.now() - pd.Timedelta(hours=hours)
+    flows = all_flows[all_flows["timestamp"] >= cutoff]
+
     extractor = FeatureExtractor()
     features = extractor.extract_features(flows)
-    baseline_hours = int(os.getenv("BEHAVIOR_BASELINE_HOURS", "168"))
-    baseline_flows = await get_all_recent_flows(hours=baseline_hours)
+    
+    # Prepare baseline flows with bucket_start column
+    baseline_flows = all_flows
     if not baseline_flows.empty:
-        baseline_flows = baseline_flows.copy()
         baseline_flows["bucket_start"] = baseline_flows["timestamp"].dt.floor(f"{extractor.bucket_minutes}min")
+    
     baseline_features = extractor.extract_features(baseline_flows)
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     scored_results = []
@@ -433,7 +447,18 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     else:
         scored_results = [{**row, "threshold": detector.threshold} for row in detector.score(features)]
 
-    anomalies = []
+    # Pre-group baseline data per device to avoid O(N*D) filtering inside the loop
+    baseline_flows_by_device: dict = {}
+    baseline_features_by_device: dict = {}
+    if not baseline_flows.empty:
+        for did, grp in baseline_flows.groupby("device_id"):
+            baseline_flows_by_device[did] = grp
+    if not baseline_features.empty:
+        for did, grp in baseline_features.groupby("device_id"):
+            baseline_features_by_device[did] = grp
+
+    anomaly_count = 0
+    batch_results = []
     for a in scored_results:
         device_id = a["device_id"]
         score = a["anomaly_score"]
@@ -441,15 +466,20 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         severity = a["severity"]
         threshold = float(a.get("threshold", os.getenv("ANOMALY_THRESHOLD", "-0.5")))
         bucket_start = a.get("bucket_start")
-        latest_bucket_flows = baseline_flows[
-            (baseline_flows["device_id"] == device_id) & (baseline_flows["bucket_start"] == bucket_start)
-        ] if bucket_start is not None and not baseline_flows.empty else pd.DataFrame()
-        history_bucket_features = baseline_features[
-            (baseline_features["device_id"] == device_id) & (baseline_features["bucket_start"] < bucket_start)
-        ] if bucket_start is not None and not baseline_features.empty else pd.DataFrame()
-        history_flows = baseline_flows[
-            (baseline_flows["device_id"] == device_id) & (baseline_flows["bucket_start"] < bucket_start)
-        ] if bucket_start is not None and not baseline_flows.empty else pd.DataFrame()
+
+        dev_flows = baseline_flows_by_device.get(device_id, pd.DataFrame())
+        dev_features = baseline_features_by_device.get(device_id, pd.DataFrame())
+
+        latest_bucket_flows = dev_flows[
+            dev_flows["bucket_start"] == bucket_start
+        ] if bucket_start is not None and not dev_flows.empty else pd.DataFrame()
+        history_bucket_features = dev_features[
+            dev_features["bucket_start"] < bucket_start
+        ] if bucket_start is not None and not dev_features.empty else pd.DataFrame()
+        history_flows = dev_flows[
+            dev_flows["bucket_start"] < bucket_start
+        ] if bucket_start is not None and not dev_flows.empty else pd.DataFrame()
+
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
         ml_risk = _risk_from_score(score, threshold)
         risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
@@ -464,34 +494,6 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             "risk_top_reason": risk_breakdown["top_reason"],
             "risk_reason_summary": risk_breakdown["reason_summary"],
         }
-
-        await update_device_risk_score(
-            device_id=device_id,
-            risk_score=risk_score,
-            last_inference_score=float(score),
-        )
-        await save_inference_result(
-            device_id=device_id,
-            bucket_start=bucket_start,
-            anomaly_score=float(score),
-            risk_score=risk_score,
-            is_anomaly=is_anomaly,
-            severity=severity,
-            features=inference_features,
-            retention_days=7,
-        )
-        for alert in behavior_alerts:
-            await save_behavior_alert(
-                device_id=device_id,
-                bucket_start=bucket_start,
-                alert_type=alert["alert_type"],
-                severity=alert["severity"],
-                score=float(alert["score"]),
-                title=alert["title"],
-                description=alert["description"],
-                evidence=alert["evidence"],
-                retention_days=7,
-            )
 
         log.info(
             "inference_device_score",
@@ -509,24 +511,32 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         )
 
         if is_anomaly:
-            anomalies.append(a)
-            await save_anomaly(
-                device_id=device_id,
-                anomaly_type="isolation_forest",
-                severity=severity,
-                score=float(score),
-                description=f"IsolationForest anomaly score={score:.4f}",
-                features=a.get("features") or {},
-            )
+            anomaly_count += 1
+
+        batch_results.append({
+            "device_id": device_id,
+            "bucket_start": bucket_start,
+            "anomaly_score": float(score),
+            "risk_score": risk_score,
+            "is_anomaly": is_anomaly,
+            "severity": severity,
+            "features": inference_features,
+            "behavior_alerts": behavior_alerts,
+            "is_isolation_forest_anomaly": is_anomaly,
+            "raw_features": a.get("features") or {},
+        })
+
+    # Write all results in a single DB connection (eliminates N+1 connect/close)
+    await batch_save_inference_cycle(batch_results, retention_days=7)
 
     log.info(
         "inference_complete",
         at=datetime.now(UTC).isoformat(),
         devices=int(features.shape[0]),
-        anomalies=len(anomalies),
+        anomalies=anomaly_count,
     )
 
-    return len(anomalies)
+    return anomaly_count
 
 
 async def run_inference_loop():
@@ -535,6 +545,9 @@ async def run_inference_loop():
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
 
     detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+
+    # Run schema migrations once at startup, not per-cycle
+    await ensure_schema()
 
     while True:
         try:

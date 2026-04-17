@@ -65,7 +65,9 @@ class TestMlMvpSources(unittest.TestCase):
 
         self.assertIn("device_inference_history", ml_core)
         self.assertIn("retention_days=7", inference)
-        self.assertIn("save_inference_result(", inference)
+        # inference.py uses batch save; ml_core.py contains the actual insert
+        self.assertIn("batch_save_inference_cycle(", inference)
+        self.assertIn("INSERT INTO device_inference_history", ml_core)
 
     def test_inference_risk_uses_threshold_scaling(self):
         from pathlib import Path
@@ -99,7 +101,9 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn('"behavior_risk":', inference)
         self.assertIn('"protocol_risk":', inference)
         self.assertIn('"correlation_bonus":', inference)
-        self.assertIn("save_behavior_alert(", inference)
+        # behavior alerts are persisted via batch_save_inference_cycle in ml_core.py
+        self.assertIn("batch_save_inference_cycle(", inference)
+        self.assertIn("INSERT INTO device_behavior_alerts", ml_core)
         self.assertIn("device_behavior_alerts", ml_core)
 
     def test_protocol_enrichment_flows_into_ml_features(self):

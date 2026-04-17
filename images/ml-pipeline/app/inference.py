@@ -283,8 +283,8 @@ def _build_behavior_alerts(
             interval_std = float(pstdev(intervals)) if len(intervals) > 1 else 0.0
             regularity = interval_std / max(interval_median, 1.0)
             avg_bytes = float(group["bytes_sent"].fillna(0).mean()) if "bytes_sent" in group else 0.0
-            if regularity <= 0.35 and avg_bytes <= 300:
-                score = min(100.0, (1.0 - regularity) * 70.0 + max(0.0, 30.0 - avg_bytes / 10.0))
+            if regularity <= 0.35 and avg_bytes <= 500:
+                score = min(100.0, (1.0 - regularity) * 70.0 + max(0.0, 50.0 - avg_bytes / 10.0))
                 alerts.append(
                     {
                         "device_id": device_id,

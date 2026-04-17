@@ -9,8 +9,8 @@ from .ml_core import log
 
 
 async def train_model():
-    hours = int(os.getenv("TRAINING_HOURS", "24"))
-    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "20"))
+    hours = int(os.getenv("TRAINING_HOURS", "48"))
+    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "10"))
     contamination = float(os.getenv("CONTAMINATION", "0.05"))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
 
@@ -53,9 +53,10 @@ async def train_model():
                 continue
 
             X = group[FeatureExtractor.FEATURE_COLUMNS].values
+            adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
             model = IsolationForest(
                 n_estimators=int(os.getenv("N_ESTIMATORS", "200")),
-                contamination=contamination,
+                contamination=adaptive_contamination,
                 random_state=42,
                 n_jobs=1,
             )

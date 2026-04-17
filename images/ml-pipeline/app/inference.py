@@ -7,7 +7,8 @@ import pandas as pd
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import save_anomaly, save_behavior_alert, save_inference_result, update_device_risk_score, log
-from .ml_core import batch_save_inference_cycle, ensure_schema
+from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH
+import aiosqlite
 
 
 PROTOCOL_ALERT_TYPES = {
@@ -539,6 +540,46 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     return anomaly_count
 
 
+async def run_retention_cleanup(
+    flows_days: int = 7,
+    alerts_days: int = 14,
+    anomaly_resolve_hours: int = 48,
+) -> None:
+    """Delete old rows and auto-resolve stale anomalies to keep the DB lean."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            await conn.execute("PRAGMA journal_mode=WAL")
+            # Raw flow data: keep 7 days
+            cur = await conn.execute(
+                "DELETE FROM traffic_flows WHERE timestamp < datetime('now', ?)",
+                (f"-{flows_days} days",),
+            )
+            deleted_flows = cur.rowcount
+            # Behavior alerts: keep 14 days
+            cur = await conn.execute(
+                "DELETE FROM device_behavior_alerts WHERE created_at < datetime('now', ?)",
+                (f"-{alerts_days} days",),
+            )
+            deleted_alerts = cur.rowcount
+            # Auto-resolve anomalies older than 48 h
+            cur = await conn.execute(
+                """UPDATE anomalies SET resolved = 1
+                   WHERE resolved = 0
+                     AND timestamp < datetime('now', ?)""",
+                (f"-{anomaly_resolve_hours} hours",),
+            )
+            resolved = cur.rowcount
+            await conn.commit()
+        log.info(
+            "retention_cleanup",
+            deleted_flows=deleted_flows,
+            deleted_alerts=deleted_alerts,
+            auto_resolved_anomalies=resolved,
+        )
+    except Exception as exc:
+        log.error("retention_cleanup_error", error=str(exc))
+
+
 async def run_inference_loop():
     interval = int(os.getenv("INFERENCE_INTERVAL", "300"))
     hours = int(os.getenv("INFERENCE_HOURS", "24"))
@@ -561,6 +602,8 @@ async def run_inference_loop():
             # Write heartbeat after a successful cycle.
             with open(heartbeat_path, "w") as f:
                 f.write(str(int(__import__("time").time())))
+            # Retention: prune old rows once per cycle
+            await run_retention_cleanup()
         except Exception as e:
             log.error("inference_error", error=str(e))
 

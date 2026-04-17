@@ -5,7 +5,7 @@ from time import perf_counter
 from ..core.database import get_db
 from ..core.cache import cache
 from ..core.config import get_settings
-from ..services.crud import TrafficService, DeviceService, AnomalyService
+from ..services.crud import TrafficService, DeviceService, AnomalyService, AlertService
 from ..core.logging import log
 from ..models.schemas import Device
 from ..models.schemas_pydantic import (
@@ -53,10 +53,12 @@ async def get_summary(
         started = perf_counter()
         device_service = DeviceService(db)
         anomaly_service = AnomalyService(db)
+        alert_service = AlertService(db)
         total_devices_result = await db.execute(select(func.count()).select_from(Device))
         total_devices = int(total_devices_result.scalar() or 0)
         active_devices_count = await device_service.count_connected_devices()
         anomaly_stats = await anomaly_service.get_anomaly_stats(hours=24)
+        behavior_stats = await anomaly_service.behavior_alert_stats(hours=24)
 
         traffic_total_result = await db.execute(
             select(func.sum(func.coalesce(func.json_extract(Device.extra_data, '$.total_bytes'), 0)))
@@ -72,7 +74,9 @@ async def get_summary(
             total_anomalies_24h=anomaly_stats["total"],
             critical_anomalies=anomaly_stats["critical"],
             avg_risk_score=avg_risk,
-            total_traffic_mb=total_traffic
+            total_traffic_mb=total_traffic,
+            behavior_alerts_24h=behavior_stats["total"],
+            total_alerts_24h=anomaly_stats["total"] + behavior_stats["total"],
         )
         log.info("get_summary_timed", duration_ms=round((perf_counter() - started) * 1000, 2), total_devices=summary.total_devices)
         return summary

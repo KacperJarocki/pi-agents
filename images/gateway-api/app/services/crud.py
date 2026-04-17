@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, and_, cast, Integer
+from sqlalchemy import select, func, desc, and_, cast, Integer, text
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -325,6 +325,19 @@ class AnomalyService:
         critical = critical_result.scalar()
         
         return {"total": total, "critical": critical}
+
+    async def behavior_alert_stats(self, hours: int = 24) -> dict:
+        since = f"-{hours} hours"
+        sql = text("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical
+            FROM device_behavior_alerts
+            WHERE timestamp >= datetime('now', :since)
+        """)
+        result = await self.db.execute(sql, {"since": since})
+        row = result.fetchone()
+        return {"total": int(row.total or 0), "critical": int(row.critical or 0)}
 
 
 class TrafficService:
@@ -728,3 +741,98 @@ class BehaviorAlertService:
                 "last_seen": alert.timestamp,
             }
         return sorted(contributors_by_type.values(), key=lambda item: item["effective_score"], reverse=True)
+
+
+class AlertService:
+    """Unified feed combining anomalies + behavior alerts across all devices."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_unified_alerts(
+        self,
+        limit: int = 50,
+        severity: Optional[str] = None,
+        since_hours: int = 24,
+    ) -> tuple[list, int]:
+        since_param = f"-{since_hours} hours"
+        sev_clause = "AND severity = :severity" if severity else ""
+
+        sql_text = f"""
+            SELECT
+                'isolation_forest' AS source,
+                a.id,
+                a.device_id,
+                d.hostname  AS device_hostname,
+                d.ip_address AS device_ip,
+                a.anomaly_type AS alert_type,
+                a.description  AS title,
+                a.severity,
+                a.score,
+                a.timestamp,
+                a.resolved
+            FROM anomalies a
+            LEFT JOIN devices d ON d.id = a.device_id
+            WHERE a.timestamp >= datetime('now', :since)
+            {sev_clause}
+
+            UNION ALL
+
+            SELECT
+                'behavior' AS source,
+                b.id,
+                b.device_id,
+                d.hostname  AS device_hostname,
+                d.ip_address AS device_ip,
+                b.alert_type,
+                b.title,
+                b.severity,
+                b.score,
+                b.timestamp,
+                b.resolved
+            FROM device_behavior_alerts b
+            LEFT JOIN devices d ON d.id = b.device_id
+            WHERE b.timestamp >= datetime('now', :since)
+            {sev_clause}
+
+            ORDER BY timestamp DESC
+            LIMIT :limit
+        """
+
+        count_sql = f"""
+            SELECT COUNT(*) FROM (
+                SELECT a.id FROM anomalies a
+                WHERE a.timestamp >= datetime('now', :since)
+                {sev_clause}
+                UNION ALL
+                SELECT b.id FROM device_behavior_alerts b
+                WHERE b.timestamp >= datetime('now', :since)
+                {sev_clause}
+            )
+        """
+
+        params: dict = {"since": since_param, "limit": limit}
+        if severity:
+            params["severity"] = severity
+
+        rows = (await self.db.execute(text(sql_text), params)).fetchall()
+        total = int((await self.db.execute(text(count_sql), params)).scalar() or 0)
+
+        items = []
+        for row in rows:
+            items.append(
+                {
+                    "source": row.source,
+                    "id": row.id,
+                    "device_id": row.device_id,
+                    "device_hostname": row.device_hostname,
+                    "device_ip": row.device_ip,
+                    "alert_type": row.alert_type,
+                    "title": row.title,
+                    "severity": row.severity,
+                    "score": float(row.score or 0.0),
+                    "timestamp": row.timestamp,
+                    "resolved": bool(row.resolved),
+                }
+            )
+        return items, total

@@ -127,6 +127,25 @@ class TopTalkersResponse(BaseModel):
     data: List[TopTalker]
 
 
+class UnifiedAlertItem(BaseModel):
+    source: str  # 'isolation_forest' | 'behavior'
+    id: int
+    device_id: int
+    device_hostname: Optional[str] = None
+    device_ip: Optional[str] = None
+    alert_type: str
+    title: Optional[str] = None
+    severity: str
+    score: float
+    timestamp: datetime
+    resolved: bool
+
+
+class UnifiedAlertListResponse(BaseModel):
+    total: int
+    alerts: List[UnifiedAlertItem]
+
+
 class MetricsSummary(BaseModel):
     total_devices: int
     active_devices: int
@@ -134,6 +153,8 @@ class MetricsSummary(BaseModel):
     critical_anomalies: int
     avg_risk_score: float
     total_traffic_mb: float
+    behavior_alerts_24h: int = 0
+    total_alerts_24h: int = 0
 
 
 class DeviceModelStatus(BaseModel):

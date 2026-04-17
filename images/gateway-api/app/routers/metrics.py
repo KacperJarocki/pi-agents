@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from time import perf_counter
 from ..core.database import get_db
 from ..core.cache import cache
@@ -9,7 +9,8 @@ from ..services.crud import TrafficService, DeviceService, AnomalyService, Alert
 from ..core.logging import log
 from ..models.schemas import Device
 from ..models.schemas_pydantic import (
-    TimelineResponse, TopTalkersResponse, MetricsSummary, MlStatusResponse, DeviceModelStatus
+    TimelineResponse, TopTalkersResponse, MetricsSummary, MlStatusResponse,
+    DeviceModelStatus, ModelTrainingMetric,
 )
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -96,12 +97,52 @@ async def get_ml_status(
         lambda: device_service.list_devices(limit=1000),
     )
 
+    # Fetch latest training metrics per device from model_metadata (best-effort).
+    # Returns empty dict if table does not yet exist (before first training run).
+    training_metrics_by_device: dict[int, list[ModelTrainingMetric]] = {}
+    model_health_available = False
+    try:
+        result = await db.execute(text(
+            """
+            SELECT device_id, model_type, trained_at, samples, threshold,
+                   score_mean, score_std, score_p5, score_p95, estimated_anomaly_rate
+            FROM model_metadata
+            WHERE id IN (
+                SELECT MAX(id) FROM model_metadata
+                WHERE device_id IS NOT NULL
+                GROUP BY device_id, model_type
+            )
+            ORDER BY device_id, model_type
+            """
+        ))
+        rows = result.fetchall()
+        for row in rows:
+            did = int(row[0])
+            training_metrics_by_device.setdefault(did, []).append(
+                ModelTrainingMetric(
+                    model_type=row[1],
+                    trained_at=row[2],
+                    samples=row[3],
+                    threshold=row[4],
+                    score_mean=row[5],
+                    score_std=row[6],
+                    score_p5=row[7],
+                    score_p95=row[8],
+                    estimated_anomaly_rate=row[9],
+                )
+            )
+        model_health_available = bool(rows)
+    except Exception:
+        # model_metadata table may not exist on first run
+        pass
+
     statuses = [
         DeviceModelStatus(
             device_id=int(device.id),
             model_status=getattr(device, "model_status", "missing"),
             last_inference_score=getattr(device, "last_inference_score", None),
             last_inference_at=getattr(device, "last_inference_at", None),
+            training_metrics=training_metrics_by_device.get(int(device.id)),
         )
         for device in devices
         if getattr(device, "id", 0) > 0
@@ -113,5 +154,6 @@ async def get_ml_status(
         model_path=settings.model_path,
         device_models_ready=ready_count,
         total_devices=int(total or 0),
+        model_health_available=model_health_available,
         devices=statuses,
     )

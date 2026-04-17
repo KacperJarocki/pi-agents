@@ -470,7 +470,12 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
 
                 rows = device_detector.score(latest)
                 for row in rows:
-                    ml_risk = _risk_from_score(row["anomaly_score"], device_detector.threshold)
+                    # Use z-score-normalised values for risk so all model types share a
+                    # common scale; fall back to raw score when score_stats are absent
+                    # (e.g. old-format models loaded via backward-compat path).
+                    norm_s = device_detector.normalize_score(row["anomaly_score"])
+                    norm_t = device_detector.normalize_threshold()
+                    ml_risk = _risk_from_score(norm_s, norm_t)
                     all_model_scores.append({
                         "device_id": int(device_id),
                         "model_type": model_type,
@@ -480,13 +485,27 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                         "is_anomaly": bool(row["is_anomaly"]),
                     })
 
-                    # If this is the active model, add to scored_results for risk pipeline
+                    # If this is the active model, add to scored_results for risk pipeline.
+                    # Keep raw threshold for observability; pass normalised values separately.
                     if model_type == active_model_type:
                         scored_results.append(
-                            {**row, "threshold": device_detector.threshold}
+                            {
+                                **row,
+                                "threshold": device_detector.threshold,
+                                "norm_score": norm_s,
+                                "norm_threshold": norm_t,
+                            }
                         )
     else:
-        scored_results = [{**row, "threshold": detector.threshold} for row in detector.score(features)]
+        scored_results = [
+            {
+                **row,
+                "threshold": detector.threshold,
+                "norm_score": detector.normalize_score(row["anomaly_score"]),
+                "norm_threshold": detector.normalize_threshold(),
+            }
+            for row in detector.score(features)
+        ]
 
     # Save all model scores to device_model_scores table
     await batch_save_model_scores(all_model_scores)
@@ -509,6 +528,11 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         is_anomaly = bool(a.get("is_anomaly"))
         severity = a["severity"]
         threshold = float(a.get("threshold", os.getenv("ANOMALY_THRESHOLD", "-0.5")))
+        # Prefer normalised (z-score) values so the risk function operates on a
+        # unified scale regardless of which model type produced the score.
+        # Falls back to raw score/threshold when normalisation stats are unavailable.
+        norm_score = float(a.get("norm_score", score))
+        norm_threshold = float(a.get("norm_threshold", threshold))
         bucket_start = a.get("bucket_start")
 
         dev_flows = baseline_flows_by_device.get(device_id, pd.DataFrame())
@@ -525,12 +549,14 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         ] if bucket_start is not None and not dev_flows.empty else pd.DataFrame()
 
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
-        ml_risk = _risk_from_score(score, threshold)
+        ml_risk = _risk_from_score(norm_score, norm_threshold)
         risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
         risk_score = risk_breakdown["final_risk"]
         inference_features = {
             **(a.get("features") or {}),
             "threshold": threshold,
+            "norm_score": norm_score,
+            "norm_threshold": norm_threshold,
             "ml_risk": risk_breakdown["ml_risk"],
             "behavior_risk": risk_breakdown["behavior_risk"],
             "protocol_risk": risk_breakdown["protocol_risk"],
@@ -543,6 +569,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             "inference_device_score",
             device_id=device_id,
             score=float(score),
+            norm_score=norm_score,
+            norm_threshold=norm_threshold,
             ml_risk=ml_risk,
             behavior_risk=risk_breakdown["behavior_risk"],
             protocol_risk=risk_breakdown["protocol_risk"],

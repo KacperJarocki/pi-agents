@@ -7,7 +7,7 @@ from sklearn.ensemble import IsolationForest
 from .ml_core import (
     FeatureExtractor, AnomalyDetector, get_all_recent_flows,
     get_detector, get_device_model_configs, ensure_schema, log,
-    AVAILABLE_MODEL_TYPES,
+    AVAILABLE_MODEL_TYPES, save_model_training_metadata,
 )
 
 
@@ -80,13 +80,33 @@ async def train_model():
                     detector.save_model(detector.model, device_id=int(device_id))
                     device_trained = True
 
+                    trained_at = datetime.utcnow().isoformat()
+                    stats = detector._score_stats
                     log.info(
                         "training_complete_for_device",
-                        trained_at=datetime.utcnow().isoformat(),
+                        trained_at=trained_at,
                         device_id=int(device_id),
                         samples=samples,
                         features=len(FeatureExtractor.FEATURE_COLUMNS),
                         model_type=model_type,
+                        threshold=detector.threshold,
+                        score_mean=stats.get("mean"),
+                        score_std=stats.get("std"),
+                        score_p5=stats.get("p5"),
+                        score_p95=stats.get("p95"),
+                        estimated_anomaly_rate=adaptive_contamination,
+                    )
+
+                    # Persist training metrics to model_metadata for observability
+                    await save_model_training_metadata(
+                        device_id=int(device_id),
+                        model_type=model_type,
+                        trained_at=trained_at,
+                        samples=samples,
+                        features=len(FeatureExtractor.FEATURE_COLUMNS),
+                        contamination=adaptive_contamination,
+                        threshold=detector.threshold,
+                        score_stats=stats,
                     )
                 except Exception as exc:
                     log.error(

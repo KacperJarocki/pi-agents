@@ -157,17 +157,33 @@ class MetricsSummary(BaseModel):
     total_alerts_24h: int = 0
 
 
+class ModelTrainingMetric(BaseModel):
+    """Training observability record for a single model type and device."""
+
+    model_type: str
+    trained_at: Optional[str] = None
+    samples: Optional[int] = None
+    threshold: Optional[float] = None
+    score_mean: Optional[float] = None
+    score_std: Optional[float] = None
+    score_p5: Optional[float] = None
+    score_p95: Optional[float] = None
+    estimated_anomaly_rate: Optional[float] = None
+
+
 class DeviceModelStatus(BaseModel):
     device_id: int
     model_status: str
     last_inference_score: Optional[float] = None
     last_inference_at: Optional[datetime] = None
+    training_metrics: Optional[List["ModelTrainingMetric"]] = None
 
 
 class MlStatusResponse(BaseModel):
     model_path: str
     device_models_ready: int
     total_devices: int
+    model_health_available: bool = False
     devices: List[DeviceModelStatus]
 
 

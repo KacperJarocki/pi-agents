@@ -877,3 +877,60 @@ class DeviceModelConfigService:
         )
         await self.db.commit()
         return {"device_id": device_id, "model_type": model_type, "params": {}}
+
+    async def get_latest_model_scores(self, device_id: int) -> list[dict]:
+        """Return latest score per model_type from device_model_scores."""
+        sql = text("""
+            SELECT s.model_type, s.anomaly_score, s.risk_score, s.is_anomaly,
+                   s.timestamp, s.bucket_start
+            FROM device_model_scores s
+            INNER JOIN (
+                SELECT model_type, MAX(timestamp) AS max_ts
+                FROM device_model_scores
+                WHERE device_id = :did
+                GROUP BY model_type
+            ) latest ON s.model_type = latest.model_type AND s.timestamp = latest.max_ts
+            WHERE s.device_id = :did
+        """)
+        try:
+            result = await self.db.execute(sql, {"did": device_id})
+            rows = result.fetchall()
+        except Exception:
+            return []
+        return [
+            {
+                "model_type": row.model_type,
+                "anomaly_score": float(row.anomaly_score or 0),
+                "risk_score": float(row.risk_score or 0),
+                "is_anomaly": bool(row.is_anomaly),
+                "timestamp": row.timestamp,
+                "bucket_start": row.bucket_start,
+            }
+            for row in rows
+        ]
+
+    async def get_model_score_history(self, device_id: int, model_type: str, hours: int = 168) -> list[dict]:
+        """Return score history for a specific model_type."""
+        sql = text("""
+            SELECT timestamp, bucket_start, anomaly_score, risk_score, is_anomaly
+            FROM device_model_scores
+            WHERE device_id = :did AND model_type = :mt
+              AND timestamp >= datetime('now', :since)
+            ORDER BY timestamp ASC
+            LIMIT 512
+        """)
+        try:
+            result = await self.db.execute(sql, {"did": device_id, "mt": model_type, "since": f"-{hours} hours"})
+            rows = result.fetchall()
+        except Exception:
+            return []
+        return [
+            {
+                "timestamp": row.timestamp,
+                "bucket_start": row.bucket_start,
+                "anomaly_score": float(row.anomaly_score or 0),
+                "risk_score": float(row.risk_score or 0),
+                "is_anomaly": bool(row.is_anomaly),
+            }
+            for row in rows
+        ]

@@ -373,6 +373,7 @@ async def ensure_schema():
         await _ensure_inference_history_table(conn)
         await _ensure_behavior_alerts_table(conn)
         await _ensure_device_model_config_table(conn)
+        await _ensure_device_model_scores_table(conn)
         await conn.commit()
         log.info("schema_ensured")
     finally:
@@ -744,6 +745,61 @@ async def batch_save_inference_cycle(results: list[dict], retention_days: int = 
             (retention_days,),
         )
 
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def _ensure_device_model_scores_table(conn: aiosqlite.Connection):
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_model_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL,
+            model_type TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            bucket_start TIMESTAMP,
+            anomaly_score REAL NOT NULL,
+            risk_score REAL NOT NULL,
+            is_anomaly INTEGER DEFAULT 0,
+            UNIQUE(device_id, model_type, bucket_start)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_scores_device_type ON device_model_scores(device_id, model_type, timestamp)"
+    )
+
+
+async def batch_save_model_scores(scores: list[dict]):
+    """Save scores from all models for a device into device_model_scores (upsert)."""
+    if not scores:
+        return
+    conn = await get_db_connection()
+    try:
+        for s in scores:
+            bucket_value = s["bucket_start"].isoformat(sep=" ") if s.get("bucket_start") is not None else None
+            await conn.execute(
+                """
+                INSERT INTO device_model_scores (device_id, model_type, bucket_start, anomaly_score, risk_score, is_anomaly)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(device_id, model_type, bucket_start)
+                DO UPDATE SET anomaly_score=excluded.anomaly_score, risk_score=excluded.risk_score,
+                              is_anomaly=excluded.is_anomaly, timestamp=CURRENT_TIMESTAMP
+                """,
+                (
+                    s["device_id"],
+                    s["model_type"],
+                    bucket_value,
+                    float(s["anomaly_score"]),
+                    float(s["risk_score"]),
+                    1 if s["is_anomaly"] else 0,
+                ),
+            )
+        # Retention: keep 7 days
+        await conn.execute(
+            "DELETE FROM device_model_scores WHERE timestamp < datetime('now', '-7 days')"
+        )
         await conn.commit()
     finally:
         await conn.close()

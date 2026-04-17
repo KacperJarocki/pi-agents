@@ -329,10 +329,35 @@ class WifiApplyResponse(BaseModel):
     message: str
 
 
+class ModelScoreEntry(BaseModel):
+    model_type: str
+    anomaly_score: float
+    risk_score: float
+    is_anomaly: bool
+    timestamp: Optional[datetime] = None
+    bucket_start: Optional[datetime] = None
+
+
+class ModelScoreHistoryPoint(BaseModel):
+    timestamp: datetime
+    bucket_start: Optional[datetime] = None
+    anomaly_score: float
+    risk_score: float
+    is_anomaly: bool
+
+
+class DeviceModelScoresResponse(BaseModel):
+    device_id: int
+    hours: int
+    model_type: str
+    data: List[ModelScoreHistoryPoint]
+
+
 class DeviceModelConfigResponse(BaseModel):
     device_id: int
     model_type: str
     params: Optional[dict] = None
+    available_models: List[ModelScoreEntry] = []
 
 
 class DeviceModelConfigUpdate(BaseModel):

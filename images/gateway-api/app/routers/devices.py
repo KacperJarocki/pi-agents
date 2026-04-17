@@ -10,7 +10,7 @@ from ..models.schemas_pydantic import (
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
     AnomalyListResponse, DeviceBehaviorAlertListResponse, DeviceRiskContributorsResponse,
     DeviceBehaviorBaselineResponse, DeviceProtocolSignalsResponse,
-    DeviceModelConfigResponse, DeviceModelConfigUpdate,
+    DeviceModelConfigResponse, DeviceModelConfigUpdate, DeviceModelScoresResponse,
 )
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -290,7 +290,30 @@ async def get_device_model_config(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     config_service = DeviceModelConfigService(db)
-    return await config_service.get_config(device_id)
+    config = await config_service.get_config(device_id)
+    available = await config_service.get_latest_model_scores(device_id)
+    config["available_models"] = available
+    return config
+
+
+@router.get("/{device_id}/model-scores", response_model=DeviceModelScoresResponse)
+async def get_device_model_scores(
+    device_id: int,
+    model_type: str = Query("isolation_forest", pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$"),
+    hours: int = Query(168, ge=1, le=168),
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    data = await cache.get_or_set(
+        f"device-model-scores:{device_id}:{model_type}:{hours}",
+        5.0,
+        lambda: config_service.get_model_score_history(device_id, model_type, hours),
+    )
+    return DeviceModelScoresResponse(device_id=device_id, hours=hours, model_type=model_type, data=data)
 
 
 @router.put("/{device_id}/model-config", response_model=DeviceModelConfigResponse)

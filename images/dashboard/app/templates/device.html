@@ -8,137 +8,189 @@
 
 {% block content %}
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div class="panel rounded-2xl p-4 xl:col-span-2 min-w-0 overflow-hidden">
-                <div class="flex items-center justify-between border-b border-socline/80 pb-3 mb-3">
-                    <div>
-                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Identity</div>
-                        <div id="device-name" class="text-2xl font-semibold text-white">Loading...</div>
-                    </div>
-                    <div id="connection-pill" class="text-xs px-3 py-1 rounded-full border border-slate-500/40 text-slate-300">Pending</div>
-                    <button id="block-btn" onclick="toggleBlock()" class="text-xs px-3 py-1 rounded-full border border-socred/30 text-socred bg-socred/10 hover:bg-socred/20 transition-colors hidden">Block</button>
-                </div>
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                    <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
-                    <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac">-</div></div>
-                    <div>
-                        <div class="text-slate-500 uppercase text-[11px]">ML Model</div>
-                        <div class="flex items-center gap-2 mt-0.5">
-                            <div id="device-model" class="text-sm">-</div>
-                            <select id="model-select" class="bg-slate-800 border border-socline text-xs text-white rounded px-1.5 py-0.5 focus:outline-none focus:border-socblue" onchange="changeModel(this.value)">
-                                <option value="isolation_forest">Isolation Forest</option>
-                                <option value="lof">LOF</option>
-                                <option value="ocsvm">One-Class SVM</option>
-                                <option value="autoencoder">Autoencoder</option>
-                            </select>
+            <div class="card bg-neutral/60 border border-white/10 xl:col-span-2">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between border-b border-socline/80 pb-3 mb-3">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Identity</div>
+                            <div id="device-name" class="text-2xl font-semibold text-white">Loading...</div>
                         </div>
+                        <div id="connection-pill" class="badge badge-outline badge-ghost">Pending</div>
+                        <button id="block-btn" onclick="toggleBlock()" class="btn btn-xs btn-outline btn-error hidden">Block</button>
                     </div>
-                    <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen">-</div></div>
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                        <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
+                        <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac">-</div></div>
+                        <div>
+                            <div class="text-slate-500 uppercase text-[11px]">ML Model</div>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <div id="device-model" class="text-sm">-</div>
+                                <select id="model-select" class="select select-xs select-bordered bg-slate-800 text-white" onchange="changeModel(this.value)">
+                                    <option value="isolation_forest">Isolation Forest</option>
+                                    <option value="lof">LOF</option>
+                                    <option value="ocsvm">One-Class SVM</option>
+                                    <option value="autoencoder">Autoencoder</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen">-</div></div>
+                    </div>
                 </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Risk</div>
-                <div id="device-risk" class="text-4xl font-semibold text-sky-300">-</div>
-                <div class="mt-4 h-2 rounded-full bg-slate-800 overflow-hidden"><div id="risk-bar" class="h-full bg-gradient-to-r from-socgreen via-socamber to-socred" style="width:0%"></div></div>
-                <div class="mt-3 text-xs text-slate-400">Live risk score after each inference cycle</div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Risk</div>
+                    <div id="device-risk" class="text-4xl font-semibold text-sky-300">-</div>
+                    <div class="mt-4 h-2 rounded-full bg-slate-800 overflow-hidden"><div id="risk-bar" class="h-full bg-gradient-to-r from-socgreen via-socamber to-socred" style="width:0%"></div></div>
+                    <div class="mt-3 text-xs text-slate-400">Live risk score after each inference cycle</div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Inference</div>
-                <div id="device-score" class="text-3xl font-semibold text-white">-</div>
-                <div class="mt-3 text-xs text-slate-400">Last inference at</div>
-                <div id="device-inference-at" class="mt-1 text-sm text-sky-300">-</div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-2">Inference</div>
+                    <div id="device-score" class="text-3xl font-semibold text-white">-</div>
+                    <div class="mt-3 text-xs text-slate-400">Last inference at</div>
+                    <div id="device-inference-at" class="mt-1 text-sm text-sky-300">-</div>
+                </div>
             </div>
         </section>
 
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <div class="panel rounded-2xl p-4 xl:col-span-2 min-w-0 overflow-hidden">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Traffic Profile</div>
-                        <div class="text-lg text-white">5-minute traffic buckets / last 24h</div>
+            <div class="card bg-neutral/60 border border-white/10 xl:col-span-2">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Traffic Profile</div>
+                            <div class="text-lg text-white">5-minute traffic buckets / last 24h</div>
+                        </div>
+                        <div class="text-xs text-slate-400">Near-real time network volume</div>
                     </div>
-                    <div class="text-xs text-slate-400">Near-real time network volume</div>
+                    <div class="panel gridline rounded-xl p-3 min-h-[220px]">
+                        <div class="chart-shell">
+                            <div id="traffic-chart-frame" class="chart-frame">
+                                <div id="traffic-chart" class="spark"></div>
+                                <div id="traffic-labels" class="chart-labels"></div>
+                            </div>
+                        </div>
+                        <div id="traffic-meta" class="chart-meta"></div>
+                    </div>
                 </div>
-                <div class="panel gridline rounded-xl p-3 min-h-[220px]">
-                    <div class="chart-shell">
-                        <div id="traffic-chart-frame" class="chart-frame">
-                            <div id="traffic-chart" class="spark"></div>
-                            <div id="traffic-labels" class="chart-labels"></div>
+            </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Latest Feature Snapshot</div>
+                    <div id="feature-snapshot" class="mt-3 space-y-2 text-sm text-slate-300"></div>
+                </div>
+            </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Breakdown</div>
+                        <div id="risk-status" class="badge badge-info badge-sm">Pending</div>
+                    </div>
+                    <div id="risk-breakdown" class="mt-3 space-y-2 text-sm text-slate-300"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-3">Model Comparison</div>
+                    <div class="overflow-x-auto">
+                        <table class="table table-xs w-full">
+                            <thead>
+                                <tr class="text-slate-400">
+                                    <th>Model</th>
+                                    <th>Anomaly Score</th>
+                                    <th>Risk Score</th>
+                                    <th>Anomaly?</th>
+                                    <th>Last Scored</th>
+                                </tr>
+                            </thead>
+                            <tbody id="model-comparison-body">
+                                <tr><td colspan="5" class="text-slate-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score Timeline</div>
+                            <div class="text-lg text-white">Risk score over time / 7 days</div>
+                        </div>
+                        <div class="text-xs text-slate-400">Retention: 7 days</div>
+                    </div>
+                    <div class="panel rounded-xl p-3" style="height:260px">
+                        <canvas id="risk-timeline-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Alert Timeline</div>
+                            <div class="text-lg text-white">Alerts for this device / 7 days</div>
                         </div>
                     </div>
-                    <div id="traffic-meta" class="chart-meta"></div>
-                </div>
-            </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Latest Feature Snapshot</div>
-                <div id="feature-snapshot" class="mt-3 space-y-2 text-sm text-slate-300"></div>
-            </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="flex items-center justify-between gap-3">
-                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Breakdown</div>
-                    <div id="risk-status" class="text-[11px] uppercase tracking-[0.2em] text-sky-300">Pending</div>
-                </div>
-                <div id="risk-breakdown" class="mt-3 space-y-2 text-sm text-slate-300"></div>
-            </div>
-        </section>
-
-        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score Timeline</div>
-                        <div class="text-lg text-white">Risk score over time / 7 days</div>
+                    <div class="panel rounded-xl p-3" style="height:260px">
+                        <canvas id="device-alert-timeline-chart"></canvas>
                     </div>
-                    <div class="text-xs text-slate-400">Retention: 7 days</div>
-                </div>
-                <div class="panel rounded-xl p-3" style="height:260px">
-                    <canvas id="risk-timeline-chart"></canvas>
-                </div>
-            </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Alert Timeline</div>
-                        <div class="text-lg text-white">Alerts for this device / 7 days</div>
-                    </div>
-                </div>
-                <div class="panel rounded-xl p-3" style="height:260px">
-                    <canvas id="device-alert-timeline-chart"></canvas>
                 </div>
             </div>
         </section>
 
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Alerts</div>
-                <div id="behavior-alert-feed" class="mt-3 space-y-3 max-h-[340px] overflow-y-auto"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Alerts</div>
+                    <div id="behavior-alert-feed" class="mt-3 space-y-3 max-h-[340px] overflow-y-auto"></div>
+                </div>
             </div>
         </section>
 
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Contributors</div>
-                <div id="risk-contributors" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
-                <div id="risk-top-reason" class="mt-3 text-xs text-slate-400"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Contributors</div>
+                    <div id="risk-contributors" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                    <div id="risk-top-reason" class="mt-3 text-xs text-slate-400"></div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Baseline</div>
-                <div id="behavior-baseline" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Baseline</div>
+                    <div id="behavior-baseline" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Protocol Signals</div>
-                <div id="protocol-signals" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Protocol Signals</div>
+                    <div id="protocol-signals" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Top Destinations</div>
-                <div id="destinations-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Top Destinations</div>
+                    <div id="destinations-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Ports</div>
-                <div id="ports-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Ports</div>
+                    <div id="ports-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                </div>
             </div>
-            <div class="panel rounded-2xl p-4 min-w-0 overflow-hidden">
-                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">DNS Queries</div>
-                <div id="dns-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">DNS Queries</div>
+                    <div id="dns-list" class="mt-3 terminal rounded-xl p-3 space-y-2 text-sm"></div>
+                </div>
             </div>
         </section>
 {% endblock %}
@@ -157,12 +209,24 @@
             return new Date(value).toLocaleString();
         }
 
+        const MODEL_TYPES = ['isolation_forest', 'lof', 'ocsvm', 'autoencoder'];
+        const MODEL_LABELS = {isolation_forest: 'Isolation Forest', lof: 'LOF', ocsvm: 'One-Class SVM', autoencoder: 'Autoencoder'};
+        const MODEL_COLORS = {
+            isolation_forest: 'rgba(56,189,248,0.9)',
+            lof: 'rgba(139,92,246,0.9)',
+            ocsvm: 'rgba(34,197,94,0.9)',
+            autoencoder: 'rgba(245,158,11,0.9)',
+        };
+        let _activeModel = 'isolation_forest';
+
         async function loadModelConfig() {
             try {
                 const res = await fetch(`/api/devices/${DEVICE_ID}/model-config`);
                 if (res.ok) {
                     const cfg = await res.json();
-                    document.getElementById('model-select').value = cfg.model_type || 'isolation_forest';
+                    _activeModel = cfg.model_type || 'isolation_forest';
+                    document.getElementById('model-select').value = _activeModel;
+                    renderModelComparison(cfg.available_models || []);
                 }
             } catch(e) { console.warn('model-config load failed', e); }
         }
@@ -174,8 +238,112 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({model_type: modelType}),
                 });
-                if (!res.ok) console.error('model-config update failed', await res.text());
+                if (res.ok) {
+                    _activeModel = modelType;
+                    if (window.Alpine) Alpine.store('toast').show(`Active model changed to ${MODEL_LABELS[modelType] || modelType}`);
+                } else {
+                    console.error('model-config update failed', await res.text());
+                }
             } catch(e) { console.error('model-config update error', e); }
+        }
+
+        function renderModelComparison(models) {
+            const tbody = document.getElementById('model-comparison-body');
+            if (!models.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-slate-500">No model scores yet</td></tr>';
+                return;
+            }
+            const scoreMap = {};
+            models.forEach(m => { scoreMap[m.model_type] = m; });
+            tbody.innerHTML = MODEL_TYPES.map(mt => {
+                const m = scoreMap[mt];
+                const isActive = mt === _activeModel;
+                const rowClass = isActive ? 'bg-sky-500/10' : '';
+                if (!m) return `<tr class="${rowClass}"><td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td><td colspan="4" class="text-slate-500">not scored</td></tr>`;
+                return `<tr class="${rowClass}">
+                    <td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td>
+                    <td>${Number(m.anomaly_score || 0).toFixed(4)}</td>
+                    <td>${Number(m.risk_score || 0).toFixed(1)}</td>
+                    <td>${m.is_anomaly ? '<span class="badge badge-xs badge-error">YES</span>' : '<span class="badge badge-xs badge-success">no</span>'}</td>
+                    <td class="text-xs">${fmtTs(m.timestamp)}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function loadMultiModelTimeline() {
+            const results = await Promise.all(MODEL_TYPES.map(mt =>
+                fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=168`).then(r => r.json()).catch(() => ({data: []}))
+            ));
+            const datasets = MODEL_TYPES.map((mt, i) => {
+                const data = (results[i].data || []).map(p => ({x: new Date(p.timestamp).getTime(), y: Number(p.risk_score || 0)}));
+                const isActive = mt === _activeModel;
+                return {
+                    label: MODEL_LABELS[mt],
+                    data: data,
+                    borderColor: MODEL_COLORS[mt],
+                    backgroundColor: isActive ? MODEL_COLORS[mt].replace('0.9', '0.1') : 'transparent',
+                    fill: isActive,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    borderWidth: isActive ? 2.5 : 1.2,
+                    borderDash: isActive ? [] : [4, 3],
+                };
+            }).filter(ds => ds.data.length > 0);
+
+            if (!datasets.length) return;
+
+            const ctx = document.getElementById('risk-timeline-chart');
+            if (riskTimelineChart) riskTimelineChart.destroy();
+            riskTimelineChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'nearest', intersect: false },
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            ticks: {
+                                color: '#64748b', maxTicksLimit: 8,
+                                callback: v => new Date(v).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+                            },
+                            grid: { color: 'rgba(56,189,248,0.06)' },
+                        },
+                        y: {
+                            min: 0, max: 100,
+                            ticks: { color: '#64748b', stepSize: 25 },
+                            grid: { color: 'rgba(56,189,248,0.06)' },
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'thresholdLines',
+                    afterDraw(chart) {
+                        const yAxis = chart.scales.y;
+                        const ctx2 = chart.ctx;
+                        [50, 75].forEach((val, i) => {
+                            const y = yAxis.getPixelForValue(val);
+                            ctx2.save();
+                            ctx2.strokeStyle = i === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(239,68,68,0.6)';
+                            ctx2.setLineDash([6, 4]);
+                            ctx2.lineWidth = 1;
+                            ctx2.beginPath();
+                            ctx2.moveTo(chart.chartArea.left, y);
+                            ctx2.lineTo(chart.chartArea.right, y);
+                            ctx2.stroke();
+                            ctx2.fillStyle = i === 0 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)';
+                            ctx2.font = '10px monospace';
+                            ctx2.fillText(i === 0 ? 'warning' : 'critical', chart.chartArea.right - 45, y - 3);
+                            ctx2.restore();
+                        });
+                    }
+                }]
+            });
         }
 
         let _deviceBlocked = false;
@@ -190,10 +358,10 @@
             btn.classList.remove('hidden');
             if (_deviceBlocked) {
                 btn.textContent = 'Unblock';
-                btn.className = 'text-xs px-3 py-1 rounded-full border border-socgreen/30 text-socgreen bg-socgreen/10 hover:bg-socgreen/20 transition-colors';
+                btn.className = 'btn btn-xs btn-outline btn-success';
             } else {
                 btn.textContent = 'Block';
-                btn.className = 'text-xs px-3 py-1 rounded-full border border-socred/30 text-socred bg-socred/10 hover:bg-socred/20 transition-colors';
+                btn.className = 'btn btn-xs btn-outline btn-error';
             }
         }
 
@@ -325,10 +493,10 @@
 
             const pill = document.getElementById('connection-pill');
             if (device.connected) {
-                pill.className = 'text-xs px-3 py-1 rounded-full border border-socgreen/30 text-socgreen bg-socgreen/10';
+                pill.className = 'badge badge-success badge-outline';
                 pill.textContent = `CONNECTED / ${device.connection_source || 'unknown'}`;
             } else {
-                pill.className = 'text-xs px-3 py-1 rounded-full border border-slate-500/40 text-slate-300';
+                pill.className = 'badge badge-ghost badge-outline';
                 pill.textContent = 'DISCONNECTED';
             }
 
@@ -354,23 +522,23 @@
                 anomalyNode.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No behavior alerts for this device yet</div>';
             } else {
                 const behaviorHtml = behaviorRows.map(item => `
-                    <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="text-white">${esc(item.title)}</div>
-                            <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
+                    <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
+                        <div class="flex items-center justify-between gap-3 w-full">
+                            <div class="text-white font-medium">${esc(item.title)}</div>
+                            <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
                         </div>
-                        <div class="mt-2 text-sm text-slate-300">${esc(item.description || 'No description')}</div>
-                        <div class="mt-2 text-xs text-sky-300">${esc(item.alert_type)} / score=${Number(item.score || 0).toFixed(2)}</div>
+                        <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
+                        <div class="mt-1 text-xs text-sky-300">${esc(item.alert_type)} / score=${Number(item.score || 0).toFixed(2)}</div>
                     </div>
                 `).join('');
                 const anomalyHtml = anomalyRows.map(item => `
-                    <div class="terminal rounded-xl p-3 border-l-4 ${item.severity === 'critical' ? 'border-socred' : 'border-socamber'}">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="text-white">${esc(item.anomaly_type)}</div>
-                            <div class="text-xs text-slate-500">${fmtTs(item.timestamp)}</div>
+                    <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
+                        <div class="flex items-center justify-between gap-3 w-full">
+                            <div class="text-white font-medium">${esc(item.anomaly_type)}</div>
+                            <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
                         </div>
-                        <div class="mt-2 text-sm text-slate-300">${esc(item.description || 'No description')}</div>
-                        <div class="mt-2 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${esc(item.severity)}</div>
+                        <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
+                        <div class="mt-1 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${esc(item.severity)}</div>
                     </div>
                 `).join('');
                 anomalyNode.innerHTML = behaviorHtml + anomalyHtml;
@@ -379,90 +547,7 @@
             if (heavy) {
                 renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
 
-                const historyData = history.data || [];
-                if (historyData.length) {
-                    const labels = historyData.map(h => new Date(h.timestamp).getTime());
-                    const scores = historyData.map(h => Number(h.risk_score || 0));
-                    const anomalyPoints = historyData.filter(h => h.is_anomaly).map(h => ({
-                        x: new Date(h.timestamp).getTime(), y: Number(h.risk_score || 0)
-                    }));
-
-                    const ctx = document.getElementById('risk-timeline-chart');
-                    if (riskTimelineChart) riskTimelineChart.destroy();
-                    riskTimelineChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [
-                                {
-                                    label: 'Risk Score',
-                                    data: scores,
-                                    borderColor: 'rgba(56,189,248,0.9)',
-                                    backgroundColor: 'rgba(56,189,248,0.1)',
-                                    fill: true,
-                                    tension: 0.3,
-                                    pointRadius: 1,
-                                    pointHoverRadius: 4,
-                                    borderWidth: 2,
-                                },
-                                {
-                                    label: 'Anomaly',
-                                    data: anomalyPoints,
-                                    type: 'scatter',
-                                    backgroundColor: 'rgba(239,68,68,0.8)',
-                                    borderColor: 'rgba(239,68,68,1)',
-                                    pointRadius: 6,
-                                    pointHoverRadius: 8,
-                                },
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
-                                annotation: undefined,
-                            },
-                            scales: {
-                                x: {
-                                    type: 'linear',
-                                    ticks: {
-                                        color: '#64748b', maxTicksLimit: 8,
-                                        callback: v => new Date(v).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
-                                    },
-                                    grid: { color: 'rgba(56,189,248,0.06)' },
-                                },
-                                y: {
-                                    min: 0, max: 100,
-                                    ticks: { color: '#64748b', stepSize: 25 },
-                                    grid: { color: 'rgba(56,189,248,0.06)' },
-                                }
-                            }
-                        },
-                        plugins: [{
-                            id: 'thresholdLines',
-                            afterDraw(chart) {
-                                const yAxis = chart.scales.y;
-                                const ctx2 = chart.ctx;
-                                [50, 75].forEach((val, i) => {
-                                    const y = yAxis.getPixelForValue(val);
-                                    ctx2.save();
-                                    ctx2.strokeStyle = i === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(239,68,68,0.6)';
-                                    ctx2.setLineDash([6, 4]);
-                                    ctx2.lineWidth = 1;
-                                    ctx2.beginPath();
-                                    ctx2.moveTo(chart.chartArea.left, y);
-                                    ctx2.lineTo(chart.chartArea.right, y);
-                                    ctx2.stroke();
-                                    ctx2.fillStyle = i === 0 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)';
-                                    ctx2.font = '10px monospace';
-                                    ctx2.fillText(i === 0 ? 'warning' : 'critical', chart.chartArea.right - 45, y - 3);
-                                    ctx2.restore();
-                                });
-                            }
-                        }]
-                    });
-                }
+                loadMultiModelTimeline();
 
                 const alertRows = behaviorAlerts.alerts || [];
                 const anomalyRows2 = anomalies.anomalies || [];

@@ -8,102 +8,110 @@
 
 {% block content %}
         {% if message %}
-        <div class="bg-card rounded-xl border border-white/10 px-4 py-3 text-sm text-white/90">
-            <div class="font-semibold mb-1">Message</div>
-            <div class="break-words">{{ message }}</div>
+        <div class="alert alert-info">
+            <div>
+                <div class="font-semibold mb-1">Message</div>
+                <div class="break-words">{{ message }}</div>
+            </div>
         </div>
         {% endif %}
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="lg:col-span-2 bg-card rounded-xl border border-white/10 p-5">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <div class="text-lg font-semibold">WiFi AP Configuration</div>
-                        <div class="text-sm text-white/60">Changes go through <code class="bg-black/25 px-1.5 py-0.5 rounded-md">{{ '/api/v1/gateway/wifi/*' }}</code></div>
+            <div class="lg:col-span-2 card bg-neutral/60 border border-white/10">
+                <div class="card-body p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="card-title">WiFi AP Configuration</h2>
+                            <div class="text-sm text-white/60">Changes go through <code class="bg-black/25 px-1.5 py-0.5 rounded-md">{{ '/api/v1/gateway/wifi/*' }}</code></div>
+                        </div>
                     </div>
+
+                    <form method="post" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">SSID</span></label>
+                                <input class="input input-bordered bg-white/5" name="ssid" value="{{ config.get('ssid','') }}" required />
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Password (PSK)</span></label>
+                                <input class="input input-bordered bg-white/5" name="psk" type="password" value="{{ config.get('psk','') }}" required />
+                            </div>
+
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Country</span></label>
+                                <input class="input input-bordered bg-white/5" name="country_code" value="{{ config.get('country_code','PL') }}" />
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Channel</span></label>
+                                <input class="input input-bordered bg-white/5" name="channel" type="number" value="{{ config.get('channel',6) }}" min="1" max="165" />
+                            </div>
+
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">AP interface</span></label>
+                                <input class="input input-bordered bg-white/5" name="ap_interface" value="{{ config.get('ap_interface','wlan0') }}" />
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Upstream interface</span></label>
+                                <input class="input input-bordered bg-white/5" name="upstream_interface" value="{{ config.get('upstream_interface','eth0') }}" />
+                            </div>
+
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Subnet CIDR</span></label>
+                                <input class="input input-bordered bg-white/5" name="subnet_cidr" value="{{ config.get('subnet_cidr','192.168.50.0/24') }}" />
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">Gateway IP</span></label>
+                                <input class="input input-bordered bg-white/5" name="gateway_ip" value="{{ config.get('gateway_ip','192.168.50.1') }}" />
+                            </div>
+
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">DHCP start</span></label>
+                                <input class="input input-bordered bg-white/5" name="dhcp_range_start" value="{{ config.get('dhcp_range_start','192.168.50.100') }}" />
+                            </div>
+                            <div class="form-control">
+                                <label class="label"><span class="label-text">DHCP end</span></label>
+                                <input class="input input-bordered bg-white/5" name="dhcp_range_end" value="{{ config.get('dhcp_range_end','192.168.50.200') }}" />
+                            </div>
+                        </div>
+
+                        <div class="form-control">
+                            <label class="label cursor-pointer justify-start gap-3">
+                                <input id="enabled" type="checkbox" name="enabled" class="checkbox checkbox-primary checkbox-sm" {% if config.get('enabled', True) %}checked{% endif %} />
+                                <span class="label-text">Enabled</span>
+                            </label>
+                        </div>
+
+                        <div class="flex flex-wrap gap-3 pt-2">
+                            <button class="btn btn-ghost btn-sm" formaction="/gateway/validate">Validate</button>
+                            <button class="btn btn-ghost btn-sm" formaction="/gateway/save">Save</button>
+                            <button class="btn btn-primary btn-sm" formaction="/gateway/apply">Apply</button>
+                            <button class="btn btn-error btn-sm" formaction="/gateway/rollback">Rollback</button>
+                        </div>
+                    </form>
                 </div>
-
-                <form method="post" class="space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">SSID</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="ssid" value="{{ config.get('ssid','') }}" required />
-                        </div>
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Password (PSK)</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="psk" type="password" value="{{ config.get('psk','') }}" required />
-                        </div>
-
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Country</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="country_code" value="{{ config.get('country_code','PL') }}" />
-                        </div>
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Channel</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="channel" type="number" value="{{ config.get('channel',6) }}" min="1" max="165" />
-                        </div>
-
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">AP interface</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="ap_interface" value="{{ config.get('ap_interface','wlan0') }}" />
-                        </div>
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Upstream interface</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="upstream_interface" value="{{ config.get('upstream_interface','eth0') }}" />
-                        </div>
-
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Subnet CIDR</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="subnet_cidr" value="{{ config.get('subnet_cidr','192.168.50.0/24') }}" />
-                        </div>
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">Gateway IP</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="gateway_ip" value="{{ config.get('gateway_ip','192.168.50.1') }}" />
-                        </div>
-
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">DHCP start</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="dhcp_range_start" value="{{ config.get('dhcp_range_start','192.168.50.100') }}" />
-                        </div>
-                        <div>
-                            <div class="text-sm text-white/70 mb-1">DHCP end</div>
-                            <input class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-socblue" name="dhcp_range_end" value="{{ config.get('dhcp_range_end','192.168.50.200') }}" />
-                        </div>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <input id="enabled" type="checkbox" name="enabled" {% if config.get('enabled', True) %}checked{% endif %} />
-                        <label for="enabled" class="text-sm text-white/70">Enabled</label>
-                    </div>
-
-                    <div class="flex flex-wrap gap-3 pt-2">
-                        <button class="rounded-lg px-4 py-2 font-semibold bg-white/5 hover:bg-white/10 transition-colors" formaction="/gateway/validate">Validate</button>
-                        <button class="rounded-lg px-4 py-2 font-semibold bg-white/5 hover:bg-white/10 transition-colors" formaction="/gateway/save">Save</button>
-                        <button class="rounded-lg px-4 py-2 font-semibold bg-blue-500/85 hover:bg-blue-500 transition-colors" formaction="/gateway/apply">Apply</button>
-                        <button class="rounded-lg px-4 py-2 font-semibold bg-red-500/85 hover:bg-red-500 transition-colors" formaction="/gateway/rollback">Rollback</button>
-                    </div>
-                </form>
             </div>
 
-            <div class="bg-card rounded-xl border border-white/10 p-5">
-                <div class="text-lg font-semibold mb-3">Agent Status</div>
-                <div class="text-sm text-white/70 space-y-2">
-                    <div class="flex justify-between gap-3"><span>AP iface exists</span><span class="font-mono">{{ status.get('ap_interface_exists') }}</span></div>
-                    <div class="flex justify-between gap-3"><span>Upstream iface exists</span><span class="font-mono">{{ status.get('upstream_interface_exists') }}</span></div>
-                    <div class="flex justify-between gap-3"><span>AP IP</span><span class="font-mono">{{ status.get('ap_ip') }}</span></div>
-                    <div class="flex justify-between gap-3"><span>IP forward</span><span class="font-mono">{{ status.get('ip_forward') }}</span></div>
-                    <div class="flex justify-between gap-3"><span>NAT present</span><span class="font-mono">{{ status.get('nat_rule_present') }}</span></div>
-                </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-5">
+                    <h2 class="card-title text-lg">Agent Status</h2>
+                    <div class="text-sm text-white/70 space-y-2">
+                        <div class="flex justify-between gap-3"><span>AP iface exists</span><span class="font-mono">{{ status.get('ap_interface_exists') }}</span></div>
+                        <div class="flex justify-between gap-3"><span>Upstream iface exists</span><span class="font-mono">{{ status.get('upstream_interface_exists') }}</span></div>
+                        <div class="flex justify-between gap-3"><span>AP IP</span><span class="font-mono">{{ status.get('ap_ip') }}</span></div>
+                        <div class="flex justify-between gap-3"><span>IP forward</span><span class="font-mono">{{ status.get('ip_forward') }}</span></div>
+                        <div class="flex justify-between gap-3"><span>NAT present</span><span class="font-mono">{{ status.get('nat_rule_present') }}</span></div>
+                    </div>
 
-                <div class="mt-4 text-sm text-white/70">
-                    <div class="font-semibold mb-1">Processes</div>
-                    <pre class="text-xs whitespace-pre-wrap break-words bg-black/20 p-3 rounded-lg">{{ status.get('hostapd') }}
+                    <div class="mt-4 text-sm text-white/70">
+                        <div class="font-semibold mb-1">Processes</div>
+                        <pre class="text-xs whitespace-pre-wrap break-words bg-black/20 p-3 rounded-lg">{{ status.get('hostapd') }}
 {{ status.get('dnsmasq') }}</pre>
-                </div>
+                    </div>
 
-                <div class="mt-4 text-sm text-white/70">
-                    <div class="font-semibold mb-1">Last apply</div>
-                    <div class="font-mono text-xs break-words">{{ status.get('last_apply_ok') }} {{ status.get('last_apply_message') }}</div>
+                    <div class="mt-4 text-sm text-white/70">
+                        <div class="font-semibold mb-1">Last apply</div>
+                        <div class="font-mono text-xs break-words">{{ status.get('last_apply_ok') }} {{ status.get('last_apply_message') }}</div>
+                    </div>
                 </div>
             </div>
         </div>

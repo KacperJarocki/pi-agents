@@ -7,6 +7,7 @@ from sklearn.ensemble import IsolationForest
 from .ml_core import (
     FeatureExtractor, AnomalyDetector, get_all_recent_flows,
     get_detector, get_device_model_configs, ensure_schema, log,
+    AVAILABLE_MODEL_TYPES,
 )
 
 
@@ -40,7 +41,7 @@ async def train_model():
         log.warning("training_no_features")
         return 0
 
-    # Load per-device model type configs
+    # Load per-device model type configs (used only for logging active model)
     device_model_configs = await get_device_model_configs()
 
     if per_device_models:
@@ -57,33 +58,46 @@ async def train_model():
                 )
                 continue
 
-            model_type = device_model_configs.get(int(device_id), default_model_type)
-            detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
-
             X = group[FeatureExtractor.FEATURE_COLUMNS].values
             adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
+            device_trained = False
 
-            # Build kwargs based on model type
-            fit_kwargs = {"contamination": adaptive_contamination}
-            if model_type == "isolation_forest":
-                fit_kwargs["n_estimators"] = int(os.getenv("N_ESTIMATORS", "200"))
-            elif model_type == "lof":
-                fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
-            elif model_type == "ocsvm":
-                fit_kwargs["nu"] = adaptive_contamination
+            # Train ALL model types per device
+            for model_type in AVAILABLE_MODEL_TYPES:
+                try:
+                    detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
 
-            detector.fit(X, **fit_kwargs)
-            detector.save_model(detector.model, device_id=int(device_id))
-            trained_devices += 1
+                    # Build kwargs based on model type
+                    fit_kwargs = {"contamination": adaptive_contamination}
+                    if model_type == "isolation_forest":
+                        fit_kwargs["n_estimators"] = int(os.getenv("N_ESTIMATORS", "200"))
+                    elif model_type == "lof":
+                        fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
+                    elif model_type == "ocsvm":
+                        fit_kwargs["nu"] = adaptive_contamination
 
-            log.info(
-                "training_complete_for_device",
-                trained_at=datetime.utcnow().isoformat(),
-                device_id=int(device_id),
-                samples=samples,
-                features=len(FeatureExtractor.FEATURE_COLUMNS),
-                model_type=model_type,
-            )
+                    detector.fit(X, **fit_kwargs)
+                    detector.save_model(detector.model, device_id=int(device_id))
+                    device_trained = True
+
+                    log.info(
+                        "training_complete_for_device",
+                        trained_at=datetime.utcnow().isoformat(),
+                        device_id=int(device_id),
+                        samples=samples,
+                        features=len(FeatureExtractor.FEATURE_COLUMNS),
+                        model_type=model_type,
+                    )
+                except Exception as exc:
+                    log.error(
+                        "training_failed_for_model",
+                        device_id=int(device_id),
+                        model_type=model_type,
+                        error=str(exc),
+                    )
+
+            if device_trained:
+                trained_devices += 1
 
         if trained_devices == 0:
             log.warning("training_no_device_models", sample_count=int(len(features)), min_samples=min_samples)

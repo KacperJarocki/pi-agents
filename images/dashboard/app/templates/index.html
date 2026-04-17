@@ -4,95 +4,101 @@
 
 {% block content %}
     <!-- Metric cards -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-card rounded-xl p-4 border border-white/10">
-            <div class="text-xs text-gray-400 mb-1">Total Devices</div>
-            <div class="text-3xl font-bold" id="metric-devices">-</div>
+    <div class="stats stats-horizontal bg-neutral/60 border border-white/10 w-full overflow-x-auto">
+        <div class="stat">
+            <div class="stat-title">Total Devices</div>
+            <div class="stat-value text-2xl" id="metric-devices">-</div>
         </div>
-        <div class="bg-card rounded-xl p-4 border border-white/10">
-            <div class="text-xs text-gray-400 mb-1">Active Now</div>
-            <div class="text-3xl font-bold text-green-400" id="metric-active">-</div>
+        <div class="stat">
+            <div class="stat-title">Active Now</div>
+            <div class="stat-value text-2xl text-success" id="metric-active">-</div>
         </div>
-        <div class="bg-card rounded-xl p-4 border border-white/10">
-            <div class="text-xs text-gray-400 mb-1">Alerts (24 h)</div>
-            <div class="text-3xl font-bold text-yellow-400" id="metric-alerts">-</div>
-            <div class="text-xs text-gray-500 mt-1">
+        <div class="stat">
+            <div class="stat-title">Alerts (24 h)</div>
+            <div class="stat-value text-2xl text-warning" id="metric-alerts">-</div>
+            <div class="stat-desc">
                 <span id="metric-ml">-</span> ML &nbsp;+&nbsp; <span id="metric-heuristic">-</span> heuristic
             </div>
         </div>
-        <div class="bg-card rounded-xl p-4 border border-white/10">
-            <div class="text-xs text-gray-400 mb-1">Critical (24 h)</div>
-            <div class="text-3xl font-bold text-red-400" id="metric-critical">-</div>
+        <div class="stat">
+            <div class="stat-title">Critical (24 h)</div>
+            <div class="stat-value text-2xl text-error" id="metric-critical">-</div>
         </div>
     </div>
 
     <!-- Unified alert feed (full width) -->
-    <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
-            <h2 class="font-semibold flex items-center gap-2 text-sm">
-                <span class="w-2 h-2 rounded-full bg-red-500 pulse-critical"></span>
-                Recent Alerts
-            </h2>
-            <span class="text-xs text-gray-400">last 24 h &nbsp;·&nbsp; auto-refresh 30 s</span>
-        </div>
-        <div id="alerts-feed"
-             hx-get="/partial/alerts?limit=50&since_hours=24"
-             hx-trigger="load, every 30s"
-             hx-swap="innerHTML"
-             class="divide-y divide-white/5 max-h-96 overflow-y-auto">
-            <div class="skeleton h-12 m-4 rounded-lg"></div>
-            <div class="skeleton h-12 m-4 rounded-lg"></div>
-            <div class="skeleton h-12 m-4 rounded-lg"></div>
+    <div class="card bg-neutral/60 border border-white/10">
+        <div class="card-body p-0">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
+                <h2 class="card-title text-sm">
+                    <span class="w-2 h-2 rounded-full bg-error pulse-critical"></span>
+                    Recent Alerts
+                </h2>
+                <span class="text-xs text-gray-400">last 24 h &nbsp;·&nbsp; auto-refresh 30 s</span>
+            </div>
+            <div id="alerts-feed"
+                 hx-get="/partial/alerts?limit=50&since_hours=24"
+                 hx-trigger="load, every 30s"
+                 hx-swap="innerHTML"
+                 class="divide-y divide-white/5 max-h-96 overflow-y-auto">
+                <div class="skeleton h-12 m-4 rounded-lg"></div>
+                <div class="skeleton h-12 m-4 rounded-lg"></div>
+                <div class="skeleton h-12 m-4 rounded-lg"></div>
+            </div>
         </div>
     </div>
 
     <!-- Alert Timeline (Chart.js) -->
-    <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
-            <h2 class="font-semibold text-sm">Alert Timeline</h2>
-            <span class="text-xs text-gray-400">last 24 h</span>
-        </div>
-        <div class="p-4" style="height:220px">
-            <canvas id="alert-timeline-chart"></canvas>
+    <div class="card bg-neutral/60 border border-white/10">
+        <div class="card-body p-0">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
+                <h2 class="card-title text-sm">Alert Timeline</h2>
+                <span class="text-xs text-gray-400">last 24 h</span>
+            </div>
+            <div class="p-4" style="height:220px">
+                <canvas id="alert-timeline-chart"></canvas>
+            </div>
         </div>
     </div>
 
     <!-- Tabbed panel: Devices / Timeline / Top Talkers -->
-    <div class="bg-card rounded-xl border border-white/10 overflow-hidden"
+    <div class="card bg-neutral/60 border border-white/10"
          x-data="{ activeTab: 'devices' }">
-        <div class="flex border-b border-white/10">
-            <button class="px-5 py-3 text-sm font-medium transition-colors"
-                    :class="activeTab === 'devices' ? 'tab-active' : 'tab-inactive'"
-                    @click="activeTab = 'devices'">Devices</button>
-            <button class="px-5 py-3 text-sm font-medium transition-colors"
-                    :class="activeTab === 'timeline' ? 'tab-active' : 'tab-inactive'"
-                    @click="activeTab = 'timeline'">Timeline</button>
-            <button class="px-5 py-3 text-sm font-medium transition-colors"
-                    :class="activeTab === 'talkers' ? 'tab-active' : 'tab-inactive'"
-                    @click="activeTab = 'talkers'">Top Talkers</button>
-        </div>
-        <div class="p-4">
-            <div x-show="activeTab === 'devices'">
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
-                     hx-get="/partial/devices"
-                     hx-trigger="load, every 30s"
-                     hx-swap="innerHTML">
-                    <div class="device-card skeleton h-32"></div>
-                    <div class="device-card skeleton h-32"></div>
-                    <div class="device-card skeleton h-32"></div>
-                </div>
+        <div class="card-body p-0">
+            <div role="tablist" class="tabs tabs-bordered px-2 pt-2">
+                <button role="tab" class="tab"
+                        :class="activeTab === 'devices' ? 'tab-active' : ''"
+                        @click="activeTab = 'devices'">Devices</button>
+                <button role="tab" class="tab"
+                        :class="activeTab === 'timeline' ? 'tab-active' : ''"
+                        @click="activeTab = 'timeline'">Timeline</button>
+                <button role="tab" class="tab"
+                        :class="activeTab === 'talkers' ? 'tab-active' : ''"
+                        @click="activeTab = 'talkers'">Top Talkers</button>
             </div>
-            <div x-show="activeTab === 'timeline'" x-cloak>
-                <div class="flex gap-1 items-end h-32"
-                     hx-get="/partial/timeline"
-                     hx-trigger="load, every 30s"
-                     hx-swap="innerHTML">
+            <div class="p-4">
+                <div x-show="activeTab === 'devices'">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[70vh] overflow-y-auto"
+                         hx-get="/partial/devices"
+                         hx-trigger="load, every 30s"
+                         hx-swap="innerHTML">
+                        <div class="device-card skeleton h-32"></div>
+                        <div class="device-card skeleton h-32"></div>
+                        <div class="device-card skeleton h-32"></div>
+                    </div>
                 </div>
-            </div>
-            <div x-show="activeTab === 'talkers'" x-cloak>
-                <div hx-get="/partial/top-talkers"
-                     hx-trigger="load, every 30s"
-                     hx-swap="innerHTML">
+                <div x-show="activeTab === 'timeline'" x-cloak>
+                    <div class="flex gap-1 items-end h-32"
+                         hx-get="/partial/timeline"
+                         hx-trigger="load, every 30s"
+                         hx-swap="innerHTML">
+                    </div>
+                </div>
+                <div x-show="activeTab === 'talkers'" x-cloak>
+                    <div hx-get="/partial/top-talkers"
+                         hx-trigger="load, every 30s"
+                         hx-swap="innerHTML">
+                    </div>
                 </div>
             </div>
         </div>

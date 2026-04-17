@@ -8,6 +8,7 @@ import pandas as pd
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
 from .ml_core import log
 from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH, get_detector, get_device_model_configs
+from .ml_core import AVAILABLE_MODEL_TYPES, batch_save_model_scores
 import aiosqlite
 
 
@@ -434,28 +435,57 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     baseline_features = extractor.extract_features(baseline_flows)
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
-    scored_results = []
 
-    # Load per-device model type configs
+    # Load per-device model type configs (determines which model drives risk_score)
     device_model_configs = await get_device_model_configs()
+
+    # Score ALL models per device, collect results for device_model_scores table
+    all_model_scores: list[dict] = []
+    # Active model scored results (for risk/anomalies/history)
+    scored_results = []
 
     if per_device_models:
         for device_id, group in features.groupby('device_id'):
             latest = group.sort_values('bucket_start').tail(1)
-            model_type = device_model_configs.get(int(device_id), default_model_type)
-            device_detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
-            if not device_detector.load_model(device_id=int(device_id)):
-                # Fall back to legacy isolation_forest model file
-                legacy_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
-                if not legacy_detector.load_model(device_id=int(device_id)):
-                    log.warning("inference_model_missing_for_device", device_id=int(device_id), model_type=model_type)
-                    continue
-                device_detector = legacy_detector
-            scored_results.extend(
-                {**row, "threshold": device_detector.threshold} for row in device_detector.score(latest)
-            )
+            active_model_type = device_model_configs.get(int(device_id), default_model_type)
+            bucket_start = latest.iloc[0].get('bucket_start') if not latest.empty else None
+
+            # Score ALL available model types for this device
+            for model_type in AVAILABLE_MODEL_TYPES:
+                device_detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+                if not device_detector.load_model(device_id=int(device_id)):
+                    # For active model, also try legacy fallback
+                    if model_type == active_model_type:
+                        legacy_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+                        if not legacy_detector.load_model(device_id=int(device_id)):
+                            log.warning("inference_model_missing_for_device", device_id=int(device_id), model_type=model_type)
+                            continue
+                        device_detector = legacy_detector
+                    else:
+                        continue  # Non-active model not yet trained, skip
+
+                rows = device_detector.score(latest)
+                for row in rows:
+                    ml_risk = _risk_from_score(row["anomaly_score"], device_detector.threshold)
+                    all_model_scores.append({
+                        "device_id": int(device_id),
+                        "model_type": model_type,
+                        "bucket_start": bucket_start,
+                        "anomaly_score": float(row["anomaly_score"]),
+                        "risk_score": float(ml_risk),
+                        "is_anomaly": bool(row["is_anomaly"]),
+                    })
+
+                    # If this is the active model, add to scored_results for risk pipeline
+                    if model_type == active_model_type:
+                        scored_results.append(
+                            {**row, "threshold": device_detector.threshold}
+                        )
     else:
         scored_results = [{**row, "threshold": detector.threshold} for row in detector.score(features)]
+
+    # Save all model scores to device_model_scores table
+    await batch_save_model_scores(all_model_scores)
 
     # Pre-group baseline data per device to avoid O(N*D) filtering inside the loop
     baseline_flows_by_device: dict = {}

@@ -228,6 +228,11 @@ async def set_device_model_config(request: Request, device_id: int):
     return await call_api("PUT", f"/devices/{device_id}/model-config", body)
 
 
+@app.get("/api/devices/{device_id}/model-scores")
+async def get_device_model_scores(device_id: int, model_type: str = "isolation_forest", hours: int = 168):
+    return await fetch_api(f"/devices/{device_id}/model-scores?model_type={model_type}&hours={hours}")
+
+
 @app.post("/api/devices/{device_id}/block")
 async def block_device(device_id: int):
     return await call_api("POST", f"/devices/{device_id}/block")
@@ -273,33 +278,32 @@ async def partial_alerts(limit: int = 50, since_hours: int = 24):
         score = float(a.get("score") or 0)
         resolved = bool(a.get("resolved"))
 
-        sev_dot = "bg-red-500" if severity == "critical" else "bg-yellow-400"
-        sev_text = "text-red-400" if severity == "critical" else "text-yellow-300"
+        sev_badge = "badge-error" if severity == "critical" else "badge-warning"
         src_badge = (
-            '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">ML</span>'
+            '<span class="badge badge-xs badge-secondary">ML</span>'
             if source == "isolation_forest" else
-            '<span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">heuristic</span>'
+            '<span class="badge badge-xs badge-info">heuristic</span>'
         )
         resolved_badge = (
-            '<span class="text-xs text-gray-500 ml-1">resolved</span>' if resolved else ""
+            '<span class="badge badge-xs badge-ghost">resolved</span>' if resolved else ""
         )
         device_link = (
-            f'<a href="/devices/{device_id}" class="text-blue-300 hover:underline">{device_name}</a>'
+            f'<a href="/devices/{device_id}" class="link link-hover link-info">{device_name}</a>'
             if isinstance(device_id, int) and device_id > 0
-            else f'<span class="text-gray-300">{device_name}</span>'
+            else f'<span class="text-slate-300">{device_name}</span>'
         )
 
         rows.append(f"""
         <div class="flex items-start gap-3 px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors">
-            <div class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0 {sev_dot}"></div>
+            <div class="mt-1.5"><span class="badge badge-xs {sev_badge}"></span></div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-sm {sev_text}">{alert_type.replace('_', ' ')}</span>
+                    <span class="font-medium text-sm">{alert_type.replace('_', ' ')}</span>
                     {src_badge}
                     {resolved_badge}
                 </div>
-                <div class="text-xs text-gray-300 mt-0.5 truncate">{title}</div>
-                <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                <div class="text-xs text-slate-300 mt-0.5 truncate">{title}</div>
+                <div class="flex items-center gap-3 mt-1 text-xs text-slate-400">
                     <span>{device_link}</span>
                     <span>score {score:.2f}</span>
                     <span>{ts}</span>
@@ -350,14 +354,14 @@ async def partial_devices():
         latest_score = device.get("last_inference_score")
         last_inference_at = device.get("last_inference_at")
         connection_badge = (
-            f'<span class="inline-block text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300 border border-green-500/30">Connected via {connection_source}</span>'
+            f'<span class="badge badge-sm badge-success badge-outline">Connected via {connection_source}</span>'
             if connected else
-            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-white/10 text-gray-300 border border-white/10">Not connected</span>'
+            '<span class="badge badge-sm badge-ghost badge-outline">Not connected</span>'
         )
         model_badge = (
-            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">Model ready</span>'
+            '<span class="badge badge-sm badge-info badge-outline">Model ready</span>'
             if model_status == "ready" else
-            '<span class="inline-block text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">Model missing</span>'
+            '<span class="badge badge-sm badge-warning badge-outline">Model missing</span>'
         )
         
         html += f"""
@@ -366,7 +370,7 @@ async def partial_devices():
             <div class="device-header">
                 <span class="status-icon">{status_icon}</span>
                 <span class="device-name">{device.get('hostname', device.get('ip_address', 'Unknown'))}</span>
-                <span class="blocked-badge hidden text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">BLOCKED</span>
+                <span class="blocked-badge hidden badge badge-xs badge-error">BLOCKED</span>
                 <span class="text-xs text-blue-300">{open_label}</span>
             </div>
             <div class="mt-2 mb-3 flex flex-wrap gap-2">{connection_badge}{model_badge}</div>

@@ -26,7 +26,11 @@ def _risk_from_score(score: float, threshold: float) -> float:
     # and confirmed anomalies ramp quickly into the upper range.
     margin = threshold - score
     if margin <= 0:
-        baseline = 35.0 * max(0.0, min(1.0, (threshold - score) / max(abs(threshold), 0.05) + 1.0))
+        # Normal branch: score >= threshold (not anomalous).
+        # Use 2x abs(threshold) as the window so typical positive scores (0.05–0.3)
+        # still produce a small but visible baseline risk (2–15%) instead of zero.
+        window = 2.0 * max(abs(threshold), 0.05)
+        baseline = 35.0 * max(0.0, min(1.0, (threshold - score) / window + 1.0))
         return round(max(0.0, min(35.0, baseline)), 4)
 
     threshold_scale = max(abs(threshold), 0.05)

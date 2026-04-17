@@ -3,10 +3,11 @@ import structlog
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 
-from .models import WifiConfig, ValidationResult, GatewayStatus, ApplyResult
+from .models import WifiConfig, ValidationResult, GatewayStatus, ApplyResult, BlockRequest, BlockResult, BlockedListResponse
 from .validate import validate_config
 from .status import get_status
 from .state import GatewayRuntime
+from .iptables import block_device, unblock_device, list_blocked
 
 structlog.configure(
     processors=[
@@ -117,3 +118,33 @@ async def rollback():
         raise HTTPException(status_code=403, detail="rollback disabled (set ENABLE_APPLY=true)")
     ok, message = await runtime.rollback()
     return ApplyResult(ok=ok, message=message)
+
+
+@app.post("/block", response_model=BlockResult)
+async def block(req: BlockRequest):
+    try:
+        added = block_device(req.mac)
+        return BlockResult(ok=True, mac=req.mac.lower(), blocked=True, message="blocked" if added else "already blocked")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("block_error", mac=req.mac, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/block/{mac}", response_model=BlockResult)
+async def unblock(mac: str):
+    try:
+        removed = unblock_device(mac)
+        return BlockResult(ok=True, mac=mac.lower(), blocked=False, message="unblocked" if removed else "was not blocked")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error("unblock_error", mac=mac, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/blocked", response_model=BlockedListResponse)
+async def blocked():
+    macs = list_blocked()
+    return BlockedListResponse(blocked=macs)

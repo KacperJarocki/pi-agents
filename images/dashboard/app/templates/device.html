@@ -134,6 +134,7 @@
                         <div id="device-name" class="text-2xl font-semibold text-white">Loading...</div>
                     </div>
                     <div id="connection-pill" class="text-xs px-3 py-1 rounded-full border border-slate-500/40 text-slate-300">Pending</div>
+                    <button id="block-btn" onclick="toggleBlock()" class="text-xs px-3 py-1 rounded-full border border-socred/30 text-socred bg-socred/10 hover:bg-socred/20 transition-colors hidden">Block</button>
                 </div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                     <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
@@ -299,6 +300,52 @@
             } catch(e) { console.error('model-config update error', e); }
         }
 
+        let _deviceBlocked = false;
+        let _deviceMac = null;
+
+        function updateBlockBtn() {
+            const btn = document.getElementById('block-btn');
+            if (!_deviceMac || _deviceMac.startsWith('ip:')) {
+                btn.classList.add('hidden');
+                return;
+            }
+            btn.classList.remove('hidden');
+            if (_deviceBlocked) {
+                btn.textContent = 'Unblock';
+                btn.className = 'text-xs px-3 py-1 rounded-full border border-socgreen/30 text-socgreen bg-socgreen/10 hover:bg-socgreen/20 transition-colors';
+            } else {
+                btn.textContent = 'Block';
+                btn.className = 'text-xs px-3 py-1 rounded-full border border-socred/30 text-socred bg-socred/10 hover:bg-socred/20 transition-colors';
+            }
+        }
+
+        async function toggleBlock() {
+            const method = _deviceBlocked ? 'DELETE' : 'POST';
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/block`, { method });
+                if (res.ok) {
+                    const data = await res.json();
+                    _deviceBlocked = data.blocked;
+                    updateBlockBtn();
+                } else {
+                    console.error('block toggle failed', await res.text());
+                }
+            } catch(e) { console.error('block toggle error', e); }
+        }
+
+        async function checkBlockedStatus() {
+            if (!_deviceMac || _deviceMac.startsWith('ip:')) { updateBlockBtn(); return; }
+            try {
+                const res = await fetch('/api/blocked');
+                if (res.ok) {
+                    const data = await res.json();
+                    const blocked = (data.blocked || []).map(m => m.toLowerCase());
+                    _deviceBlocked = blocked.includes(_deviceMac.toLowerCase());
+                }
+            } catch(e) { console.warn('blocked status check failed', e); }
+            updateBlockBtn();
+        }
+
         function fmtMb(value) {
             return `${Number(value || 0).toFixed(2)} MB`;
         }
@@ -394,6 +441,8 @@
             document.getElementById('device-name').textContent = device.hostname || device.ip_address || `Device #${device.id}`;
             document.getElementById('device-ip').textContent = device.ip_address || '-';
             document.getElementById('device-mac').textContent = device.mac_address || '-';
+            _deviceMac = device.mac_address;
+            checkBlockedStatus();
             document.getElementById('device-model').textContent = device.model_status || 'missing';
             loadModelConfig();
             document.getElementById('device-last-seen').textContent = fmtTs(device.last_seen);

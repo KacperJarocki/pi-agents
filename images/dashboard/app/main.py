@@ -228,6 +228,21 @@ async def set_device_model_config(request: Request, device_id: int):
     return await call_api("PUT", f"/devices/{device_id}/model-config", body)
 
 
+@app.post("/api/devices/{device_id}/block")
+async def block_device(device_id: int):
+    return await call_api("POST", f"/devices/{device_id}/block")
+
+
+@app.delete("/api/devices/{device_id}/block")
+async def unblock_device(device_id: int):
+    return await call_api("DELETE", f"/devices/{device_id}/block")
+
+
+@app.get("/api/blocked")
+async def get_blocked():
+    return await fetch_api("/gateway/wifi/blocked")
+
+
 @app.get("/api/alerts")
 async def get_alerts(limit: int = 50, since_hours: int = 24, severity: str | None = None):
     qs = f"?limit={limit}&since_hours={since_hours}"
@@ -347,10 +362,11 @@ async def partial_devices():
         
         html += f"""
         <a href="{device_href}" class="block">
-        <div class="device-card {status_class}">
+        <div class="device-card {status_class}" data-mac="{device.get('mac_address', '')}">
             <div class="device-header">
                 <span class="status-icon">{status_icon}</span>
                 <span class="device-name">{device.get('hostname', device.get('ip_address', 'Unknown'))}</span>
+                <span class="blocked-badge hidden text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">BLOCKED</span>
                 <span class="text-xs text-blue-300">{open_label}</span>
             </div>
             <div class="mt-2 mb-3 flex flex-wrap gap-2">{connection_badge}{model_badge}</div>

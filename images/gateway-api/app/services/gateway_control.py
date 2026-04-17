@@ -27,6 +27,21 @@ class GatewayAgentClient:
             r = await client.post(f"{self._settings.gateway_agent_url}/rollback")
             return _coerce_response(r)
 
+    async def block_device(self, mac: str) -> tuple[int, dict | str]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{self._settings.gateway_agent_url}/block", json={"mac": mac})
+            return _coerce_response(r)
+
+    async def unblock_device(self, mac: str) -> tuple[int, dict | str]:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.delete(f"{self._settings.gateway_agent_url}/block/{mac}")
+            return _coerce_response(r)
+
+    async def list_blocked(self) -> tuple[int, dict | str]:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{self._settings.gateway_agent_url}/blocked")
+            return _coerce_response(r)
+
 
 def _coerce_response(r: httpx.Response) -> tuple[int, dict | str]:
     try:

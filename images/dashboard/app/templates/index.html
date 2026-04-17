@@ -407,6 +407,23 @@
     loadAlertTimeline();
     setInterval(loadAlertTimeline, 60000);
 
+    async function updateBlockedBadges() {
+        try {
+            const res = await fetch('/api/blocked');
+            if (!res.ok) return;
+            const data = await res.json();
+            const blocked = new Set((data.blocked || []).map(m => m.toLowerCase()));
+            document.querySelectorAll('.device-card[data-mac]').forEach(card => {
+                const mac = (card.dataset.mac || '').toLowerCase();
+                const badge = card.querySelector('.blocked-badge');
+                if (badge) badge.classList.toggle('hidden', !blocked.has(mac));
+            });
+        } catch(e) { /* gateway-agent may be unreachable */ }
+    }
+    // Run after HTMX loads device cards.
+    document.body.addEventListener('htmx:afterSwap', () => updateBlockedBadges());
+    setTimeout(updateBlockedBadges, 2000);
+
     htmx.process(document.body);
 </script>
 </body>

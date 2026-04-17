@@ -4,6 +4,7 @@ from typing import Optional
 from ..core.database import get_db
 from ..core.cache import cache
 from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService, BehaviorAlertService, DeviceModelConfigService
+from ..services.gateway_control import GatewayAgentClient
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceTrafficResponse, DeviceDestinationsResponse, DeviceInferenceHistoryResponse,
@@ -304,6 +305,44 @@ async def set_device_model_config(
         raise HTTPException(status_code=404, detail="Device not found")
     config_service = DeviceModelConfigService(db)
     return await config_service.set_config(device_id, data.model_type)
+
+
+@router.post("/{device_id}/block")
+async def block_device(
+    device_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    mac = device.mac_address
+    if not mac or mac.startswith("ip:"):
+        raise HTTPException(status_code=400, detail="Device has no valid MAC address")
+    client = GatewayAgentClient()
+    status_code, body = await client.block_device(mac)
+    if status_code >= 400:
+        raise HTTPException(status_code=status_code, detail=body)
+    return body
+
+
+@router.delete("/{device_id}/block")
+async def unblock_device(
+    device_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    mac = device.mac_address
+    if not mac or mac.startswith("ip:"):
+        raise HTTPException(status_code=400, detail="Device has no valid MAC address")
+    client = GatewayAgentClient()
+    status_code, body = await client.unblock_device(mac)
+    if status_code >= 400:
+        raise HTTPException(status_code=status_code, detail=body)
+    return body
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

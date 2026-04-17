@@ -53,3 +53,18 @@ class GatewayStatus(BaseModel):
 class ApplyResult(BaseModel):
     ok: bool
     message: str
+
+
+class BlockRequest(BaseModel):
+    mac: str = Field(..., min_length=17, max_length=17)
+
+
+class BlockResult(BaseModel):
+    ok: bool
+    mac: str
+    blocked: bool
+    message: str
+
+
+class BlockedListResponse(BaseModel):
+    blocked: list[str]

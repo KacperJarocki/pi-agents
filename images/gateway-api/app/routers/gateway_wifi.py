@@ -101,3 +101,12 @@ async def rollback(db: AsyncSession = Depends(get_db)):
     await db.refresh(row)
 
     return WifiApplyResponse(ok=row.last_apply_ok, message=row.last_apply_message or "")
+
+
+@router.get("/blocked")
+async def get_blocked():
+    client = GatewayAgentClient()
+    code, body = await client.list_blocked()
+    if code >= 400:
+        raise HTTPException(status_code=code, detail=body)
+    return body

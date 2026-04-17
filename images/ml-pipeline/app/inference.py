@@ -6,7 +6,7 @@ from statistics import median, pstdev
 import pandas as pd
 
 from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
-from .ml_core import save_anomaly, save_behavior_alert, save_inference_result, update_device_risk_score, log
+from .ml_core import log
 from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH
 import aiosqlite
 

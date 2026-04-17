@@ -149,34 +149,6 @@ class TrafficCollector:
         self._lease_cache = (now + self._lease_cache_ttl, by_ip, by_mac)
         return by_ip, by_mac
 
-        lease_path = Path(self.lease_file_path)
-        if not lease_path.exists():
-            self._lease_cache = (now + self._lease_cache_ttl, {}, {})
-            return {}, {}
-
-        by_ip: dict[str, dict] = {}
-        by_mac: dict[str, dict] = {}
-        for line in lease_path.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split()
-            if len(parts) < 5:
-                continue
-            expiry, mac, ip, hostname, client_id = parts[:5]
-            if mac == "*" or not ip:
-                continue
-            entry = {
-                "lease_expires_at": expiry,
-                "mac_address": mac.lower(),
-                "ip_address": ip,
-                "hostname": None if hostname == "*" else hostname,
-                "client_id": None if client_id == "*" else client_id,
-            }
-            by_ip[ip] = entry
-            by_mac[entry["mac_address"]] = entry
-        return by_ip, by_mac
-
     def _is_valid_device_mac(self, mac_addr: str | None) -> bool:
         if not mac_addr:
             return False

@@ -86,7 +86,6 @@ class AnomalyDetector:
         self.threshold = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
     
     def _model_file(self, device_id: int | None = None) -> str:
-        import os
         name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
         return os.path.join(self.model_path, name)
 
@@ -110,7 +109,6 @@ class AnomalyDetector:
     
     def save_model(self, model, device_id: int | None = None):
         import joblib
-        import os
         
         os.makedirs(self.model_path, exist_ok=True)
         model_file = self._model_file(device_id)

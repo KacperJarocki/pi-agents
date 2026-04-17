@@ -10,22 +10,24 @@
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div class="card bg-neutral/60 border border-white/10 xl:col-span-2">
                 <div class="card-body p-4">
-                    <div class="flex items-center justify-between border-b border-socline/80 pb-3 mb-3">
-                        <div>
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-socline/80 pb-3 mb-3">
+                        <div class="min-w-0">
                             <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Identity</div>
-                            <div id="device-name" class="text-2xl font-semibold text-white">Loading...</div>
+                            <div id="device-name" class="text-2xl font-semibold text-white truncate">Loading...</div>
                         </div>
-                        <div id="connection-pill" class="badge badge-outline badge-ghost">Pending</div>
-                        <button id="block-btn" onclick="toggleBlock()" class="btn btn-xs btn-outline btn-error hidden">Block</button>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <div id="connection-pill" class="badge badge-outline badge-ghost">Pending</div>
+                            <button id="block-btn" onclick="toggleBlock()" class="btn btn-xs btn-outline btn-error hidden">Block</button>
+                        </div>
                     </div>
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                        <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip">-</div></div>
-                        <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac">-</div></div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                        <div><div class="text-slate-500 uppercase text-[11px]">IP</div><div id="device-ip" class="truncate">-</div></div>
+                        <div><div class="text-slate-500 uppercase text-[11px]">MAC</div><div id="device-mac" class="truncate">-</div></div>
                         <div>
                             <div class="text-slate-500 uppercase text-[11px]">ML Model</div>
-                            <div class="flex items-center gap-2 mt-0.5">
-                                <div id="device-model" class="text-sm">-</div>
-                                <select id="model-select" class="select select-xs select-bordered bg-slate-800 text-white" onchange="changeModel(this.value)">
+                            <div class="flex items-center gap-2 mt-0.5 min-w-0">
+                                <div id="device-model" class="text-sm truncate">-</div>
+                                <select id="model-select" class="select select-xs select-bordered bg-slate-800 text-white max-w-[140px] min-w-0" onchange="changeModel(this.value)">
                                     <option value="isolation_forest">Isolation Forest</option>
                                     <option value="lof">LOF</option>
                                     <option value="ocsvm">One-Class SVM</option>
@@ -33,7 +35,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen">-</div></div>
+                        <div><div class="text-slate-500 uppercase text-[11px]">Last Seen</div><div id="device-last-seen" class="truncate">-</div></div>
                     </div>
                 </div>
             </div>
@@ -129,7 +131,6 @@
                     </div>
                 </div>
             </div>
-        </section>
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
                     <div class="flex items-center justify-between mb-4">
@@ -263,9 +264,9 @@
                 return `<tr class="${rowClass}">
                     <td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td>
                     <td>${Number(m.anomaly_score || 0).toFixed(4)}</td>
-                    <td>${Number(m.risk_score || 0).toFixed(1)}</td>
+                    <td class="whitespace-nowrap">${Number(m.risk_score || 0).toFixed(1)}</td>
                     <td>${m.is_anomaly ? '<span class="badge badge-xs badge-error">YES</span>' : '<span class="badge badge-xs badge-success">no</span>'}</td>
-                    <td class="text-xs">${fmtTs(m.timestamp)}</td>
+                    <td class="text-xs max-w-[120px] truncate">${fmtTs(m.timestamp)}</td>
                 </tr>`;
             }).join('');
         }
@@ -409,9 +410,9 @@
                 return;
             }
             node.innerHTML = rows.map(row => `
-                <div class="flex items-center justify-between gap-3 border-b border-socline/40 pb-2 last:border-0 last:pb-0">
-                    <div class="truncate text-slate-200">${esc(row.label)}</div>
-                    <div class="text-right text-sky-300">${esc(row.value)}</div>
+                <div class="flex items-center justify-between gap-3 border-b border-socline/40 pb-2 last:border-0 last:pb-0 overflow-hidden">
+                    <div class="min-w-0 truncate text-slate-200">${esc(row.label)}</div>
+                    <div class="flex-shrink-0 text-right text-sky-300">${esc(row.value)}</div>
                 </div>
             `).join('');
         }

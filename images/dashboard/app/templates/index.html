@@ -146,6 +146,17 @@
         </div>
     </div>
 
+    <!-- Alert Timeline (Chart.js) -->
+    <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-white/10">
+            <h2 class="font-semibold text-sm">Alert Timeline</h2>
+            <span class="text-xs text-gray-400">last 24 h</span>
+        </div>
+        <div class="p-4" style="height:220px">
+            <canvas id="alert-timeline-chart"></canvas>
+        </div>
+    </div>
+
     <!-- Tabbed panel: Devices / Timeline / Top Talkers -->
     <div class="bg-card rounded-xl border border-white/10 overflow-hidden">
         <div class="flex border-b border-white/10">
@@ -185,6 +196,7 @@
 
 </main>
 
+<script src="/static/chart.umd.min.js"></script>
 <script>
     /* ── XSS escape helper ── */
     const _escDiv = document.createElement('div');
@@ -314,6 +326,86 @@
         }
         connect();
     })();
+
+    /* ── Alert Timeline Chart ── */
+    let alertTimelineChart = null;
+    async function loadAlertTimeline() {
+        try {
+            const r = await fetch('/api/alerts?limit=200&since_hours=24');
+            const d = await r.json();
+            const alerts = d.alerts || [];
+
+            const warning = [];
+            const critical = [];
+            alerts.forEach(a => {
+                const ts = new Date(a.timestamp);
+                const score = Number(a.score || 0);
+                const point = {x: ts.getTime(), y: score};
+                if (a.severity === 'critical') critical.push(point);
+                else warning.push(point);
+            });
+
+            const ctx = document.getElementById('alert-timeline-chart');
+            if (alertTimelineChart) { alertTimelineChart.destroy(); }
+            alertTimelineChart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Warning',
+                            data: warning,
+                            backgroundColor: 'rgba(245,158,11,0.7)',
+                            borderColor: 'rgba(245,158,11,1)',
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                        },
+                        {
+                            label: 'Critical',
+                            data: critical,
+                            backgroundColor: 'rgba(239,68,68,0.7)',
+                            borderColor: 'rgba(239,68,68,1)',
+                            pointRadius: 6,
+                            pointHoverRadius: 8,
+                        },
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#9ca3af', font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    const t = new Date(ctx.raw.x).toLocaleTimeString();
+                                    return `${ctx.dataset.label} @ ${t} — score ${ctx.raw.y.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            ticks: {
+                                color: '#6b7280',
+                                maxTicksLimit: 12,
+                                callback: function(v) { return new Date(v).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+                            },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                        },
+                        y: {
+                            title: { display: true, text: 'Score', color: '#9ca3af' },
+                            ticks: { color: '#6b7280' },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            beginAtZero: true,
+                        }
+                    }
+                }
+            });
+        } catch(e) { console.warn('alert timeline error', e); }
+    }
+    loadAlertTimeline();
+    setInterval(loadAlertTimeline, 60000);
 
     htmx.process(document.body);
 </script>

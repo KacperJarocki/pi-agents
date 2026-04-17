@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import httpx
 import asyncio
@@ -16,6 +17,8 @@ app = FastAPI(title="IoT Security Dashboard")
 GATEWAY_API = os.getenv("GATEWAY_API_URL", "http://gateway-api.iot-security:8080")
 API_PREFIX = "/api/v1"
 REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", "30"))
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["now"] = datetime.utcnow

@@ -30,11 +30,11 @@ spec:
             - app.inference
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
               cpu: 300m
               memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1024Mi
           env:
             - name: DATABASE_PATH
               value: "/data/iot-security.db"

@@ -214,6 +214,74 @@ async def get_device_protocol_signals(device_id: int, hours: int = 24):
     return await fetch_api(f"/devices/{device_id}/protocol-signals?hours={hours}")
 
 
+@app.get("/api/alerts")
+async def get_alerts(limit: int = 50, since_hours: int = 24, severity: str | None = None):
+    qs = f"?limit={limit}&since_hours={since_hours}"
+    if severity:
+        qs += f"&severity={severity}"
+    return await fetch_api(f"/alerts{qs}")
+
+
+@app.get("/partial/alerts")
+async def partial_alerts(limit: int = 50, since_hours: int = 24):
+    data = await fetch_api(f"/alerts?limit={limit}&since_hours={since_hours}")
+    alerts = data.get("alerts", [])
+
+    if not alerts:
+        return HTMLResponse(
+            content='<div class="empty-state text-gray-400 text-sm py-8 text-center">No alerts in the last 24 h</div>'
+        )
+
+    rows = []
+    for a in alerts:
+        severity = a.get("severity", "warning")
+        source = a.get("source", "behavior")
+        alert_type = a.get("alert_type", "unknown")
+        title = a.get("title") or alert_type
+        device_name = a.get("device_hostname") or a.get("device_ip") or f"device {a.get('device_id', '?')}"
+        device_id = a.get("device_id")
+        ts = (a.get("timestamp") or "")[:19].replace("T", " ")
+        score = float(a.get("score") or 0)
+        resolved = bool(a.get("resolved"))
+
+        sev_dot = "bg-red-500" if severity == "critical" else "bg-yellow-400"
+        sev_text = "text-red-400" if severity == "critical" else "text-yellow-300"
+        src_badge = (
+            '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">ML</span>'
+            if source == "isolation_forest" else
+            '<span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">heuristic</span>'
+        )
+        resolved_badge = (
+            '<span class="text-xs text-gray-500 ml-1">resolved</span>' if resolved else ""
+        )
+        device_link = (
+            f'<a href="/devices/{device_id}" class="text-blue-300 hover:underline">{device_name}</a>'
+            if isinstance(device_id, int) and device_id > 0
+            else f'<span class="text-gray-300">{device_name}</span>'
+        )
+
+        rows.append(f"""
+        <div class="flex items-start gap-3 px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors">
+            <div class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0 {sev_dot}"></div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-medium text-sm {sev_text}">{alert_type.replace('_', ' ')}</span>
+                    {src_badge}
+                    {resolved_badge}
+                </div>
+                <div class="text-xs text-gray-300 mt-0.5 truncate">{title}</div>
+                <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                    <span>{device_link}</span>
+                    <span>score {score:.2f}</span>
+                    <span>{ts}</span>
+                </div>
+            </div>
+        </div>""")
+
+    html = "".join(rows)
+    return HTMLResponse(content=html)
+
+
 @app.get("/api/anomalies")
 async def get_anomalies(limit: int = 20):
     return await fetch_api(f"/anomalies?limit={limit}")
@@ -416,23 +484,27 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def poll_gateway_alerts():
-    seen_ids: set[int] = set()
+    seen_keys: set[str] = set()
     while True:
         try:
-            anomalies_data = await fetch_api("/anomalies?limit=20&resolved=false")
-            anomalies = anomalies_data.get("anomalies", [])
+            data = await fetch_api("/alerts?limit=30&since_hours=1")
+            alerts = data.get("alerts", [])
 
-            new_anomalies = [a for a in anomalies if a.get("id") not in seen_ids]
-            if new_anomalies:
-                seen_ids.update(a["id"] for a in new_anomalies if a.get("id"))
-                # Keep seen set bounded
-                if len(seen_ids) > 500:
-                    seen_ids.clear()
-                    seen_ids.update(a["id"] for a in anomalies if a.get("id"))
+            new_alerts = []
+            for a in alerts:
+                key = f"{a.get('source')}:{a.get('id')}"
+                if key not in seen_keys:
+                    new_alerts.append(a)
+
+            if new_alerts:
+                seen_keys.update(f"{a.get('source')}:{a.get('id')}" for a in new_alerts)
+                if len(seen_keys) > 1000:
+                    seen_keys.clear()
+                    seen_keys.update(f"{a.get('source')}:{a.get('id')}" for a in alerts)
                 await manager.broadcast({
-                    "type": "new_anomalies",
-                    "count": len(new_anomalies),
-                    "data": new_anomalies,
+                    "type": "new_alerts",
+                    "count": len(new_alerts),
+                    "data": new_alerts,
                 })
         except Exception as exc:
             logger.warning("poll_gateway_alerts error: %s", exc)

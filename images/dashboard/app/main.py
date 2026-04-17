@@ -335,6 +335,11 @@ async def get_top_talkers(limit: int = 10):
     return await fetch_api(f"/metrics/top-talking?limit={limit}")
 
 
+@app.get("/api/metrics/ml-status")
+async def get_ml_status():
+    return await fetch_api("/metrics/ml-status")
+
+
 @app.get("/partial/devices")
 async def partial_devices():
     devices_data = await fetch_api("/devices")

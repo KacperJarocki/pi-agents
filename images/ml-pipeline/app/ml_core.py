@@ -55,7 +55,7 @@ import pandas as pd
 import numpy as np
 import json
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 
 structlog.configure(
@@ -205,7 +205,12 @@ class BaseDetector(ABC):
             payload = cached[1]
             self._apply_payload(payload)
             return True
-        raw = joblib.load(model_file)
+        try:
+            raw = joblib.load(model_file)
+        except Exception as exc:
+            log.error("model_load_failed", path=model_file, device_id=device_id,
+                      model_type=self.MODEL_TYPE, error=str(exc))
+            return False
         # Detect new format vs legacy raw model
         if isinstance(raw, dict) and "model" in raw:
             payload = raw
@@ -297,8 +302,14 @@ class BaseDetector(ABC):
         """
         mean = self._score_stats.get("mean", None)
         std  = self._score_stats.get("std",  None)
-        if mean is None or std is None or std < 1e-8:
+        if mean is None or std is None:
+            # No distribution stats available (old-format model) — return raw score.
             return raw_score
+        if std < 1e-8:
+            # All training scores were identical (degenerate distribution).
+            # z-score is 0 by definition (score == mean); returning the raw score
+            # would put an unrelated numeric value into the z-score space.
+            return 0.0
         return (raw_score - mean) / std
 
     def normalize_threshold(self) -> float:
@@ -332,7 +343,10 @@ class BaseDetector(ABC):
                 'bucket_start': features.iloc[idx].get('bucket_start'),
                 'anomaly_score': float(s),
                 'is_anomaly': bool(s < self.threshold),
-                'severity': 'critical' if s < self.threshold * 2 else 'warning',
+                # Critical when score is at least one threshold-width below the boundary.
+                # Using (threshold - abs(threshold)) handles both negative and positive
+                # thresholds: the critical zone is always a symmetric step below the cut.
+                'severity': 'critical' if s < self.threshold - abs(self.threshold) else 'warning',
                 'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
             })
         return rows
@@ -349,7 +363,7 @@ class BaseDetector(ABC):
                 anomalies.append({
                     'device_id': int(features.iloc[idx]['device_id']),
                     'anomaly_score': float(s),
-                    'severity': 'critical' if s < self.threshold * 2 else 'warning',
+                    'severity': 'critical' if s < self.threshold - abs(self.threshold) else 'warning',
                     'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
                 })
         return anomalies
@@ -442,6 +456,8 @@ class OneClassSVMDetector(BaseDetector):
         return self.model
 
     def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("OneClassSVMDetector: model not loaded — call fit() or load_model() first")
         scaler = self.model["scaler"]
         svm = self.model["svm"]
         X_scaled = scaler.transform(X)
@@ -470,13 +486,16 @@ class AutoencoderDetector(BaseDetector):
         X_scaled = scaler.fit_transform(X)
         n_features = X.shape[1]
         hidden = max(3, n_features // 2)
+        # early_stopping requires a non-empty validation split; disable it for
+        # small training sets where validation_fraction would produce 0 samples.
+        use_early_stopping = X.shape[0] >= 30
         model = MLPRegressor(
             hidden_layer_sizes=(hidden, max(2, hidden // 2), hidden),
             activation='relu',
             max_iter=kwargs.get("max_iter", 500),
             random_state=42,
-            early_stopping=True,
-            validation_fraction=0.1 if X.shape[0] >= 30 else 0.0,
+            early_stopping=use_early_stopping,
+            validation_fraction=0.1 if use_early_stopping else 0.0,
         )
         model.fit(X_scaled, X_scaled)
         # Compute reconstruction errors on training data for z-score baseline
@@ -496,6 +515,8 @@ class AutoencoderDetector(BaseDetector):
         return self.model
 
     def decision_scores(self, X: np.ndarray) -> np.ndarray:
+        if self.model is None:
+            raise RuntimeError("AutoencoderDetector: model not loaded — call fit() or load_model() first")
         scaler = self.model["scaler"]
         mlp = self.model["mlp"]
         stats = self.model["error_stats"]
@@ -551,20 +572,19 @@ class AnomalyDetector(IsolationForestDetector):
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
-    conn = await aiosqlite.connect(DB_PATH)
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    cursor = await conn.execute("""
-        SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
-               protocol, bytes_sent, bytes_received, dns_query, flags
-        FROM traffic_flows
-        WHERE device_id = ? AND timestamp >= datetime('now', '-' || ? || ' hours')
-        ORDER BY timestamp
-    """, (device_id, hours))
-    rows = await cursor.fetchall()
-    await conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        cursor = await conn.execute("""
+            SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
+                   protocol, bytes_sent, bytes_received, dns_query, flags
+            FROM traffic_flows
+            WHERE device_id = ? AND timestamp >= datetime('now', '-' || ? || ' hours')
+            ORDER BY timestamp
+        """, (device_id, hours))
+        rows = await cursor.fetchall()
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(row) for row in rows])
@@ -578,20 +598,19 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
 
 
 async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
-    conn = await aiosqlite.connect(DB_PATH)
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    cursor = await conn.execute("""
-        SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
-               protocol, bytes_sent, bytes_received, dns_query, flags
-        FROM traffic_flows
-        WHERE timestamp >= datetime('now', '-' || ? || ' hours')
-        ORDER BY device_id, timestamp
-    """, (hours,))
-    rows = await cursor.fetchall()
-    await conn.close()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        cursor = await conn.execute("""
+            SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port, 
+                   protocol, bytes_sent, bytes_received, dns_query, flags
+            FROM traffic_flows
+            WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+            ORDER BY device_id, timestamp
+        """, (hours,))
+        rows = await cursor.fetchall()
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(row) for row in rows])
@@ -749,13 +768,12 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
             extra TEXT
         )
     """)
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, timestamp)"
-    )
 
     # Migration: add columns that may be missing in tables created by older code.
     # SQLite does not support IF NOT EXISTS for ALTER TABLE ADD COLUMN, so we catch
     # the OperationalError that is raised when the column already exists.
+    # IMPORTANT: run migrations BEFORE creating the index so that the index can
+    # reference device_id even when the table was created without that column.
     migration_columns = [
         ("device_id", "INTEGER"),
         ("trained_at", "TEXT"),
@@ -778,8 +796,13 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
                 f"ALTER TABLE model_metadata ADD COLUMN {col_name} {col_type}"
             )
         except Exception:
-            # Column already exists — safe to ignore
+            # Column already exists — safe to ignore (aiosqlite raises OperationalError)
             pass
+
+    # Index is created after migrations so device_id is guaranteed to exist.
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, timestamp)"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -822,14 +845,15 @@ async def save_model_training_metadata(
     extra : dict | None
         Additional JSON-serialisable context (e.g. reconstruction error stats).
     """
-    score_stats = detector._score_stats
+    score_stats = getattr(detector, '_score_stats', {}) or {}
     # Estimate anomaly rate: fraction of training scores below adaptive threshold
     # We approximate from score distribution percentiles
     estimated_anomaly_rate = contamination  # conservative estimate
 
     conn = await get_db_connection()
     try:
-        await _ensure_model_metadata_table(conn)
+        # _ensure_model_metadata_table is called at startup via ensure_schema(); we
+        # do NOT call it here to avoid redundant DDL on every training run.
         await conn.execute(
             """
             INSERT INTO model_metadata (
@@ -842,7 +866,7 @@ async def save_model_training_metadata(
             (
                 device_id,
                 model_type,
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 samples,
                 features_count,
                 round(contamination, 6),

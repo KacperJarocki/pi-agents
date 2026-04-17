@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sklearn.ensemble import IsolationForest
 
@@ -18,7 +18,7 @@ async def train_model():
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
 
-    # Ensure schema (creates device_model_config table if missing)
+    # Ensure schema (creates device_model_config + model_metadata tables if missing)
     await ensure_schema()
 
     flows = await get_all_recent_flows(hours=hours)
@@ -77,11 +77,15 @@ async def train_model():
                         fit_kwargs["nu"] = adaptive_contamination
 
                     detector.fit(X, **fit_kwargs)
+
+                    # Access _score_stats before save_model so a stats failure
+                    # doesn't create an orphaned model file without metadata.
+                    stats = getattr(detector, '_score_stats', {}) or {}
+
                     detector.save_model(detector.model, device_id=int(device_id))
                     device_trained = True
 
-                    trained_at = datetime.utcnow().isoformat()
-                    stats = detector._score_stats
+                    trained_at = datetime.now(timezone.utc).isoformat()
                     log.info(
                         "training_complete_for_device",
                         trained_at=trained_at,
@@ -97,17 +101,26 @@ async def train_model():
                         estimated_anomaly_rate=adaptive_contamination,
                     )
 
-                    # Persist training metrics to model_metadata for observability
-                    await save_model_training_metadata(
-                        device_id=int(device_id),
-                        model_type=model_type,
-                        trained_at=trained_at,
-                        samples=samples,
-                        features=len(FeatureExtractor.FEATURE_COLUMNS),
-                        contamination=adaptive_contamination,
-                        threshold=detector.threshold,
-                        score_stats=stats,
-                    )
+                    # Persist training metrics to model_metadata for observability.
+                    # Wrapped in its own try so a DB write failure doesn't abort
+                    # subsequent model-type iterations for this device.
+                    try:
+                        await save_model_training_metadata(
+                            device_id=int(device_id),
+                            model_type=model_type,
+                            samples=samples,
+                            features_count=len(FeatureExtractor.FEATURE_COLUMNS),
+                            contamination=adaptive_contamination,
+                            detector=detector,
+                            training_hours=hours,
+                        )
+                    except Exception as meta_exc:
+                        log.warning(
+                            "training_metadata_save_failed",
+                            device_id=int(device_id),
+                            model_type=model_type,
+                            error=str(meta_exc),
+                        )
                 except Exception as exc:
                     log.error(
                         "training_failed_for_model",
@@ -137,13 +150,29 @@ async def train_model():
     detector.fit(X, contamination=contamination, n_estimators=int(os.getenv("N_ESTIMATORS", "200")))
     detector.save_model(detector.model)
 
+    trained_at = datetime.now(timezone.utc).isoformat()
     log.info(
         "training_complete",
-        trained_at=datetime.utcnow().isoformat(),
+        trained_at=trained_at,
         samples=int(X.shape[0]),
         features=len(FeatureExtractor.FEATURE_COLUMNS),
         model_type=default_model_type,
+        threshold=detector.threshold,
     )
+
+    # Persist metadata for the global model (device_id=None)
+    try:
+        await save_model_training_metadata(
+            device_id=None,
+            model_type=default_model_type,
+            samples=int(X.shape[0]),
+            features_count=len(FeatureExtractor.FEATURE_COLUMNS),
+            contamination=contamination,
+            detector=detector,
+            training_hours=hours,
+        )
+    except Exception as meta_exc:
+        log.warning("training_metadata_save_failed_global", model_type=default_model_type, error=str(meta_exc))
 
     return int(X.shape[0])
 

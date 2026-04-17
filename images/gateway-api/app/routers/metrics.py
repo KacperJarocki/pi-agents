@@ -132,9 +132,10 @@ async def get_ml_status(
                 )
             )
         model_health_available = bool(rows)
-    except Exception:
-        # model_metadata table may not exist on first run
-        pass
+    except Exception as exc:
+        # Gracefully degrade when model_metadata doesn't exist yet (first boot
+        # before any training run) or on unexpected query errors.
+        log.warning("model_metadata_query_failed", error=str(exc))
 
     statuses = [
         DeviceModelStatus(

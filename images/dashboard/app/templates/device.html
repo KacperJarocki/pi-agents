@@ -513,7 +513,7 @@
             _deviceMac = device.mac_address;
             checkBlockedStatus();
             document.getElementById('device-model').textContent = device.model_status || 'missing';
-            loadModelConfig();
+            // loadModelConfig is called once at startup and on a slow timer — not every refresh.
             document.getElementById('device-last-seen').textContent = fmtTs(device.last_seen);
             document.getElementById('device-risk').textContent = `${Number(device.risk_score || 0).toFixed(1)}%`;
             document.getElementById('device-score').textContent = device.last_inference_score == null ? 'N/A' : Number(device.last_inference_score).toFixed(4);
@@ -668,7 +668,7 @@
             const tbody = document.getElementById('ml-health-body');
             if (!tbody) return;
             try {
-                const res = await fetch('/api/v1/metrics/ml-status');
+                const res = await fetch('/api/metrics/ml-status');
                 if (!res.ok) throw new Error(res.statusText);
                 const data = await res.json();
 
@@ -704,6 +704,9 @@
 
         loadDevice();
         setInterval(loadDevice, refreshMs);
+        // Model config and ML health change infrequently — load once then refresh slowly.
+        loadModelConfig();
+        setInterval(loadModelConfig, 60_000);
         loadMlHealth();
         setInterval(loadMlHealth, 60_000);  // refresh every 60 s (training runs every 30 min)
     </script>

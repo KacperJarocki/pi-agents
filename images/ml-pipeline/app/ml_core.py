@@ -255,23 +255,32 @@ async def ensure_schema():
         await conn.close()
 
 
-async def save_anomaly(device_id: int, anomaly_type: str, severity: str, 
-                       score: float, description: str, features: dict):
-    conn = await aiosqlite.connect(DB_PATH)
-    
-    # Enable WAL mode for better concurrent read/write performance
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    
+async def save_anomaly(
+    device_id: int,
+    anomaly_type: str,
+    severity: str,
+    score: float,
+    description: str,
+    features: dict,
+    conn: aiosqlite.Connection | None = None,
+):
+    """Insert an anomaly row. If `conn` is provided it is reused (caller commits)."""
+    _close = conn is None
+    if conn is None:
+        conn = await aiosqlite.connect(DB_PATH)
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+
     await conn.execute("""
         INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (device_id, anomaly_type, severity, score, description, json.dumps(features)))
-    
-    await conn.commit()
-    await conn.close()
-    
+
+    if _close:
+        await conn.commit()
+        await conn.close()
+
     log.warning("anomaly_saved", device_id=device_id, type=anomaly_type, score=score)
 
 
@@ -335,16 +344,22 @@ async def _ensure_behavior_alerts_table(conn: aiosqlite.Connection):
     )
 
 
-async def update_device_risk_score(device_id: int, risk_score: float, last_inference_score: float | None = None):
-    conn = await aiosqlite.connect(DB_PATH)
-    
-    # Enable WAL mode for better concurrent read/write performance
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    
+async def update_device_risk_score(
+    device_id: int,
+    risk_score: float,
+    last_inference_score: float | None = None,
+    conn: aiosqlite.Connection | None = None,
+):
+    """Update device risk score. If `conn` is provided it is reused (caller commits)."""
+    _close = conn is None
+    if conn is None:
+        conn = await aiosqlite.connect(DB_PATH)
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+
     await _ensure_device_inference_columns(conn)
-    
+
     await conn.execute("""
         UPDATE devices
         SET risk_score = ?,
@@ -352,9 +367,10 @@ async def update_device_risk_score(device_id: int, risk_score: float, last_infer
             last_inference_at = CURRENT_TIMESTAMP
         WHERE id = ?
     """, (risk_score, last_inference_score, device_id))
-    
-    await conn.commit()
-    await conn.close()
+
+    if _close:
+        await conn.commit()
+        await conn.close()
 
 
 async def save_inference_result(
@@ -366,14 +382,16 @@ async def save_inference_result(
     severity: str,
     features: dict,
     retention_days: int = 7,
+    conn: aiosqlite.Connection | None = None,
 ):
-    conn = await aiosqlite.connect(DB_PATH)
-    
-    # Enable WAL mode for better concurrent read/write performance
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    
+    """Insert inference history. If `conn` is provided it is reused (caller commits)."""
+    _close = conn is None
+    if conn is None:
+        conn = await aiosqlite.connect(DB_PATH)
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+
     await _ensure_inference_history_table(conn)
     await conn.execute(
         """
@@ -395,8 +413,9 @@ async def save_inference_result(
         "DELETE FROM device_inference_history WHERE timestamp < datetime('now', '-' || ? || ' days')",
         (retention_days,),
     )
-    await conn.commit()
-    await conn.close()
+    if _close:
+        await conn.commit()
+        await conn.close()
 
 
 async def save_behavior_alert(
@@ -409,14 +428,16 @@ async def save_behavior_alert(
     description: str,
     evidence: dict,
     retention_days: int = 7,
+    conn: aiosqlite.Connection | None = None,
 ):
-    conn = await aiosqlite.connect(DB_PATH)
-    
-    # Enable WAL mode for better concurrent read/write performance
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA synchronous=NORMAL")
-    await conn.execute("PRAGMA busy_timeout=5000")
-    
+    """Insert a behavior alert (dedup by device+type+bucket). If `conn` is provided it is reused."""
+    _close = conn is None
+    if conn is None:
+        conn = await aiosqlite.connect(DB_PATH)
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+
     await _ensure_behavior_alerts_table(conn)
     bucket_value = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
     cursor = await conn.execute(
@@ -430,7 +451,8 @@ async def save_behavior_alert(
     )
     existing = await cursor.fetchone()
     if existing:
-        await conn.close()
+        if _close:
+            await conn.close()
         return
 
     await conn.execute(
@@ -450,8 +472,9 @@ async def save_behavior_alert(
             json.dumps(evidence),
         ),
     )
-    await conn.commit()
-    await conn.close()
+    if _close:
+        await conn.commit()
+        await conn.close()
 
 
 async def batch_save_inference_cycle(results: list[dict], retention_days: int = 7):

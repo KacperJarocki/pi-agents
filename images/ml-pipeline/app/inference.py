@@ -544,24 +544,53 @@ async def run_retention_cleanup(
     flows_days: int = 7,
     alerts_days: int = 14,
     anomaly_resolve_hours: int = 48,
+    batch_size: int = 5000,
 ) -> None:
-    """Delete old rows and auto-resolve stale anomalies to keep the DB lean."""
+    """
+    Delete old rows and auto-resolve stale anomalies to keep the DB lean.
+
+    Deletes are done in batches of `batch_size` rows so the write lock is
+    released frequently, preventing the collector from hitting busy_timeout
+    when there are millions of flows to prune.
+    """
     try:
         async with aiosqlite.connect(DB_PATH) as conn:
             await conn.execute("PRAGMA journal_mode=WAL")
-            # Raw flow data: keep 7 days
-            cur = await conn.execute(
-                "DELETE FROM traffic_flows WHERE timestamp < datetime('now', ?)",
-                (f"-{flows_days} days",),
-            )
-            deleted_flows = cur.rowcount
-            # Behavior alerts: keep 14 days
-            cur = await conn.execute(
-                "DELETE FROM device_behavior_alerts WHERE created_at < datetime('now', ?)",
-                (f"-{alerts_days} days",),
-            )
-            deleted_alerts = cur.rowcount
-            # Auto-resolve anomalies older than 48 h
+            await conn.execute("PRAGMA busy_timeout=5000")
+
+            # ── traffic_flows: batch delete ──────────────────────────────
+            deleted_flows = 0
+            while True:
+                cur = await conn.execute(
+                    """DELETE FROM traffic_flows WHERE rowid IN (
+                           SELECT rowid FROM traffic_flows
+                           WHERE timestamp < datetime('now', ?)
+                           LIMIT ?
+                       )""",
+                    (f"-{flows_days} days", batch_size),
+                )
+                deleted_flows += cur.rowcount
+                await conn.commit()
+                if cur.rowcount < batch_size:
+                    break  # No more rows to delete
+
+            # ── device_behavior_alerts: batch delete ─────────────────────
+            deleted_alerts = 0
+            while True:
+                cur = await conn.execute(
+                    """DELETE FROM device_behavior_alerts WHERE rowid IN (
+                           SELECT rowid FROM device_behavior_alerts
+                           WHERE timestamp < datetime('now', ?)
+                           LIMIT ?
+                       )""",
+                    (f"-{alerts_days} days", batch_size),
+                )
+                deleted_alerts += cur.rowcount
+                await conn.commit()
+                if cur.rowcount < batch_size:
+                    break
+
+            # ── anomalies: auto-resolve stale open anomalies ─────────────
             cur = await conn.execute(
                 """UPDATE anomalies SET resolved = 1
                    WHERE resolved = 0
@@ -570,6 +599,7 @@ async def run_retention_cleanup(
             )
             resolved = cur.rowcount
             await conn.commit()
+
         log.info(
             "retention_cleanup",
             deleted_flows=deleted_flows,

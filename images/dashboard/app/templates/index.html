@@ -131,9 +131,49 @@
         .pulse-critical {
             animation: pulse-red 2s infinite;
         }
+
+        /* Alert toast */
+        #alert-toast {
+            position: fixed;
+            top: 70px;
+            right: 1.5rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-width: 380px;
+        }
+        .toast-item {
+            background: rgba(15, 15, 30, 0.97);
+            border: 1px solid rgba(239, 68, 68, 0.6);
+            border-left: 4px solid #ef4444;
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+            animation: slideIn 0.3s ease;
+            cursor: pointer;
+        }
+        .toast-item.warning {
+            border-color: rgba(245, 158, 11, 0.6);
+            border-left-color: #f59e0b;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to   { transform: translateX(0);    opacity: 1; }
+        }
+        @keyframes fadeOut {
+            to { opacity: 0; transform: translateX(120%); }
+        }
+        .toast-item.dismissing {
+            animation: fadeOut 0.4s ease forwards;
+        }
     </style>
 </head>
 <body class="text-white">
+
+    <!-- Real-time alert toasts -->
+    <div id="alert-toast"></div>
+
     <nav class="bg-dark/80 backdrop-blur-sm border-b border-white/10 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 py-3">
             <div class="flex items-center justify-between">
@@ -143,8 +183,9 @@
                 </div>
                 <div class="flex items-center gap-4">
                     <a href="/gateway" class="text-sm text-gray-300 hover:text-white">Gateway WiFi</a>
-                    <div id="connection-status" class="text-sm text-gray-400">
-                        Connected
+                    <div id="connection-status" class="text-sm flex items-center gap-1.5">
+                        <span id="ws-dot" class="w-2 h-2 rounded-full bg-gray-500 inline-block"></span>
+                        <span id="ws-label" class="text-gray-400">Connecting...</span>
                     </div>
                     <div class="text-sm text-gray-400" id="current-time">
                         Loading...
@@ -238,35 +279,34 @@
     </main>
 
     <script>
+        /* ── Tab switching ── */
         function showTab(tabName) {
             document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('button[onclick^="showTab"]').forEach(el => {
                 el.classList.remove('tab-active');
                 el.classList.add('tab-inactive');
             });
-            
             document.getElementById(tabName + '-tab').classList.remove('hidden');
             document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.add('tab-active');
             document.querySelector(`[onclick="showTab('${tabName}')"]`).classList.remove('tab-inactive');
         }
 
+        /* ── Clock ── */
         function updateTime() {
-            const now = new Date();
-            document.getElementById('current-time').textContent = now.toLocaleTimeString();
+            document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
         }
         setInterval(updateTime, 1000);
         updateTime();
 
+        /* ── Metrics ── */
         async function loadMetrics() {
             try {
                 const response = await fetch('/api/metrics/summary');
                 const data = await response.json();
-                
                 document.getElementById('metric-devices').textContent = data.total_devices || 0;
                 document.getElementById('metric-active').textContent = data.active_devices || 0;
                 document.getElementById('metric-anomalies').textContent = data.total_anomalies_24h || 0;
                 document.getElementById('metric-critical').textContent = data.critical_anomalies || 0;
-                
                 if (data.critical_anomalies > 0) {
                     document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-danger pulse-critical';
                 } else if (data.total_anomalies_24h > 0) {
@@ -279,9 +319,95 @@
                 document.getElementById('status-indicator').className = 'w-3 h-3 rounded-full bg-gray-500';
             }
         }
-
         setInterval(loadMetrics, 30000);
         loadMetrics();
+
+        /* ── Toast notifications ── */
+        function showToast(anomaly) {
+            const container = document.getElementById('alert-toast');
+            const severity = anomaly.severity || 'warning';
+            const isCritical = severity === 'critical';
+
+            const item = document.createElement('div');
+            item.className = `toast-item${isCritical ? '' : ' warning'}`;
+            item.innerHTML = `
+                <div class="flex items-start justify-between gap-2">
+                    <div>
+                        <div class="font-semibold text-sm ${isCritical ? 'text-red-400' : 'text-amber-400'}">
+                            ${isCritical ? '🔴' : '🟡'} ${anomaly.anomaly_type || 'Anomaly Detected'}
+                        </div>
+                        <div class="text-xs text-gray-300 mt-0.5">${anomaly.description || ''}</div>
+                        <div class="text-xs text-gray-500 mt-1">score ${Number(anomaly.score || 0).toFixed(3)} &middot; ${new Date().toLocaleTimeString()}</div>
+                    </div>
+                    <button onclick="this.closest('.toast-item').remove()" class="text-gray-500 hover:text-white text-lg leading-none ml-2">&times;</button>
+                </div>
+            `;
+            container.prepend(item);
+
+            // Auto-dismiss after 10s
+            setTimeout(() => {
+                item.classList.add('dismissing');
+                setTimeout(() => item.remove(), 400);
+            }, 10000);
+        }
+
+        /* ── WebSocket alerts client ── */
+        (function connectAlerts() {
+            const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/alerts`;
+            const dot   = document.getElementById('ws-dot');
+            const label = document.getElementById('ws-label');
+            let backoff  = 1000;
+
+            function setStatus(state) {
+                if (state === 'connected') {
+                    dot.className   = 'w-2 h-2 rounded-full bg-green-400 inline-block';
+                    label.textContent = 'Live';
+                    label.className   = 'text-green-400';
+                    backoff = 1000;
+                } else if (state === 'reconnecting') {
+                    dot.className   = 'w-2 h-2 rounded-full bg-yellow-400 inline-block';
+                    label.textContent = 'Reconnecting…';
+                    label.className   = 'text-yellow-400';
+                } else {
+                    dot.className   = 'w-2 h-2 rounded-full bg-gray-500 inline-block';
+                    label.textContent = 'Disconnected';
+                    label.className   = 'text-gray-400';
+                }
+            }
+
+            function connect() {
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    setStatus('connected');
+                };
+
+                ws.onmessage = (event) => {
+                    let msg;
+                    try { msg = JSON.parse(event.data); } catch { return; }
+
+                    if (msg.type === 'new_anomalies' && Array.isArray(msg.data)) {
+                        msg.data.forEach(a => showToast(a));
+                        // Force-refresh the anomaly sidebar and metrics
+                        htmx.trigger('[hx-get="/partial/anomalies"]', 'htmx:load');
+                        loadMetrics();
+                    }
+                };
+
+                ws.onclose = () => {
+                    setStatus('reconnecting');
+                    setTimeout(() => { connect(); }, backoff);
+                    backoff = Math.min(backoff * 2, 30000);
+                };
+
+                ws.onerror = () => {
+                    ws.close();
+                };
+            }
+
+            connect();
+        })();
+
         htmx.process(document.body);
     </script>
 </body>

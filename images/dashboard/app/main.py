@@ -4,9 +4,12 @@ from fastapi.templating import Jinja2Templates
 import httpx
 import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import List, Optional
 import os
+
+logger = logging.getLogger("dashboard")
 
 app = FastAPI(title="IoT Security Dashboard")
 
@@ -413,21 +416,28 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def poll_gateway_alerts():
+    seen_ids: set[int] = set()
     while True:
         try:
-            anomalies_data = await fetch_api("/anomalies?limit=5&resolved=false")
+            anomalies_data = await fetch_api("/anomalies?limit=20&resolved=false")
             anomalies = anomalies_data.get("anomalies", [])
-            
-            if anomalies:
+
+            new_anomalies = [a for a in anomalies if a.get("id") not in seen_ids]
+            if new_anomalies:
+                seen_ids.update(a["id"] for a in new_anomalies if a.get("id"))
+                # Keep seen set bounded
+                if len(seen_ids) > 500:
+                    seen_ids.clear()
+                    seen_ids.update(a["id"] for a in anomalies if a.get("id"))
                 await manager.broadcast({
                     "type": "new_anomalies",
-                    "count": len(anomalies),
-                    "data": anomalies
+                    "count": len(new_anomalies),
+                    "data": new_anomalies,
                 })
-        except Exception:
-            pass
-        
-        await asyncio.sleep(60)
+        except Exception as exc:
+            logger.warning("poll_gateway_alerts error: %s", exc)
+
+        await asyncio.sleep(30)
 
 
 @app.on_event("startup")

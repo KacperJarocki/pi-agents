@@ -1,6 +1,6 @@
 FROM node:20-slim AS css-build
 WORKDIR /build
-COPY package.json tailwind.config.js ./
+COPY package.json package-lock.json tailwind.config.js ./
 RUN npm ci
 COPY app/static/input.css app/static/input.css
 COPY app/templates/ app/templates/

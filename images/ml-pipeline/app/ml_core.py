@@ -598,7 +598,7 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(row) for row in rows])
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format="mixed")
     if 'flags' in df.columns:
         df['flags'] = df['flags'].apply(lambda value: json.loads(value) if isinstance(value, str) and value else (value or {}))
         df['dns_rcode'] = df['flags'].apply(lambda value: value.get('dns_rcode') if isinstance(value, dict) else None)
@@ -624,7 +624,7 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(row) for row in rows])
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format="mixed")
     if 'flags' in df.columns:
         df['flags'] = df['flags'].apply(lambda value: json.loads(value) if isinstance(value, str) and value else (value or {}))
         df['dns_rcode'] = df['flags'].apply(lambda value: value.get('dns_rcode') if isinstance(value, dict) else None)

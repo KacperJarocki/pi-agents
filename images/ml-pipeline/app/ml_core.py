@@ -262,6 +262,12 @@ class BaseDetector(ABC):
                 # model's n_features_in_ attribute so 8-feature legacy models are
                 # not erroneously fed 12 columns.
                 _m = payload.get("model") if isinstance(payload, dict) else payload
+                # Dict-wrapped models (LOF, Autoencoder) store the sklearn object
+                # under a sub-key.  Try common keys before falling back.
+                if isinstance(_m, dict):
+                    _m = _m.get("lof") or _m.get("mlp") or _m.get("svm") or next(
+                        (v for v in _m.values() if hasattr(v, "n_features_in_")), _m
+                    )
                 _nf = getattr(_m, "n_features_in_", None)
                 self._features_count = int(_nf) if _nf is not None else len(FeatureExtractor.FEATURE_COLUMNS)
 
@@ -491,9 +497,15 @@ class LOFDetector(BaseDetector):
     def decision_scores(self, X: np.ndarray) -> np.ndarray:
         if self.model is None:
             raise RuntimeError("LOFDetector: model not loaded — call fit() or load_model() first")
-        scaler = self.model["scaler"]
-        lof = self.model["lof"]
-        X_scaled = scaler.transform(X)
+        # Legacy models (pre-Faza 7) were saved as a raw LocalOutlierFactor
+        # without a scaler wrapper.  Handle both formats gracefully.
+        if isinstance(self.model, dict):
+            scaler = self.model["scaler"]
+            lof = self.model["lof"]
+            X_scaled = scaler.transform(X)
+        else:
+            lof = self.model
+            X_scaled = X
         return lof.decision_function(X_scaled)
 
 

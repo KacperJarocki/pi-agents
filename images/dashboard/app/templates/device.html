@@ -184,6 +184,52 @@
             </div>
         </section>
 
+        <!-- Training Configuration (Faza 3) -->
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Training Config (Device Override)</div>
+                        <button id="reset-config-btn" onclick="resetDeviceConfig()" class="btn btn-xs btn-outline btn-warning hidden">Reset to Global</button>
+                    </div>
+                    <div id="training-config-form" class="space-y-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs text-slate-400">Training Hours</label>
+                                <input id="cfg-training-hours" type="number" min="1" max="720" class="input input-xs input-bordered w-full bg-slate-800 text-white" placeholder="global default">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400">Min Samples</label>
+                                <input id="cfg-min-samples" type="number" min="1" max="10000" class="input input-xs input-bordered w-full bg-slate-800 text-white" placeholder="global default">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400">Contamination</label>
+                                <input id="cfg-contamination" type="number" min="0.01" max="0.5" step="0.01" class="input input-xs input-bordered w-full bg-slate-800 text-white" placeholder="global default">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400">N Estimators (IF)</label>
+                                <input id="cfg-n-estimators" type="number" min="10" max="2000" class="input input-xs input-bordered w-full bg-slate-800 text-white" placeholder="global default">
+                            </div>
+                            <div>
+                                <label class="text-xs text-slate-400">Bucket Minutes</label>
+                                <input id="cfg-bucket-minutes" type="number" min="1" max="60" class="input input-xs input-bordered w-full bg-slate-800 text-white" placeholder="global default">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="saveDeviceConfig()" class="btn btn-xs btn-primary">Save Overrides</button>
+                            <span id="cfg-status" class="text-xs text-slate-400"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-3">Effective Config (Merged)</div>
+                    <div id="effective-config" class="space-y-2 text-sm text-slate-300"></div>
+                </div>
+            </div>
+        </section>
+
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
@@ -702,6 +748,77 @@
             }
         }
 
+        // ── Training Config (Faza 3) ──────────────────────────────────────────────
+        async function loadTrainingConfig() {
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/training-config`);
+                if (!res.ok) return;
+                const cfg = await res.json();
+                // Populate form with override values (empty = use global)
+                const overrides = cfg.overrides || {};
+                document.getElementById('cfg-training-hours').value = overrides.training_hours ?? '';
+                document.getElementById('cfg-min-samples').value = overrides.min_training_samples ?? '';
+                document.getElementById('cfg-contamination').value = overrides.contamination ?? '';
+                document.getElementById('cfg-n-estimators').value = overrides.n_estimators ?? '';
+                document.getElementById('cfg-bucket-minutes').value = overrides.feature_bucket_minutes ?? '';
+                // Show reset button if overrides exist
+                document.getElementById('reset-config-btn').classList.toggle('hidden', !cfg.has_overrides);
+                // Render effective config
+                renderKeyValues('effective-config', [
+                    {label: 'training_hours', value: String(cfg.training_hours)},
+                    {label: 'min_training_samples', value: String(cfg.min_training_samples)},
+                    {label: 'contamination', value: String(cfg.contamination)},
+                    {label: 'n_estimators', value: String(cfg.n_estimators)},
+                    {label: 'feature_bucket_minutes', value: String(cfg.feature_bucket_minutes)},
+                    {label: 'per_device_models', value: String(cfg.per_device_models)},
+                    {label: 'has_overrides', value: cfg.has_overrides ? 'yes' : 'no'},
+                ], 'Config not available');
+            } catch(e) { console.warn('training-config load failed', e); }
+        }
+
+        async function saveDeviceConfig() {
+            const body = {};
+            const h = document.getElementById('cfg-training-hours').value;
+            const s = document.getElementById('cfg-min-samples').value;
+            const c = document.getElementById('cfg-contamination').value;
+            const n = document.getElementById('cfg-n-estimators').value;
+            const b = document.getElementById('cfg-bucket-minutes').value;
+            if (h) body.training_hours = parseInt(h);
+            if (s) body.min_training_samples = parseInt(s);
+            if (c) body.contamination = parseFloat(c);
+            if (n) body.n_estimators = parseInt(n);
+            if (b) body.feature_bucket_minutes = parseInt(b);
+            if (!Object.keys(body).length) {
+                document.getElementById('cfg-status').textContent = 'No values set';
+                return;
+            }
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/training-config`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                if (res.ok) {
+                    document.getElementById('cfg-status').textContent = 'Saved';
+                    loadTrainingConfig();
+                } else {
+                    document.getElementById('cfg-status').textContent = 'Error: ' + (await res.text());
+                }
+            } catch(e) {
+                document.getElementById('cfg-status').textContent = 'Error: ' + e.message;
+            }
+        }
+
+        async function resetDeviceConfig() {
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/training-config`, { method: 'DELETE' });
+                if (res.ok) {
+                    document.getElementById('cfg-status').textContent = 'Reset to global defaults';
+                    loadTrainingConfig();
+                }
+            } catch(e) { console.warn('reset config failed', e); }
+        }
+
         loadDevice();
         setInterval(loadDevice, refreshMs);
         // Model config and ML health change infrequently — load once then refresh slowly.
@@ -709,5 +826,7 @@
         setInterval(loadModelConfig, 60_000);
         loadMlHealth();
         setInterval(loadMlHealth, 60_000);  // refresh every 60 s (training runs every 30 min)
+        loadTrainingConfig();
+        setInterval(loadTrainingConfig, 60_000);
     </script>
 {% endblock %}

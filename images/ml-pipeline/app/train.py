@@ -8,15 +8,25 @@ from .ml_core import (
     FeatureExtractor, AnomalyDetector, get_all_recent_flows,
     get_detector, get_device_model_configs, ensure_schema, log,
     AVAILABLE_MODEL_TYPES, save_model_training_metadata,
+    get_global_training_config, get_effective_training_config,
 )
 
 
 async def train_model():
-    hours = int(os.getenv("TRAINING_HOURS", "48"))
-    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", "10"))
-    contamination = float(os.getenv("CONTAMINATION", "0.05"))
+    # Load global training config from DB (falls back to env vars if DB not ready)
+    try:
+        global_cfg = await get_global_training_config()
+    except Exception as exc:
+        log.warning("training_config_db_fallback", error=str(exc))
+        global_cfg = {}
+
+    hours = int(os.getenv("TRAINING_HOURS", str(global_cfg.get("training_hours", 48))))
+    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(global_cfg.get("min_training_samples", 10))))
+    contamination = float(os.getenv("CONTAMINATION", str(global_cfg.get("contamination", 0.05))))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
+    global_n_estimators = int(os.getenv("N_ESTIMATORS", str(global_cfg.get("n_estimators", 200))))
+    global_bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(global_cfg.get("feature_bucket_minutes", 5))))
 
     # Ensure schema (creates device_model_config + model_metadata tables if missing)
     await ensure_schema()
@@ -26,7 +36,7 @@ async def train_model():
         log.warning("training_no_data", hours=hours)
         return 0
 
-    extractor = FeatureExtractor()
+    extractor = FeatureExtractor(bucket_minutes=global_bucket_minutes)
     features = extractor.extract_features(flows)
 
     log.info(
@@ -49,12 +59,22 @@ async def train_model():
 
         for device_id, group in features.groupby('device_id'):
             samples = int(len(group))
-            if samples < min_samples:
+
+            # Load per-device config overrides (merged with global defaults)
+            try:
+                dev_cfg = await get_effective_training_config(int(device_id))
+            except Exception:
+                dev_cfg = {}
+            dev_min_samples = dev_cfg.get("min_training_samples", min_samples)
+            dev_contamination = dev_cfg.get("contamination", contamination)
+            dev_n_estimators = dev_cfg.get("n_estimators", global_n_estimators)
+
+            if samples < dev_min_samples:
                 log.warning(
                     "training_not_enough_samples_for_device",
                     device_id=int(device_id),
                     samples=samples,
-                    min_samples=min_samples,
+                    min_samples=dev_min_samples,
                 )
                 continue
 
@@ -67,10 +87,10 @@ async def train_model():
                 try:
                     detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
 
-                    # Build kwargs based on model type
+                    # Build kwargs based on model type, using per-device config
                     fit_kwargs = {"contamination": adaptive_contamination}
                     if model_type == "isolation_forest":
-                        fit_kwargs["n_estimators"] = int(os.getenv("N_ESTIMATORS", "200"))
+                        fit_kwargs["n_estimators"] = dev_n_estimators
                     elif model_type == "lof":
                         fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
                     elif model_type == "ocsvm":
@@ -147,7 +167,7 @@ async def train_model():
         return int(X.shape[0])
 
     detector = get_detector(default_model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
-    detector.fit(X, contamination=contamination, n_estimators=int(os.getenv("N_ESTIMATORS", "200")))
+    detector.fit(X, contamination=contamination, n_estimators=global_n_estimators)
     detector.save_model(detector.model)
 
     trained_at = datetime.now(timezone.utc).isoformat()

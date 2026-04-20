@@ -340,6 +340,35 @@ async def get_ml_status():
     return await fetch_api("/metrics/ml-status")
 
 
+# ── Training config proxy routes (Faza 3) ───────────────────────────────────
+
+@app.get("/api/ml/config")
+async def get_global_training_config():
+    return await fetch_api("/ml/config")
+
+
+@app.put("/api/ml/config")
+async def set_global_training_config(request: Request):
+    body = await request.json()
+    return await call_api("PUT", "/ml/config", body)
+
+
+@app.get("/api/ml/devices/{device_id}/training-config")
+async def get_device_training_config(device_id: int):
+    return await fetch_api(f"/ml/devices/{device_id}/training-config")
+
+
+@app.put("/api/ml/devices/{device_id}/training-config")
+async def set_device_training_config(request: Request, device_id: int):
+    body = await request.json()
+    return await call_api("PUT", f"/ml/devices/{device_id}/training-config", body)
+
+
+@app.delete("/api/ml/devices/{device_id}/training-config")
+async def delete_device_training_config(device_id: int):
+    return await call_api("DELETE", f"/ml/devices/{device_id}/training-config")
+
+
 @app.get("/partial/devices")
 async def partial_devices():
     devices_data = await fetch_api("/devices")

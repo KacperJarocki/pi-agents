@@ -647,6 +647,7 @@ async def ensure_schema():
         await _ensure_device_model_config_table(conn)
         await _ensure_device_model_scores_table(conn)
         await _ensure_model_metadata_table(conn)
+        await _ensure_training_config_tables(conn)
         await conn.commit()
         log.info("schema_ensured")
     finally:
@@ -803,6 +804,182 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, timestamp)"
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Training configuration tables (Faza 3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Default global training parameters — used when no DB row exists yet.
+DEFAULT_TRAINING_CONFIG = {
+    "training_hours": 48,
+    "min_training_samples": 10,
+    "contamination": 0.05,
+    "n_estimators": 200,
+    "feature_bucket_minutes": 5,
+    "per_device_models": True,
+}
+
+
+async def _ensure_training_config_tables(conn: aiosqlite.Connection):
+    """Create global_training_config and device_training_config tables.
+
+    global_training_config is a single-row table holding cluster-wide defaults.
+    device_training_config stores per-device overrides (sparse — only columns
+    explicitly set by the user are non-NULL).
+    """
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS global_training_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            training_hours INTEGER NOT NULL DEFAULT 48,
+            min_training_samples INTEGER NOT NULL DEFAULT 10,
+            contamination REAL NOT NULL DEFAULT 0.05,
+            n_estimators INTEGER NOT NULL DEFAULT 200,
+            feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,
+            per_device_models INTEGER NOT NULL DEFAULT 1,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Seed the single row if it doesn't exist.
+    await conn.execute("""
+        INSERT OR IGNORE INTO global_training_config (id) VALUES (1)
+    """)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS device_training_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL UNIQUE,
+            training_hours INTEGER,
+            min_training_samples INTEGER,
+            contamination REAL,
+            n_estimators INTEGER,
+            feature_bucket_minutes INTEGER,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_device_training_config_device ON device_training_config(device_id)"
+    )
+
+
+async def get_global_training_config() -> dict:
+    """Return the global training config as a dict."""
+    conn = await get_db_connection()
+    try:
+        cursor = await conn.execute(
+            "SELECT training_hours, min_training_samples, contamination, "
+            "n_estimators, feature_bucket_minutes, per_device_models, updated_at "
+            "FROM global_training_config WHERE id = 1"
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return dict(DEFAULT_TRAINING_CONFIG)
+        return {
+            "training_hours": row[0],
+            "min_training_samples": row[1],
+            "contamination": row[2],
+            "n_estimators": row[3],
+            "feature_bucket_minutes": row[4],
+            "per_device_models": bool(row[5]),
+            "updated_at": row[6],
+        }
+    finally:
+        await conn.close()
+
+
+async def set_global_training_config(updates: dict) -> dict:
+    """Update global training config. Only keys present in ``updates`` are changed."""
+    allowed = {"training_hours", "min_training_samples", "contamination",
+               "n_estimators", "feature_bucket_minutes", "per_device_models"}
+    filtered = {k: v for k, v in updates.items() if k in allowed and v is not None}
+    if not filtered:
+        return await get_global_training_config()
+    # Convert per_device_models bool → int for SQLite
+    if "per_device_models" in filtered:
+        filtered["per_device_models"] = 1 if filtered["per_device_models"] else 0
+    set_clause = ", ".join(f"{k} = ?" for k in filtered)
+    values = list(filtered.values())
+    conn = await get_db_connection()
+    try:
+        await conn.execute(
+            f"UPDATE global_training_config SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+            values,
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return await get_global_training_config()
+
+
+async def get_device_training_config(device_id: int) -> dict | None:
+    """Return per-device training config overrides, or None if no overrides set."""
+    conn = await get_db_connection()
+    try:
+        cursor = await conn.execute(
+            "SELECT training_hours, min_training_samples, contamination, "
+            "n_estimators, feature_bucket_minutes, updated_at "
+            "FROM device_training_config WHERE device_id = ?",
+            (device_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "device_id": device_id,
+            "training_hours": row[0],
+            "min_training_samples": row[1],
+            "contamination": row[2],
+            "n_estimators": row[3],
+            "feature_bucket_minutes": row[4],
+            "updated_at": row[5],
+        }
+    finally:
+        await conn.close()
+
+
+async def set_device_training_config(device_id: int, updates: dict) -> dict:
+    """Upsert per-device training config overrides."""
+    allowed = {"training_hours", "min_training_samples", "contamination",
+               "n_estimators", "feature_bucket_minutes"}
+    filtered = {k: v for k, v in updates.items() if k in allowed}
+    if not filtered:
+        return (await get_device_training_config(device_id)) or {"device_id": device_id}
+    cols = ["device_id"] + list(filtered.keys())
+    placeholders = ", ".join("?" for _ in cols)
+    values = [device_id] + list(filtered.values())
+    on_conflict = ", ".join(f"{k} = excluded.{k}" for k in filtered)
+    conn = await get_db_connection()
+    try:
+        await conn.execute(
+            f"INSERT INTO device_training_config ({', '.join(cols)}, updated_at) "
+            f"VALUES ({placeholders}, CURRENT_TIMESTAMP) "
+            f"ON CONFLICT(device_id) DO UPDATE SET {on_conflict}, updated_at = CURRENT_TIMESTAMP",
+            values,
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+    return (await get_device_training_config(device_id)) or {"device_id": device_id}
+
+
+async def get_effective_training_config(device_id: int) -> dict:
+    """Return merged training config: global defaults overridden by per-device values.
+
+    Per-device values that are NULL (not set) fall through to the global default.
+    """
+    global_cfg = await get_global_training_config()
+    device_cfg = await get_device_training_config(device_id)
+    merged = dict(global_cfg)
+    merged["device_id"] = device_id
+    if device_cfg:
+        for key in ("training_hours", "min_training_samples", "contamination",
+                     "n_estimators", "feature_bucket_minutes"):
+            if device_cfg.get(key) is not None:
+                merged[key] = device_cfg[key]
+        merged["has_overrides"] = True
+    else:
+        merged["has_overrides"] = False
+    return merged
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -378,3 +378,49 @@ class DeviceModelConfigResponse(BaseModel):
 
 class DeviceModelConfigUpdate(BaseModel):
     model_type: str = Field(..., pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$")
+
+
+# ── Training configuration (Faza 3) ─────────────────────────────────────────
+
+class TrainingConfigResponse(BaseModel):
+    """Global or effective (merged) training configuration."""
+    training_hours: int = 48
+    min_training_samples: int = 10
+    contamination: float = 0.05
+    n_estimators: int = 200
+    feature_bucket_minutes: int = 5
+    per_device_models: bool = True
+    updated_at: Optional[str] = None
+    # Only present in effective (merged) responses
+    device_id: Optional[int] = None
+    has_overrides: Optional[bool] = None
+
+
+class TrainingConfigUpdate(BaseModel):
+    """Partial update for training configuration (all fields optional)."""
+    training_hours: Optional[int] = Field(None, ge=1, le=720)
+    min_training_samples: Optional[int] = Field(None, ge=1, le=10000)
+    contamination: Optional[float] = Field(None, ge=0.01, le=0.5)
+    n_estimators: Optional[int] = Field(None, ge=10, le=2000)
+    feature_bucket_minutes: Optional[int] = Field(None, ge=1, le=60)
+    per_device_models: Optional[bool] = None
+
+
+class DeviceTrainingConfigResponse(BaseModel):
+    """Per-device training config overrides (NULL = use global default)."""
+    device_id: int
+    training_hours: Optional[int] = None
+    min_training_samples: Optional[int] = None
+    contamination: Optional[float] = None
+    n_estimators: Optional[int] = None
+    feature_bucket_minutes: Optional[int] = None
+    updated_at: Optional[str] = None
+
+
+class DeviceTrainingConfigUpdate(BaseModel):
+    """Partial update for per-device training config. Set a field to null to clear override."""
+    training_hours: Optional[int] = Field(None, ge=1, le=720)
+    min_training_samples: Optional[int] = Field(None, ge=1, le=10000)
+    contamination: Optional[float] = Field(None, ge=0.01, le=0.5)
+    n_estimators: Optional[int] = Field(None, ge=10, le=2000)
+    feature_bucket_minutes: Optional[int] = Field(None, ge=1, le=60)

@@ -230,6 +230,56 @@
             </div>
         </section>
 
+        <!-- Training Data View (Faza 2) -->
+        <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Training Data Summary</div>
+                        <select id="training-data-hours" onchange="loadTrainingData()" class="select select-xs select-bordered bg-slate-800 text-white">
+                            <option value="24">24h</option>
+                            <option value="48" selected>48h</option>
+                            <option value="168">7d</option>
+                        </select>
+                    </div>
+                    <div id="training-data-summary" class="space-y-2 text-sm text-slate-300"></div>
+                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mt-4 mb-2">Latest Feature Buckets</div>
+                    <div class="overflow-x-auto max-h-[280px]">
+                        <table class="table table-xs w-full">
+                            <thead><tr class="text-slate-400">
+                                <th>Bucket</th><th>Bytes</th><th>Pkts</th><th>Dst</th><th>Ports</th><th>DNS</th><th>Rate</th>
+                            </tr></thead>
+                            <tbody id="training-buckets-body">
+                                <tr><td colspan="7" class="text-slate-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Raw Traffic Flows</div>
+                        <div class="flex items-center gap-2">
+                            <button id="flows-prev" onclick="loadRawFlows(-1)" class="btn btn-xs btn-outline" disabled>&lt;</button>
+                            <span id="flows-page-info" class="text-xs text-slate-400">-</span>
+                            <button id="flows-next" onclick="loadRawFlows(1)" class="btn btn-xs btn-outline" disabled>&gt;</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto max-h-[340px]">
+                        <table class="table table-xs w-full">
+                            <thead><tr class="text-slate-400">
+                                <th>Time</th><th>Src</th><th>Dst</th><th>Port</th><th>Proto</th><th>Bytes</th><th>DNS</th>
+                            </tr></thead>
+                            <tbody id="raw-flows-body">
+                                <tr><td colspan="7" class="text-slate-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
@@ -748,6 +798,74 @@
             }
         }
 
+        // ── Training Data View (Faza 2) ──────────────────────────────────────────
+        let _flowsPage = 1;
+        let _flowsTotalPages = 1;
+
+        async function loadTrainingData() {
+            const hours = document.getElementById('training-data-hours').value || 48;
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/training-data?hours=${hours}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                renderKeyValues('training-data-summary', [
+                    {label: 'Total flows', value: String(data.flow_count || 0)},
+                    {label: 'Feature buckets', value: String(data.bucket_count || 0)},
+                    {label: 'Trained models', value: String((data.models || []).length)},
+                    ...(data.models || []).map(m => ({
+                        label: `${m.model_type} (${m.samples || 0} samples)`,
+                        value: m.trained_at ? m.trained_at.replace('T', ' ').slice(0, 19) : 'never',
+                    })),
+                ], 'No training data');
+                const tbody = document.getElementById('training-buckets-body');
+                const buckets = data.buckets || [];
+                if (!buckets.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-slate-500">No buckets</td></tr>';
+                } else {
+                    tbody.innerHTML = buckets.map(b => `<tr class="text-slate-300">
+                        <td class="text-xs">${(b.bucket_start || '').replace('T', ' ').slice(0, 19)}</td>
+                        <td>${Number(b.total_bytes || 0).toLocaleString()}</td>
+                        <td>${b.packets || 0}</td>
+                        <td>${b.unique_destinations || 0}</td>
+                        <td>${b.unique_ports || 0}</td>
+                        <td>${b.dns_queries || 0}</td>
+                        <td>${Number(b.packet_rate || 0).toFixed(2)}</td>
+                    </tr>`).join('');
+                }
+            } catch(e) { console.warn('training-data load failed', e); }
+        }
+
+        async function loadRawFlows(delta) {
+            if (delta !== undefined && delta !== 0) {
+                _flowsPage = Math.max(1, Math.min(_flowsTotalPages, _flowsPage + delta));
+            }
+            const hours = document.getElementById('training-data-hours').value || 48;
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/raw-flows?page=${_flowsPage}&limit=50&hours=${hours}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                _flowsTotalPages = data.total_pages || 1;
+                document.getElementById('flows-page-info').textContent = `${_flowsPage}/${_flowsTotalPages} (${data.total} total)`;
+                document.getElementById('flows-prev').disabled = _flowsPage <= 1;
+                document.getElementById('flows-next').disabled = _flowsPage >= _flowsTotalPages;
+                const tbody = document.getElementById('raw-flows-body');
+                const flows = data.flows || [];
+                if (!flows.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-slate-500">No flows</td></tr>';
+                } else {
+                    tbody.innerHTML = flows.map(f => `<tr class="text-slate-300">
+                        <td class="text-xs">${(f.timestamp || '').replace('T', ' ').slice(0, 19)}</td>
+                        <td class="text-xs">${esc(f.src_ip || '')}</td>
+                        <td class="text-xs">${esc(f.dst_ip || '')}</td>
+                        <td>${f.dst_port || 0}</td>
+                        <td>${esc(f.protocol || '')}</td>
+                        <td>${f.bytes_sent || 0}</td>
+                        <td class="text-xs truncate max-w-[100px]">${esc(f.dns_query || '-')}</td>
+                    </tr>`).join('');
+                }
+            } catch(e) { console.warn('raw-flows load failed', e); }
+        }
+
         // ── Training Config (Faza 3) ──────────────────────────────────────────────
         async function loadTrainingConfig() {
             try {
@@ -828,5 +946,8 @@
         setInterval(loadMlHealth, 60_000);  // refresh every 60 s (training runs every 30 min)
         loadTrainingConfig();
         setInterval(loadTrainingConfig, 60_000);
+        loadTrainingData();
+        loadRawFlows(0);
+        setInterval(loadTrainingData, 60_000);
     </script>
 {% endblock %}

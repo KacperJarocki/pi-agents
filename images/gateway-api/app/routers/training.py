@@ -19,6 +19,7 @@ from ..models.schemas_pydantic import (
     DeviceTrainingConfigResponse,
     DeviceTrainingConfigUpdate,
 )
+from ..core.cache import cache
 
 router = APIRouter(prefix="/ml", tags=["training"])
 
@@ -197,3 +198,132 @@ async def delete_device_training_config(
     await db.commit()
     log.info("device_training_config_deleted", device_id=device_id)
     return await get_device_effective_config(device_id, db)
+
+
+# ── Training data view (Faza 2) ─────────────────────────────────────────────
+
+@router.get("/devices/{device_id}/training-data")
+async def get_device_training_data(
+    device_id: int,
+    hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return training data summary: flow count, feature bucket stats, latest buckets."""
+    async def _fetch():
+        # Flow count
+        row = (await db.execute(text(
+            "SELECT COUNT(*) FROM traffic_flows "
+            "WHERE device_id = :did AND timestamp >= datetime('now', '-' || :h || ' hours')"
+        ), {"did": device_id, "h": hours})).first()
+        flow_count = row[0] if row else 0
+
+        # Feature bucket stats (aggregated from inference history)
+        hist_rows = (await db.execute(text(
+            "SELECT bucket_start, features FROM device_inference_history "
+            "WHERE device_id = :did AND timestamp >= datetime('now', '-' || :h || ' hours') "
+            "ORDER BY timestamp DESC LIMIT 100"
+        ), {"did": device_id, "h": hours})).fetchall()
+
+        buckets = []
+        for r in hist_rows:
+            import json as _json
+            features = {}
+            try:
+                features = _json.loads(r[1]) if r[1] else {}
+            except Exception:
+                pass
+            buckets.append({
+                "bucket_start": r[0],
+                "total_bytes": features.get("total_bytes", 0),
+                "packets": features.get("packets", 0),
+                "unique_destinations": features.get("unique_destinations", 0),
+                "unique_ports": features.get("unique_ports", 0),
+                "dns_queries": features.get("dns_queries", 0),
+                "packet_rate": features.get("packet_rate", 0),
+            })
+
+        # Model metadata
+        meta_rows = (await db.execute(text(
+            "SELECT model_type, trained_at, samples, threshold, score_mean, "
+            "estimated_anomaly_rate FROM model_metadata "
+            "WHERE device_id = :did ORDER BY timestamp DESC LIMIT 4"
+        ), {"did": device_id})).fetchall()
+
+        models = []
+        for m in meta_rows:
+            models.append({
+                "model_type": m[0],
+                "trained_at": m[1],
+                "samples": m[2],
+                "threshold": m[3],
+                "score_mean": m[4],
+                "estimated_anomaly_rate": m[5],
+            })
+
+        return {
+            "device_id": device_id,
+            "hours": hours,
+            "flow_count": flow_count,
+            "bucket_count": len(buckets),
+            "buckets": buckets[:20],  # Latest 20
+            "models": models,
+        }
+
+    return await cache.get_or_set(
+        f"training-data:{device_id}:{hours}",
+        10.0,
+        _fetch,
+    )
+
+
+@router.get("/devices/{device_id}/raw-flows")
+async def get_device_raw_flows(
+    device_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return paginated raw traffic flows for a device."""
+    offset = (page - 1) * limit
+
+    # Total count
+    count_row = (await db.execute(text(
+        "SELECT COUNT(*) FROM traffic_flows "
+        "WHERE device_id = :did AND timestamp >= datetime('now', '-' || :h || ' hours')"
+    ), {"did": device_id, "h": hours})).first()
+    total = count_row[0] if count_row else 0
+
+    # Paginated rows
+    rows = (await db.execute(text(
+        "SELECT id, timestamp, src_ip, dst_ip, src_port, dst_port, protocol, "
+        "bytes_sent, bytes_received, packets, dns_query "
+        "FROM traffic_flows "
+        "WHERE device_id = :did AND timestamp >= datetime('now', '-' || :h || ' hours') "
+        "ORDER BY timestamp DESC LIMIT :lim OFFSET :off"
+    ), {"did": device_id, "h": hours, "lim": limit, "off": offset})).fetchall()
+
+    flows = []
+    for r in rows:
+        flows.append({
+            "id": r[0],
+            "timestamp": r[1],
+            "src_ip": r[2],
+            "dst_ip": r[3],
+            "src_port": r[4],
+            "dst_port": r[5],
+            "protocol": r[6],
+            "bytes_sent": r[7],
+            "bytes_received": r[8],
+            "packets": r[9],
+            "dns_query": r[10],
+        })
+
+    return {
+        "device_id": device_id,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": (total + limit - 1) // limit if limit > 0 else 0,
+        "flows": flows,
+    }

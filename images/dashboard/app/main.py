@@ -369,6 +369,16 @@ async def delete_device_training_config(device_id: int):
     return await call_api("DELETE", f"/ml/devices/{device_id}/training-config")
 
 
+@app.get("/api/ml/devices/{device_id}/training-data")
+async def get_device_training_data(device_id: int, hours: int = 24):
+    return await fetch_api(f"/ml/devices/{device_id}/training-data?hours={hours}")
+
+
+@app.get("/api/ml/devices/{device_id}/raw-flows")
+async def get_device_raw_flows(device_id: int, page: int = 1, limit: int = 50, hours: int = 24):
+    return await fetch_api(f"/ml/devices/{device_id}/raw-flows?page={page}&limit={limit}&hours={hours}")
+
+
 @app.get("/partial/devices")
 async def partial_devices():
     devices_data = await fetch_api("/devices")

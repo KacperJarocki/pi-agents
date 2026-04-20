@@ -85,6 +85,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_anomalies_device ON anomalies(device_id);
             CREATE INDEX IF NOT EXISTS idx_anomalies_timestamp ON anomalies(timestamp);
             CREATE INDEX IF NOT EXISTS idx_anomaly_device_time ON anomalies(device_id, timestamp);
+            -- Speeds up list_anomalies(resolved=False) and auto-resolve UPDATE scans
+            CREATE INDEX IF NOT EXISTS idx_anomalies_resolved_time ON anomalies(resolved, timestamp);
 
             CREATE TABLE IF NOT EXISTS device_inference_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,6 +101,8 @@ class Database:
             );
 
             CREATE INDEX IF NOT EXISTS idx_inference_history_device_time ON device_inference_history(device_id, timestamp);
+            -- Standalone timestamp index for retention DELETE (no device_id filter)
+            CREATE INDEX IF NOT EXISTS idx_inference_history_timestamp ON device_inference_history(timestamp);
 
             CREATE TABLE IF NOT EXISTS device_behavior_alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +120,8 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_time ON device_behavior_alerts(device_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start);
+            -- Standalone timestamp index for retention DELETE (no device_id filter)
+            CREATE INDEX IF NOT EXISTS idx_behavior_alerts_timestamp ON device_behavior_alerts(timestamp);
             
             CREATE TABLE IF NOT EXISTS model_metadata (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

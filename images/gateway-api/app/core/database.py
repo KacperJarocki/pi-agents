@@ -76,6 +76,18 @@ async def init_db():
         await conn.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS idx_behavior_alert_device_type_bucket ON device_behavior_alerts(device_id, alert_type, bucket_start)"
         )
+        # Retention DELETE filters only on timestamp — standalone index avoids full-table scan
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_behavior_alerts_timestamp ON device_behavior_alerts(timestamp)"
+        )
+        # Speeds up list_anomalies(resolved=False) and auto-resolve UPDATE
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_anomalies_resolved_time ON anomalies(resolved, timestamp)"
+        )
+        # Speeds up retention DELETE on device_inference_history (no device_id filter)
+        await conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_inference_history_timestamp ON device_inference_history(timestamp)"
+        )
 
 
 async def get_db() -> AsyncSession:

@@ -1422,15 +1422,8 @@ async def batch_save_inference_cycle(results: list[dict], retention_days: int = 
                         ),
                     )
 
-        # Prune old data in one pass
-        await conn.execute(
-            "DELETE FROM device_inference_history WHERE timestamp < datetime('now', '-' || ? || ' days')",
-            (retention_days,),
-        )
-        await conn.execute(
-            "DELETE FROM device_behavior_alerts WHERE timestamp < datetime('now', '-' || ? || ' days')",
-            (alerts_retention_days,),
-        )
+        # Retention is handled exclusively by run_retention_cleanup() (batched DELETEs
+        # with LIMIT to avoid long write-lock bursts). Inline unbatched DELETEs removed.
         await conn.commit()
     finally:
         await conn.close()

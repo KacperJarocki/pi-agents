@@ -543,12 +543,12 @@ class AutoencoderDetector(BaseDetector):
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         n_features = X.shape[1]
-        hidden = max(3, n_features // 2)
+        hidden = max(4, n_features // 2)
         # early_stopping requires a non-empty validation split; disable it for
         # small training sets where validation_fraction would produce 0 samples.
         use_early_stopping = X.shape[0] >= 30
         model = MLPRegressor(
-            hidden_layer_sizes=(hidden, max(2, hidden // 2), hidden),
+            hidden_layer_sizes=(hidden, max(4, hidden // 2), hidden),
             activation='relu',
             max_iter=kwargs.get("max_iter", 500),
             random_state=42,
@@ -922,8 +922,8 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
 
 # Default global training parameters — used when no DB row exists yet.
 DEFAULT_TRAINING_CONFIG = {
-    "training_hours": 48,
-    "min_training_samples": 10,
+    "training_hours": 168,
+    "min_training_samples": 30,
     "contamination": 0.05,
     "n_estimators": 200,
     "feature_bucket_minutes": 5,
@@ -941,8 +941,8 @@ async def _ensure_training_config_tables(conn: aiosqlite.Connection):
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS global_training_config (
             id INTEGER PRIMARY KEY CHECK (id = 1),
-            training_hours INTEGER NOT NULL DEFAULT 48,
-            min_training_samples INTEGER NOT NULL DEFAULT 10,
+            training_hours INTEGER NOT NULL DEFAULT 168,
+            min_training_samples INTEGER NOT NULL DEFAULT 30,
             contamination REAL NOT NULL DEFAULT 0.05,
             n_estimators INTEGER NOT NULL DEFAULT 200,
             feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,

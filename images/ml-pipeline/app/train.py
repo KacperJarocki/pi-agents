@@ -99,8 +99,8 @@ async def train_model():
         except Exception:
             dev_cfg = {}
 
-        hours = int(os.getenv("TRAINING_HOURS", str(dev_cfg.get("training_hours", 48))))
-        min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(dev_cfg.get("min_training_samples", 10))))
+        hours = int(os.getenv("TRAINING_HOURS", str(dev_cfg.get("training_hours", 168))))
+        min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(dev_cfg.get("min_training_samples", 30))))
         n_estimators = int(os.getenv("N_ESTIMATORS", str(dev_cfg.get("n_estimators", 200))))
         bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(dev_cfg.get("feature_bucket_minutes", 5))))
 
@@ -118,8 +118,8 @@ async def train_model():
         log.warning("training_config_db_fallback", error=str(exc))
         global_cfg = {}
 
-    hours = int(os.getenv("TRAINING_HOURS", str(global_cfg.get("training_hours", 48))))
-    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(global_cfg.get("min_training_samples", 10))))
+    hours = int(os.getenv("TRAINING_HOURS", str(global_cfg.get("training_hours", 168))))
+    min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(global_cfg.get("min_training_samples", 30))))
     contamination = float(os.getenv("CONTAMINATION", str(global_cfg.get("contamination", 0.05))))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
@@ -185,7 +185,6 @@ async def train_model():
             except Exception:
                 dev_cfg = {}
             dev_min_samples = dev_cfg.get("min_training_samples", min_samples)
-            dev_contamination = dev_cfg.get("contamination", contamination)
             dev_n_estimators = dev_cfg.get("n_estimators", global_n_estimators)
 
             if samples < dev_min_samples:
@@ -210,12 +209,6 @@ async def train_model():
                     fit_kwargs = {"contamination": adaptive_contamination}
                     if model_type == "isolation_forest":
                         fit_kwargs["n_estimators"] = dev_n_estimators
-                        # Attempt warm_start: load existing model first so the
-                        # forest can be extended with new trees rather than
-                        # retrained from scratch.  Falls back to cold start when
-                        # no prior model exists.
-                        if detector.load_model(device_id=int(device_id)):
-                            fit_kwargs["warm_start"] = True
                     elif model_type == "lof":
                         fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
                     elif model_type == "ocsvm":

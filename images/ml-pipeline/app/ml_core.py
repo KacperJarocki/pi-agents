@@ -255,7 +255,15 @@ class BaseDetector(ABC):
             self._score_stats = payload.get("score_stats", {})
             # features_count allows scoring with the correct number of input columns
             # when models trained on old 8-column data are loaded by a 12-column extractor.
-            self._features_count: int = int(payload.get("features_count", len(FeatureExtractor.FEATURE_COLUMNS)))
+            if "features_count" in payload:
+                self._features_count = int(payload["features_count"])
+            else:
+                # Old model saved without features_count — infer from the sklearn
+                # model's n_features_in_ attribute so 8-feature legacy models are
+                # not erroneously fed 12 columns.
+                _m = payload.get("model") if isinstance(payload, dict) else payload
+                _nf = getattr(_m, "n_features_in_", None)
+                self._features_count = int(_nf) if _nf is not None else len(FeatureExtractor.FEATURE_COLUMNS)
 
     def save_model(self, model, device_id: int | None = None):
         """Persist model together with adaptive threshold and score stats.

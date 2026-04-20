@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 from datetime import datetime, UTC
 from statistics import median, pstdev
@@ -10,6 +11,37 @@ from .ml_core import log
 from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH, get_detector, get_device_model_configs
 from .ml_core import AVAILABLE_MODEL_TYPES, batch_save_model_scores
 import aiosqlite
+
+
+# ── Feature extraction cache ────────────────────────────────────────────────
+# Hash-based: we hash the (device_id, flow_count, first_ts, last_ts) tuple to
+# detect whether the underlying flows have changed since the last cycle.
+# This avoids re-running the groupby aggregation when no new flows arrived.
+
+_feature_cache: dict[str, tuple[str, pd.DataFrame]] = {}  # cache_key → (hash, features_df)
+
+
+def _flows_hash(flows: pd.DataFrame) -> str:
+    """Compute a lightweight hash of a flows DataFrame for cache invalidation."""
+    if flows.empty:
+        return "empty"
+    n = len(flows)
+    first = str(flows["timestamp"].iloc[0])
+    last = str(flows["timestamp"].iloc[-1])
+    total_bytes = int(flows["bytes_sent"].sum()) if "bytes_sent" in flows.columns else 0
+    key = f"{n}:{first}:{last}:{total_bytes}"
+    return hashlib.md5(key.encode()).hexdigest()
+
+
+def _cached_extract(extractor: FeatureExtractor, flows: pd.DataFrame, cache_key: str) -> pd.DataFrame:
+    """Return cached features if flows haven't changed, otherwise extract fresh."""
+    h = _flows_hash(flows)
+    cached = _feature_cache.get(cache_key)
+    if cached is not None and cached[0] == h:
+        return cached[1]
+    features = extractor.extract_features(flows)
+    _feature_cache[cache_key] = (h, features)
+    return features
 
 
 PROTOCOL_ALERT_TYPES = {
@@ -429,14 +461,14 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     flows = all_flows[all_flows["timestamp"] >= cutoff]
 
     extractor = FeatureExtractor()
-    features = extractor.extract_features(flows)
+    features = _cached_extract(extractor, flows, "inference:recent")
     
     # Prepare baseline flows with bucket_start column
     baseline_flows = all_flows
     if not baseline_flows.empty:
         baseline_flows["bucket_start"] = baseline_flows["timestamp"].dt.floor(f"{extractor.bucket_minutes}min")
     
-    baseline_features = extractor.extract_features(baseline_flows)
+    baseline_features = _cached_extract(extractor, baseline_flows, "inference:baseline")
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
 

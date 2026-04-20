@@ -9,7 +9,7 @@ from .ml_core import (
     get_detector, get_device_model_configs, ensure_schema, log,
     AVAILABLE_MODEL_TYPES, save_model_training_metadata,
     get_global_training_config, get_effective_training_config,
-    get_device_flows,
+    get_device_flows, get_latest_flow_timestamp, get_latest_trained_at,
 )
 
 
@@ -156,6 +156,21 @@ async def train_model():
         for device_id, group in features.groupby('device_id'):
             samples = int(len(group))
 
+            # Skip training if no new flows arrived since last training run.
+            # This avoids redundant model rebuilds on the 30-min CronJob schedule.
+            try:
+                latest_flow = await get_latest_flow_timestamp(int(device_id))
+                latest_trained = await get_latest_trained_at(int(device_id))
+                if latest_flow and latest_trained and latest_flow <= latest_trained:
+                    log.info("training_skipped_no_new_flows",
+                             device_id=int(device_id),
+                             latest_flow=latest_flow,
+                             latest_trained=latest_trained)
+                    continue
+            except Exception as skip_exc:
+                log.warning("training_skip_check_failed",
+                            device_id=int(device_id), error=str(skip_exc))
+
             # Load per-device config overrides (merged with global defaults)
             try:
                 dev_cfg = await get_effective_training_config(int(device_id))
@@ -187,6 +202,12 @@ async def train_model():
                     fit_kwargs = {"contamination": adaptive_contamination}
                     if model_type == "isolation_forest":
                         fit_kwargs["n_estimators"] = dev_n_estimators
+                        # Attempt warm_start: load existing model first so the
+                        # forest can be extended with new trees rather than
+                        # retrained from scratch.  Falls back to cold start when
+                        # no prior model exists.
+                        if detector.load_model(device_id=int(device_id)):
+                            fit_kwargs["warm_start"] = True
                     elif model_type == "lof":
                         fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
                     elif model_type == "ocsvm":

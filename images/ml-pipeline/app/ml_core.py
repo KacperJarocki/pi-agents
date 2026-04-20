@@ -386,13 +386,23 @@ class IsolationForestDetector(BaseDetector):
         from sklearn.ensemble import IsolationForest
         contamination = kwargs.get("contamination", 0.05)
         n_estimators = kwargs.get("n_estimators", 200)
-        model = IsolationForest(
-            n_estimators=n_estimators,
-            contamination=contamination,
-            random_state=42,
-            n_jobs=1,
-        )
-        model.fit(X)
+        warm_start = kwargs.get("warm_start", False)
+
+        # warm_start=True reuses existing estimators and adds new trees on top,
+        # enabling incremental training when n_estimators is increased between
+        # runs.  Only effective when self.model is an existing IsolationForest.
+        if warm_start and self.model is not None and hasattr(self.model, "n_estimators"):
+            self.model.set_params(n_estimators=n_estimators, warm_start=True)
+            self.model.fit(X)
+            model = self.model
+        else:
+            model = IsolationForest(
+                n_estimators=n_estimators,
+                contamination=contamination,
+                random_state=42,
+                n_jobs=1,
+            )
+            model.fit(X)
         self.model = model
         # Adaptive threshold from training distribution
         training_scores = self.decision_scores(X)
@@ -1431,5 +1441,47 @@ async def batch_save_model_scores(scores: list[dict]):
             "DELETE FROM device_model_scores WHERE timestamp < datetime('now', '-7 days')"
         )
         await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def get_latest_flow_timestamp(device_id: int | None = None) -> str | None:
+    """Return the MAX(timestamp) from traffic_flows for a device (or globally).
+
+    Used by train.py to skip training when no new flows have arrived since
+    the last training run.
+    """
+    conn = await get_db_connection()
+    try:
+        if device_id is not None:
+            cursor = await conn.execute(
+                "SELECT MAX(timestamp) FROM traffic_flows WHERE device_id = ?",
+                (device_id,),
+            )
+        else:
+            cursor = await conn.execute("SELECT MAX(timestamp) FROM traffic_flows")
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] else None
+    finally:
+        await conn.close()
+
+
+async def get_latest_trained_at(device_id: int | None = None) -> str | None:
+    """Return the most recent trained_at timestamp from model_metadata.
+
+    Used by train.py to compare against latest flow timestamp and skip
+    training when there's no new data.
+    """
+    conn = await get_db_connection()
+    try:
+        if device_id is not None:
+            cursor = await conn.execute(
+                "SELECT MAX(trained_at) FROM model_metadata WHERE device_id = ?",
+                (device_id,),
+            )
+        else:
+            cursor = await conn.execute("SELECT MAX(trained_at) FROM model_metadata")
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] else None
     finally:
         await conn.close()

@@ -306,10 +306,14 @@ class BaseDetector(ABC):
             # No distribution stats available (old-format model) — return raw score.
             return raw_score
         if std < 1e-8:
-            # All training scores were identical (degenerate distribution).
-            # z-score is 0 by definition (score == mean); returning the raw score
-            # would put an unrelated numeric value into the z-score space.
-            return 0.0
+            # Degenerate distribution: all training scores were identical.
+            # When the inference score deviates from that constant mean, it is
+            # genuinely novel — return a large-magnitude z-score proportional to
+            # the deviation so anomalies are not silently suppressed.
+            deviation = raw_score - mean
+            if abs(deviation) < 1e-8:
+                return 0.0
+            return -10.0 if deviation < 0 else 10.0
         return (raw_score - mean) / std
 
     def normalize_threshold(self) -> float:
@@ -424,21 +428,31 @@ class LOFDetector(BaseDetector):
 
     def fit(self, X: np.ndarray, **kwargs):
         from sklearn.neighbors import LocalOutlierFactor
+        from sklearn.preprocessing import StandardScaler
         contamination = kwargs.get("contamination", 0.05)
         n_neighbors = kwargs.get("n_neighbors", min(20, max(5, X.shape[0] // 5)))
+        # Scale features so high-magnitude columns (total_bytes) don't dominate
+        # the k-NN distance calculations used by LOF.
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
         model = LocalOutlierFactor(
             n_neighbors=n_neighbors,
             contamination=contamination,
             novelty=True,
         )
-        model.fit(X)
-        self.model = model
+        model.fit(X_scaled)
+        self.model = {"lof": model, "scaler": scaler}
         training_scores = self.decision_scores(X)
         self._compute_and_store_score_stats(training_scores, contamination)
-        return model
+        return self.model
 
     def decision_scores(self, X: np.ndarray) -> np.ndarray:
-        return self.model.decision_function(X)
+        if self.model is None:
+            raise RuntimeError("LOFDetector: model not loaded — call fit() or load_model() first")
+        scaler = self.model["scaler"]
+        lof = self.model["lof"]
+        X_scaled = scaler.transform(X)
+        return lof.decision_function(X_scaled)
 
 
 class OneClassSVMDetector(BaseDetector):

@@ -54,16 +54,16 @@ PROTOCOL_ALERT_TYPES = {
 
 def _risk_from_score(score: float, threshold: float) -> float:
     # IsolationForest decision_function scores: lower => more anomalous.
-    # Scale risk relative to the configured threshold so pre-threshold drift is visible,
-    # and confirmed anomalies ramp quickly into the upper range.
+    # Normal branch: ramp from 0 (well above threshold) to 35 (at threshold).
+    # Anomalous branch: ramp from 35 (at threshold) to 100 (deep anomaly).
     margin = threshold - score
     if margin <= 0:
-        # Normal branch: score >= threshold (not anomalous).
-        # Use 2x abs(threshold) as the window so typical positive scores (0.05–0.3)
-        # still produce a small but visible baseline risk (2–15%) instead of zero.
-        window = 2.0 * max(abs(threshold), 0.05)
-        baseline = 35.0 * max(0.0, min(1.0, (threshold - score) / window + 1.0))
-        return round(max(0.0, min(35.0, baseline)), 4)
+        # Normal: score >= threshold.
+        # Linear ramp in window [threshold-window, threshold] → risk [0, 35].
+        # Scores well above threshold give near-zero risk.
+        window = max(abs(threshold), 0.5)
+        fraction = max(0.0, 1.0 + margin / window)  # margin in [-window, 0] → [0, 1]
+        return round(max(0.0, min(35.0, 35.0 * fraction)), 4)
 
     threshold_scale = max(abs(threshold), 0.05)
     normalized = margin / threshold_scale

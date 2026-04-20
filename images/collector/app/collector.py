@@ -169,7 +169,12 @@ class TrafficCollector:
         except ValueError:
             return False
 
-    def _resolve_client_identity(self, flow: dict, lease_by_ip: dict[str, dict]) -> dict | None:
+    def _resolve_client_identity(
+        self,
+        flow: dict,
+        lease_by_ip: dict[str, dict],
+        lease_by_mac: dict[str, dict] | None = None,
+    ) -> dict | None:
         src_ip = flow.get("src_ip")
         dst_ip = flow.get("dst_ip")
 
@@ -183,6 +188,7 @@ class TrafficCollector:
             log.info("device_resolution_rejected", reason="no_lan_client_ip", src_ip=src_ip, dst_ip=dst_ip)
             return None
 
+        # --- Primary: DHCP lease lookup by IP (most reliable) ---
         lease = lease_by_ip.get(client_ip)
         if lease:
             log.info(
@@ -197,22 +203,47 @@ class TrafficCollector:
                 "hostname": lease.get("hostname"),
             }
 
-        parsed_mac = flow.get("mac_address")
-        if self._is_valid_device_mac(parsed_mac):
-            log.info("device_resolution_fallback_flow", ip=client_ip, mac=parsed_mac)
-            return {
-                "device_ip": client_ip,
-                "device_mac": parsed_mac.lower(),
-                "hostname": None,
-            }
+        # --- Fallback: pick the correct MAC based on traffic direction ---
+        # If client is the sender (outbound), its MAC is eth.src (mac_src).
+        # If client is the receiver (inbound), its MAC is eth.dst (mac_dst).
+        if client_ip == src_ip:
+            candidate_mac = flow.get("mac_src")
+        else:
+            candidate_mac = flow.get("mac_dst")
 
-        log.info(
-            "device_resolution_rejected",
-            reason="invalid_or_missing_mac_without_lease",
-            ip=client_ip,
-            mac=parsed_mac,
-        )
-        return None
+        if not self._is_valid_device_mac(candidate_mac):
+            log.info(
+                "device_resolution_rejected",
+                reason="invalid_or_missing_mac_without_lease",
+                ip=client_ip,
+                mac_src=flow.get("mac_src"),
+                mac_dst=flow.get("mac_dst"),
+            )
+            return None
+
+        candidate_mac = candidate_mac.lower()
+
+        # Cross-validate against known leases if available.
+        # If the MAC belongs to a *different* leased device, it's likely the
+        # gateway/router MAC — reject it to avoid phantom devices.
+        if lease_by_mac:
+            mac_lease = lease_by_mac.get(candidate_mac)
+            if mac_lease and mac_lease["ip_address"] != client_ip:
+                log.info(
+                    "device_resolution_rejected",
+                    reason="mac_belongs_to_different_device",
+                    ip=client_ip,
+                    mac=candidate_mac,
+                    mac_lease_ip=mac_lease["ip_address"],
+                )
+                return None
+
+        log.info("device_resolution_fallback_flow", ip=client_ip, mac=candidate_mac)
+        return {
+            "device_ip": client_ip,
+            "device_mac": candidate_mac,
+            "hostname": None,
+        }
 
     def start(self):
         self.running = True
@@ -326,7 +357,7 @@ class TrafficCollector:
             return
 
         try:
-            lease_by_ip, _ = self._read_lease_map()
+            lease_by_ip, lease_by_mac = self._read_lease_map()
             cmd = build_tshark_command(pcap_file)
             log.info("starting_tshark", cycle=cycle, command=" ".join(cmd))
 
@@ -362,7 +393,7 @@ class TrafficCollector:
 
                 flow = self._parse_flow(parts)
                 if flow:
-                    resolved = self._resolve_client_identity(flow, lease_by_ip)
+                    resolved = self._resolve_client_identity(flow, lease_by_ip, lease_by_mac)
                     if resolved:
                         self.flow_buffer.append({**flow, **resolved})
                         if len(self.flow_buffer) >= self.max_buffer_size:
@@ -424,9 +455,16 @@ class TrafficCollector:
             icmp_type = parts[13] if len(parts) > 13 and parts[13] else None
             icmp_code = parts[14] if len(parts) > 14 and parts[14] else None
 
-            # eth.addr may contain "src_mac,dst_mac"; take the first value.
-            if mac_addr and "," in mac_addr:
-                mac_addr = mac_addr.split(",", 1)[0]
+            # eth.addr contains "src_mac,dst_mac" comma-separated.
+            # Store both so _resolve_client_identity can pick the correct
+            # one based on traffic direction (src vs dst).
+            mac_src = None
+            mac_dst = None
+            if mac_addr:
+                if "," in mac_addr:
+                    mac_src, mac_dst = mac_addr.split(",", 1)
+                else:
+                    mac_src = mac_addr
 
             flags = {}
             if dns_rcode is not None and str(dns_rcode).isdigit():
@@ -443,7 +481,8 @@ class TrafficCollector:
                 "dst_port": int(dst_port),
                 "protocol": protocol.upper(),
                 "bytes": frame_len,
-                "mac_address": mac_addr,
+                "mac_src": mac_src,   # eth.src — sender's L2 address
+                "mac_dst": mac_dst,   # eth.dst — receiver's L2 address
                 "dns_query": dns_query,
                 "flags": flags or None,
                 "timestamp": datetime.utcnow(),

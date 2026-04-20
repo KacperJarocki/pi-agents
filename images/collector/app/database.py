@@ -211,6 +211,7 @@ class Database:
 
             flow_rows.append((
                 device_id,
+                flow.get("timestamp"),  # capture-time timestamp (not DB insert time)
                 flow["src_ip"],
                 flow["dst_ip"],
                 flow.get("src_port", 0),
@@ -227,8 +228,8 @@ class Database:
         await self.conn.executemany(
             """
             INSERT INTO traffic_flows
-            (device_id, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (device_id, timestamp, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             flow_rows,
         )
@@ -239,21 +240,32 @@ class Database:
     
     async def update_device_stats(self, aggregated: Dict[str, Dict]):
         for ip, stats in aggregated.items():
+            # Merge with existing extra_data so counters accumulate
+            # instead of being overwritten every flush.
+            row = await self._fetch_one(
+                "SELECT extra_data FROM devices WHERE ip_address = ?", (ip,)
+            )
+            existing: dict = {}
+            if row and row["extra_data"]:
+                try:
+                    existing = json.loads(row["extra_data"])
+                except (json.JSONDecodeError, TypeError):
+                    existing = {}
+
+            merged = {
+                "total_bytes": existing.get("total_bytes", 0) + stats["total_bytes"],
+                "packet_count": existing.get("packet_count", 0) + stats["packet_count"],
+                "unique_connections": len(stats["connections"]),
+                "unique_destinations": len(stats["dst_ips"]),
+                "ports": list(stats["dst_ports"])[:10],
+            }
+
             await self.conn.execute("""
                 UPDATE devices 
                 SET last_seen = CURRENT_TIMESTAMP,
                     extra_data = ?
                 WHERE ip_address = ?
-            """, (
-                json.dumps({
-                    "total_bytes": stats["total_bytes"],
-                    "packet_count": stats["packet_count"],
-                    "unique_connections": len(stats["connections"]),
-                    "unique_destinations": len(stats["dst_ips"]),
-                    "ports": list(stats["dst_ports"])[:10]
-                }),
-                ip
-            ))
+            """, (json.dumps(merged), ip))
         await self.conn.commit()
     
     async def get_recent_flows(self, hours: int = 24, limit: int = 1000) -> List[Dict]:

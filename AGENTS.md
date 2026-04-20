@@ -92,25 +92,73 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 
 ## API Endpoints
 
+### Core
+- `GET /health` - Health check
+- `GET /metrics` - Prometheus metrics
 - `GET /api/v1/devices` - Device list with risk scores
-- `GET /api/v1/anomalies` - Recent anomalies
+- `POST /api/v1/devices` - Create device
+- `GET /api/v1/devices/{id}` - Single device detail
+- `PATCH /api/v1/devices/{id}` - Update device
+- `GET /api/v1/anomalies` - Recent anomalies (unresolved)
+- `POST /api/v1/anomalies` - Create anomaly
+- `GET /api/v1/anomalies/{id}` - Single anomaly
+- `PATCH /api/v1/anomalies/{id}/resolve` - Resolve anomaly
+- `GET /api/v1/alerts` - Unified alert feed (anomalies + behavior_alerts)
+- `POST /api/v1/alerts/broadcast` - Broadcast alert via WS
+- `WS /ws/alerts` - Real-time anomaly alerts (echo-only; dashboard polls via GET /api/v1/alerts)
+
+### Device Sub-resources
+- `GET /api/v1/devices/{id}/traffic` - Recent traffic flows
+- `GET /api/v1/devices/{id}/destinations` - Destination IPs
+- `GET /api/v1/devices/{id}/anomalies` - Device anomalies
+- `GET /api/v1/devices/{id}/inference-history` - ML inference history
+- `GET /api/v1/devices/{id}/behavior-alerts` - Behavior alerts
+- `GET /api/v1/devices/{id}/risk-contributors` - Risk score breakdown
+- `GET /api/v1/devices/{id}/behavior-baseline` - Behavior baseline stats
+- `GET /api/v1/devices/{id}/protocol-signals` - Protocol-level signals
+- `GET /api/v1/devices/{id}/model-config` - Per-device ML config
+- `PUT /api/v1/devices/{id}/model-config` - Update per-device ML config
+- `GET /api/v1/devices/{id}/model-scores` - Historical model scores
+- `POST /api/v1/devices/{id}/block` - Block device
+- `DELETE /api/v1/devices/{id}/block` - Unblock device
+- `PUT /api/v1/devices/{id}/risk-score` - Manual risk override
+
+### Metrics
 - `GET /api/v1/metrics/summary` - Dashboard metrics
 - `GET /api/v1/metrics/ml-status` - ML model readiness status
+- `GET /api/v1/metrics/timeline` - Traffic timeline
+- `GET /api/v1/metrics/top-talking` - Top talkers
+
+### WiFi Gateway
 - `GET/PUT /api/v1/gateway/wifi/config` - WiFi config
 - `POST /api/v1/gateway/wifi/validate` - Validate WiFi config
 - `POST /api/v1/gateway/wifi/apply` - Apply WiFi config
 - `POST /api/v1/gateway/wifi/rollback` - Rollback WiFi config
 - `GET /api/v1/gateway/wifi/status` - Gateway status
-- `WS /ws/alerts` - Real-time anomaly alerts
+- `GET /api/v1/gateway/wifi/blocked` - Blocked devices list
+
+### ML Pipeline Management
+- `GET /api/v1/ml/config` - Global training config
+- `PUT /api/v1/ml/config` - Update global training config
+- `GET /api/v1/ml/devices/{id}/training-config` - Per-device training config
+- `PUT /api/v1/ml/devices/{id}/training-config` - Update per-device training config
+- `DELETE /api/v1/ml/devices/{id}/training-config` - Reset to global defaults
+- `GET /api/v1/ml/devices/{id}/training-data` - Feature buckets for device
+- `GET /api/v1/ml/devices/{id}/raw-flows` - Raw traffic flows for device
+- `POST /api/v1/ml/devices/{id}/train` - Trigger on-demand training (K8s Job)
+- `GET /api/v1/ml/devices/{id}/train/status` - Training job status
 
 ## ML Pipeline
 
-- **Algorithm**: Isolation Forest (sklearn)
-- **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate)
-- **Training**: CronJob every 30 minutes for MVP
-- **Inference**: Batch every 5 minutes
-- **MVP mode**: per-device models with 5-minute buckets
-- **Minimum training samples**: 20 per-device buckets
+- **Algorithms**: Isolation Forest, LOF, OCSVM, Autoencoder (sklearn/keras)
+- **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate, avg bytes/packet, connection duration avg)
+- **Training**: CronJob every 30 minutes for MVP; on-demand via K8s Job
+- **Inference**: Batch every 5 minutes (configurable via INFERENCE_INTERVAL)
+- **MVP mode**: per-device models with 5-minute buckets (configurable via FEATURE_BUCKET_MINUTES)
+- **Minimum training samples**: 20 per-device buckets (configurable)
+- **Adaptive threshold**: contamination = max(0.03, min(0.1, 5.0 / samples))
+- **Score normalization**: Raw decision scores normalized to 0–1 via training score statistics
+- **Global training fallback**: Trains single model on all devices if per-device sample count < minimum
 
 ## Device Presence
 
@@ -234,6 +282,50 @@ Retention: 14 days.
 
 #### `model_metadata`
 Stores training run records (model type, version, sample count, accuracy). Written by ml-trainer CronJob.
+
+**Note**: Legacy production DBs have a `version TEXT NOT NULL` column not present in newer CREATE TABLE statements. The code inserts `version = "1.0"` for compatibility.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| device_id | INTEGER | NULL for global models |
+| model_type | TEXT | isolation_forest / lof / ocsvm / autoencoder |
+| version | TEXT | Legacy NOT NULL column, set to "1.0" |
+| trained_at | TIMESTAMP | Training completion time |
+| training_samples | INTEGER | Number of feature buckets used |
+| features_count | INTEGER | Number of features |
+| contamination | REAL | Adaptive contamination rate |
+| threshold | REAL | Decision function threshold |
+| score_mean / score_std | REAL | Training score statistics for normalization |
+| accuracy | REAL | |
+| features_used | TEXT | |
+| parameters | TEXT (JSON) | Full model parameters |
+| is_active | INTEGER | 0/1 |
+| training_hours | INTEGER | Hours of data used |
+
+#### `global_training_config`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | Always 1 (singleton) |
+| model_type | TEXT | Default algorithm |
+| training_hours | INTEGER | Hours of training data |
+| min_samples | INTEGER | Minimum buckets required |
+| bucket_minutes | INTEGER | Feature bucket width |
+| contamination_min / max | REAL | Adaptive contamination range |
+| updated_at | TIMESTAMP | |
+
+#### `device_training_config`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| device_id | INTEGER UNIQUE | → devices.id |
+| model_type | TEXT | Override algorithm |
+| training_hours | INTEGER | Override training window |
+| min_samples | INTEGER | Override minimum buckets |
+| bucket_minutes | INTEGER | Override bucket width |
+| contamination_min / max | REAL | Override contamination range |
+| enabled | INTEGER | 1 = use overrides |
+| updated_at | TIMESTAMP | |
 
 ---
 

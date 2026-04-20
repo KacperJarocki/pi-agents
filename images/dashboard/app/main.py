@@ -379,6 +379,16 @@ async def get_device_raw_flows(device_id: int, page: int = 1, limit: int = 50, h
     return await fetch_api(f"/ml/devices/{device_id}/raw-flows?page={page}&limit={limit}&hours={hours}")
 
 
+@app.post("/api/ml/devices/{device_id}/train")
+async def trigger_train_now(device_id: int, model_type: str = "isolation_forest"):
+    return await call_api("POST", f"/ml/devices/{device_id}/train?model_type={model_type}")
+
+
+@app.get("/api/ml/devices/{device_id}/train/status")
+async def get_train_status(device_id: int, model_type: str = "isolation_forest"):
+    return await fetch_api(f"/ml/devices/{device_id}/train/status?model_type={model_type}")
+
+
 @app.get("/partial/devices")
 async def partial_devices():
     devices_data = await fetch_api("/devices")

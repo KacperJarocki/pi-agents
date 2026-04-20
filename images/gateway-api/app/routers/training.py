@@ -1,12 +1,23 @@
-"""Training configuration endpoints (Faza 3).
+"""Training configuration and Train Now endpoints (Faza 3 + Faza 1).
 
 Manages global and per-device training parameters that the ml-trainer
-CronJob (and future Train Now Jobs) read at training time.
+CronJob (and Train Now Jobs) read at training time.
+
+Train Now creates a one-shot K8s Job that runs the ml-pipeline trainer
+for a specific device + model_type.  The gateway-api pod needs the
+``gateway-api`` ServiceAccount with a Role granting batch/jobs CRUD
+(see k8s/gateway/ml-train-rbac.yaml).
 
 Tables: global_training_config (single-row), device_training_config (per-device).
 Both are created by ml_core.ensure_schema() at ml-pipeline startup.
 The gateway-api creates them lazily on first write to be safe.
 """
+
+from __future__ import annotations
+
+import os
+import re
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +31,8 @@ from ..models.schemas_pydantic import (
     DeviceTrainingConfigUpdate,
 )
 from ..core.cache import cache
+
+_k8s_logger = logging.getLogger("training.k8s")
 
 router = APIRouter(prefix="/ml", tags=["training"])
 
@@ -326,4 +339,208 @@ async def get_device_raw_flows(
         "total": total,
         "total_pages": (total + limit - 1) // limit if limit > 0 else 0,
         "flows": flows,
+    }
+
+
+# ── Train Now (Faza 1) ─────────────────────────────────────────────────────
+
+# K8s Job constants — mirror ml-trainer-cronjob.yaml.
+_ML_IMAGE = os.getenv("ML_PIPELINE_IMAGE", "ghcr.io/kacperjarocki/ml-pipeline:latest")
+_NAMESPACE = os.getenv("K8S_NAMESPACE", "iot-security")
+_JOB_TTL = 300  # seconds after finished before auto-cleanup
+
+# Valid model types (keep in sync with ml_core).
+_VALID_MODELS = {"isolation_forest", "lof", "ocsvm", "autoencoder"}
+
+
+def _sanitize_job_name(device_id: int, model_type: str) -> str:
+    """Return a DNS-safe K8s Job name."""
+    safe_model = model_type.replace("_", "-")
+    return f"ml-train-{device_id}-{safe_model}"
+
+
+def _build_job_manifest(device_id: int, model_type: str) -> dict:
+    """Build a K8s batch/v1 Job dict for a single-device training run."""
+    name = _sanitize_job_name(device_id, model_type)
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": name,
+            "namespace": _NAMESPACE,
+            "labels": {
+                "app": "ml-pipeline",
+                "component": "train-now",
+                "device-id": str(device_id),
+                "model-type": model_type,
+            },
+        },
+        "spec": {
+            "ttlSecondsAfterFinished": _JOB_TTL,
+            "backoffLimit": 1,
+            "template": {
+                "metadata": {
+                    "labels": {
+                        "app": "ml-pipeline",
+                        "component": "train-now",
+                    },
+                },
+                "spec": {
+                    "nodeSelector": {
+                        "node-role.kubernetes.io/gateway": "true",
+                    },
+                    "restartPolicy": "Never",
+                    "containers": [
+                        {
+                            "name": "ml-trainer",
+                            "image": _ML_IMAGE,
+                            "imagePullPolicy": "Always",
+                            "command": ["python", "-m", "app.train"],
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "256Mi"},
+                                "limits": {"cpu": "500m", "memory": "512Mi"},
+                            },
+                            "env": [
+                                {"name": "DATABASE_PATH", "value": "/data/iot-security.db"},
+                                {"name": "MODEL_PATH", "value": "/data/models"},
+                                {"name": "DEVICE_ID", "value": str(device_id)},
+                                {"name": "MODEL_TYPE", "value": model_type},
+                                {"name": "PER_DEVICE_MODELS", "value": "true"},
+                                {"name": "LOG_LEVEL", "value": "info"},
+                            ],
+                            "volumeMounts": [
+                                {"name": "sqlite-data", "mountPath": "/data"},
+                                {"name": "tmp", "mountPath": "/tmp"},
+                            ],
+                        }
+                    ],
+                    "volumes": [
+                        {
+                            "name": "sqlite-data",
+                            "persistentVolumeClaim": {"claimName": "iot-security-sqlite"},
+                        },
+                        {
+                            "name": "tmp",
+                            "emptyDir": {"medium": "Memory", "sizeLimit": "100Mi"},
+                        },
+                    ],
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "runAsUser": 1000,
+                        "fsGroup": 1000,
+                    },
+                },
+            },
+        },
+    }
+
+
+def _get_k8s_batch_api():
+    """Lazily initialise and return the K8s BatchV1Api client.
+
+    Uses in-cluster config when running inside K8s, falls back to
+    kubeconfig for local development.
+    """
+    from kubernetes import client, config as k8s_config  # noqa: deferred import
+
+    try:
+        k8s_config.load_incluster_config()
+    except k8s_config.ConfigException:
+        k8s_config.load_kube_config()
+    return client.BatchV1Api()
+
+
+@router.post("/devices/{device_id}/train")
+async def train_now(
+    device_id: int,
+    model_type: str = Query("isolation_forest"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Spawn a K8s Job that trains a single model for a single device.
+
+    Returns the Job name and namespace so the caller can poll status via
+    ``GET /ml/devices/{device_id}/train/status``.
+    """
+    if model_type not in _VALID_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model_type '{model_type}'. Must be one of: {', '.join(sorted(_VALID_MODELS))}",
+        )
+
+    # Verify device exists.
+    row = (await db.execute(
+        text("SELECT id FROM devices WHERE id = :did"), {"did": device_id}
+    )).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
+
+    job_name = _sanitize_job_name(device_id, model_type)
+    batch_api = _get_k8s_batch_api()
+
+    # Delete previous Job with the same name if it still lingers.
+    try:
+        batch_api.delete_namespaced_job(
+            name=job_name,
+            namespace=_NAMESPACE,
+            propagation_policy="Background",
+        )
+        _k8s_logger.info("Deleted lingering job %s before re-creation", job_name)
+    except Exception:
+        pass  # Job doesn't exist — that's fine.
+
+    manifest = _build_job_manifest(device_id, model_type)
+    try:
+        batch_api.create_namespaced_job(namespace=_NAMESPACE, body=manifest)
+    except Exception as exc:
+        log.error("train_now_job_create_failed", device_id=device_id, model_type=model_type, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to create training Job: {exc}")
+
+    log.info("train_now_job_created", device_id=device_id, model_type=model_type, job=job_name)
+    return {
+        "job_name": job_name,
+        "namespace": _NAMESPACE,
+        "device_id": device_id,
+        "model_type": model_type,
+        "status": "created",
+    }
+
+
+@router.get("/devices/{device_id}/train/status")
+async def train_status(
+    device_id: int,
+    model_type: str = Query("isolation_forest"),
+):
+    """Poll the status of a Train Now K8s Job.
+
+    Returns ``status`` as one of: ``running``, ``succeeded``, ``failed``,
+    ``not_found``.
+    """
+    if model_type not in _VALID_MODELS:
+        raise HTTPException(status_code=400, detail=f"Invalid model_type '{model_type}'")
+
+    job_name = _sanitize_job_name(device_id, model_type)
+    batch_api = _get_k8s_batch_api()
+
+    try:
+        job = batch_api.read_namespaced_job(name=job_name, namespace=_NAMESPACE)
+    except Exception:
+        return {"job_name": job_name, "status": "not_found", "device_id": device_id, "model_type": model_type}
+
+    status = job.status
+    if status.succeeded and status.succeeded > 0:
+        state = "succeeded"
+    elif status.failed and status.failed > 0:
+        state = "failed"
+    elif status.active and status.active > 0:
+        state = "running"
+    else:
+        state = "pending"
+
+    return {
+        "job_name": job_name,
+        "status": state,
+        "device_id": device_id,
+        "model_type": model_type,
+        "start_time": str(status.start_time) if status.start_time else None,
+        "completion_time": str(status.completion_time) if status.completion_time else None,
     }

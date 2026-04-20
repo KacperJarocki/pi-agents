@@ -9,10 +9,106 @@ from .ml_core import (
     get_detector, get_device_model_configs, ensure_schema, log,
     AVAILABLE_MODEL_TYPES, save_model_training_metadata,
     get_global_training_config, get_effective_training_config,
+    get_device_flows,
 )
 
 
+async def _train_single_device(device_id: int, model_types: list[str], hours: int,
+                                min_samples: int, n_estimators: int,
+                                bucket_minutes: int) -> int:
+    """Train model(s) for a single device. Used by Train Now Jobs.
+
+    Returns the number of model types successfully trained.
+    """
+    await ensure_schema()
+
+    flows = await get_device_flows(device_id, hours=hours)
+    if flows.empty:
+        log.warning("train_now_no_data", device_id=device_id, hours=hours)
+        return 0
+
+    extractor = FeatureExtractor(bucket_minutes=bucket_minutes)
+    features = extractor.extract_features(flows)
+    device_features = features[features['device_id'] == device_id]
+    samples = int(len(device_features))
+
+    if samples < min_samples:
+        log.warning("train_now_not_enough_samples", device_id=device_id,
+                     samples=samples, min_samples=min_samples)
+        return 0
+
+    X = device_features[FeatureExtractor.FEATURE_COLUMNS].values
+    adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
+    trained = 0
+
+    for model_type in model_types:
+        if model_type not in AVAILABLE_MODEL_TYPES:
+            log.warning("train_now_unknown_model_type", model_type=model_type)
+            continue
+        try:
+            detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+            fit_kwargs = {"contamination": adaptive_contamination}
+            if model_type == "isolation_forest":
+                fit_kwargs["n_estimators"] = n_estimators
+            elif model_type == "lof":
+                fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
+            elif model_type == "ocsvm":
+                fit_kwargs["nu"] = adaptive_contamination
+
+            detector.fit(X, **fit_kwargs)
+            detector.save_model(detector.model, device_id=int(device_id))
+            trained += 1
+
+            log.info("training_complete_for_device",
+                      trained_at=datetime.now(timezone.utc).isoformat(),
+                      device_id=int(device_id), samples=samples,
+                      features=len(FeatureExtractor.FEATURE_COLUMNS),
+                      model_type=model_type, threshold=detector.threshold)
+
+            try:
+                await save_model_training_metadata(
+                    device_id=int(device_id), model_type=model_type,
+                    samples=samples, features_count=len(FeatureExtractor.FEATURE_COLUMNS),
+                    contamination=adaptive_contamination, detector=detector,
+                    training_hours=hours,
+                )
+            except Exception as meta_exc:
+                log.warning("training_metadata_save_failed", device_id=int(device_id),
+                            model_type=model_type, error=str(meta_exc))
+        except Exception as exc:
+            log.error("training_failed_for_model", device_id=int(device_id),
+                       model_type=model_type, error=str(exc))
+
+    return trained
+
+
 async def train_model():
+    # ── Train Now mode: single device via DEVICE_ID env var ──────────────────
+    target_device_id = os.getenv("DEVICE_ID")
+    if target_device_id:
+        device_id = int(target_device_id)
+        target_model_type = os.getenv("MODEL_TYPE")
+        model_types = [target_model_type] if target_model_type else list(AVAILABLE_MODEL_TYPES)
+
+        # Load effective config for this device
+        await ensure_schema()
+        try:
+            dev_cfg = await get_effective_training_config(device_id)
+        except Exception:
+            dev_cfg = {}
+
+        hours = int(os.getenv("TRAINING_HOURS", str(dev_cfg.get("training_hours", 48))))
+        min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(dev_cfg.get("min_training_samples", 10))))
+        n_estimators = int(os.getenv("N_ESTIMATORS", str(dev_cfg.get("n_estimators", 200))))
+        bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(dev_cfg.get("feature_bucket_minutes", 5))))
+
+        log.info("train_now_start", device_id=device_id, model_types=model_types, hours=hours)
+        trained = await _train_single_device(device_id, model_types, hours,
+                                               min_samples, n_estimators, bucket_minutes)
+        log.info("train_now_complete", device_id=device_id, trained_models=trained)
+        return trained
+
+    # ── Normal CronJob mode: all devices ─────────────────────────────────────
     # Load global training config from DB (falls back to env vars if DB not ready)
     try:
         global_cfg = await get_global_training_config()

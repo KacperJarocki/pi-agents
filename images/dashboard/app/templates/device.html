@@ -159,7 +159,19 @@
         <section class="grid grid-cols-1 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
-                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-3">ML Model Health</div>
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">ML Model Health</div>
+                        <div class="flex items-center gap-2">
+                            <select id="train-model-select" class="select select-xs select-bordered bg-slate-800 text-white">
+                                <option value="isolation_forest">Isolation Forest</option>
+                                <option value="lof">LOF</option>
+                                <option value="ocsvm">One-Class SVM</option>
+                                <option value="autoencoder">Autoencoder</option>
+                            </select>
+                            <button id="train-now-btn" onclick="trainNow()" class="btn btn-xs btn-primary">Train Now</button>
+                            <span id="train-status" class="text-xs text-slate-400"></span>
+                        </div>
+                    </div>
                     <div class="overflow-x-auto">
                         <table class="table table-xs w-full">
                             <thead>
@@ -935,6 +947,74 @@
                     loadTrainingConfig();
                 }
             } catch(e) { console.warn('reset config failed', e); }
+        }
+
+        // ── Train Now (Faza 1) ───────────────────────────────────────────────────
+        let _trainPollTimer = null;
+
+        async function trainNow() {
+            const modelType = document.getElementById('train-model-select').value;
+            const btn = document.getElementById('train-now-btn');
+            const status = document.getElementById('train-status');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            status.textContent = '';
+            try {
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/train?model_type=${modelType}`, { method: 'POST' });
+                const data = await res.json();
+                if (data.error) {
+                    status.textContent = 'Error: ' + data.error;
+                    btn.disabled = false;
+                    btn.textContent = 'Train Now';
+                    return;
+                }
+                status.textContent = 'Job created — polling...';
+                pollTrainStatus(modelType);
+            } catch(e) {
+                status.textContent = 'Error: ' + e.message;
+                btn.disabled = false;
+                btn.textContent = 'Train Now';
+            }
+        }
+
+        function pollTrainStatus(modelType) {
+            if (_trainPollTimer) clearInterval(_trainPollTimer);
+            _trainPollTimer = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/ml/devices/${DEVICE_ID}/train/status?model_type=${modelType}`);
+                    const data = await res.json();
+                    const status = document.getElementById('train-status');
+                    const btn = document.getElementById('train-now-btn');
+                    if (data.status === 'succeeded') {
+                        status.textContent = 'Training completed';
+                        status.className = 'text-xs text-green-400';
+                        btn.disabled = false;
+                        btn.textContent = 'Train Now';
+                        clearInterval(_trainPollTimer);
+                        _trainPollTimer = null;
+                        // Refresh ML health and training data
+                        loadMlHealth();
+                        loadTrainingData();
+                    } else if (data.status === 'failed') {
+                        status.textContent = 'Training failed';
+                        status.className = 'text-xs text-red-400';
+                        btn.disabled = false;
+                        btn.textContent = 'Train Now';
+                        clearInterval(_trainPollTimer);
+                        _trainPollTimer = null;
+                    } else if (data.status === 'not_found') {
+                        status.textContent = 'Job not found (may have expired)';
+                        status.className = 'text-xs text-slate-400';
+                        btn.disabled = false;
+                        btn.textContent = 'Train Now';
+                        clearInterval(_trainPollTimer);
+                        _trainPollTimer = null;
+                    } else {
+                        status.textContent = `Status: ${data.status}`;
+                        status.className = 'text-xs text-sky-300';
+                    }
+                } catch(e) { console.warn('poll train status failed', e); }
+            }, 5000);
         }
 
         loadDevice();

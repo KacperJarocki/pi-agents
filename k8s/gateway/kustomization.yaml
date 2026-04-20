@@ -11,6 +11,8 @@ resources:
   - gateway-agent-service.yaml
   - collector-deployment.yaml
   - ml-trainer-cronjob.yaml
+  - ml-train-sa.yaml
+  - ml-train-rbac.yaml
   - ml-inference-deployment.yaml
   - dashboard-deployment.yaml
   - dashboard-service.yaml

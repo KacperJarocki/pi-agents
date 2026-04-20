@@ -15,6 +15,7 @@ spec:
       labels:
         app: gateway-api
     spec:
+      serviceAccountName: gateway-api
       nodeSelector:
         node-role.kubernetes.io/gateway: "true"
       containers:

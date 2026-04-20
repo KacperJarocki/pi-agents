@@ -39,7 +39,7 @@ async def list_devices(
     service = DeviceService(db)
     devices, total = await cache.get_or_set(
         f"devices:{skip}:{limit}:{int(active_only)}",
-        3.0,
+        10.0,  # raised from 3 s → 10 s to match dashboard 30-s poll interval
         lambda: service.list_devices(skip, limit, active_only),
     )
     return DeviceListResponse(total=total, devices=devices)

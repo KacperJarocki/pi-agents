@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from time import perf_counter
+import asyncio
 from ..core.database import get_db
 from ..core.cache import cache
 from ..core.config import get_settings
@@ -15,6 +16,12 @@ from ..models.schemas_pydantic import (
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
+# Cache TTLs aligned with the dashboard 30-second poll interval.
+# Previous values (3-5 s) caused ~8-10 unnecessary recomputations between polls.
+_TTL_SUMMARY = 15.0   # metrics/summary  — expensive (DB + HTTP to gateway-agent)
+_TTL_DEVICES = 10.0   # device list       — moderate cost
+_TTL_HEAVY   = 15.0   # timeline / top-talking / ml-status — heavy SQL
+
 
 @router.get("/timeline", response_model=TimelineResponse)
 async def get_timeline(
@@ -25,7 +32,7 @@ async def get_timeline(
     service = TrafficService(db)
     data = await cache.get_or_set(
         f"timeline:{hours}:{interval_minutes}",
-        5.0,
+        _TTL_HEAVY,
         lambda: service.get_timeline_data(hours, interval_minutes),
     )
     return TimelineResponse(data=data)
@@ -40,7 +47,7 @@ async def get_top_talkers(
     service = TrafficService(db)
     data = await cache.get_or_set(
         f"top-talking:{limit}:{hours}",
-        5.0,
+        _TTL_HEAVY,
         lambda: service.get_top_talkers(limit, hours),
     )
     return TopTalkersResponse(data=data)
@@ -54,20 +61,29 @@ async def get_summary(
         started = perf_counter()
         device_service = DeviceService(db)
         anomaly_service = AnomalyService(db)
-        alert_service = AlertService(db)
+
+        # Sequential: total_devices first (cheap), then connected count (involves HTTP).
         total_devices_result = await db.execute(select(func.count()).select_from(Device))
         total_devices = int(total_devices_result.scalar() or 0)
         active_devices_count = await device_service.count_connected_devices()
-        anomaly_stats = await anomaly_service.get_anomaly_stats(hours=24)
-        behavior_stats = await anomaly_service.behavior_alert_stats(hours=24)
 
-        traffic_total_result = await db.execute(
-            select(func.sum(func.coalesce(func.json_extract(Device.extra_data, '$.total_bytes'), 0)))
+        # Run independent DB aggregations concurrently.
+        (
+            anomaly_stats,
+            behavior_stats,
+            traffic_total_row,
+            avg_risk_row,
+        ) = await asyncio.gather(
+            anomaly_service.get_anomaly_stats(hours=24),
+            anomaly_service.behavior_alert_stats(hours=24),
+            db.execute(
+                select(func.sum(func.coalesce(func.json_extract(Device.extra_data, '$.total_bytes'), 0)))
+            ),
+            db.execute(select(func.avg(Device.risk_score))),
         )
-        total_traffic = float((traffic_total_result.scalar() or 0) / (1024 * 1024))
 
-        avg_risk_result = await db.execute(select(func.avg(Device.risk_score)))
-        avg_risk = float(avg_risk_result.scalar() or 0.0)
+        total_traffic = float((traffic_total_row.scalar() or 0) / (1024 * 1024))
+        avg_risk = float(avg_risk_row.scalar() or 0.0)
 
         summary = MetricsSummary(
             total_devices=int(total_devices or 0),
@@ -82,7 +98,7 @@ async def get_summary(
         log.info("get_summary_timed", duration_ms=round((perf_counter() - started) * 1000, 2), total_devices=summary.total_devices)
         return summary
 
-    return await cache.get_or_set("metrics-summary", 3.0, load_summary)
+    return await cache.get_or_set("metrics-summary", _TTL_SUMMARY, load_summary)
 
 
 @router.get("/ml-status", response_model=MlStatusResponse)
@@ -93,7 +109,7 @@ async def get_ml_status(
     device_service = DeviceService(db)
     devices, total = await cache.get_or_set(
         "ml-status",
-        5.0,
+        _TTL_HEAVY,
         lambda: device_service.list_devices(limit=1000),
     )
 

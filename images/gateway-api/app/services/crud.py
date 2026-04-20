@@ -5,7 +5,8 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, monotonic
+import os
 import json
 from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, DeviceBehaviorAlert, ModelMetadata
 from ..models.schemas_pydantic import (
@@ -23,6 +24,14 @@ PROTOCOL_ALERT_TYPES = {
     "icmp_echo_fanout",
 }
 
+# ---------------------------------------------------------------------------
+# Module-level presence cache — avoids repeated HTTP calls to gateway-agent
+# on every device list request. TTL matched to dashboard poll interval (30s).
+# ---------------------------------------------------------------------------
+_PRESENCE_CACHE_TTL = 15.0  # seconds
+_presence_cache_ts: float = 0.0
+_presence_cache_val: tuple | None = None
+
 
 class DeviceService:
     def __init__(self, db: AsyncSession):
@@ -30,6 +39,18 @@ class DeviceService:
         self.settings = get_settings()
 
     async def _presence_maps(self) -> tuple[set[str], set[str], dict[str, str], list[dict]]:
+        """Return DHCP presence data, with a 15-second module-level cache.
+
+        The gateway-agent HTTP call is the single most expensive operation in
+        device list requests. Caching it at module level (not per-session) means
+        all concurrent requests share one result and the agent is called at most
+        once per 15 seconds regardless of how many API calls arrive.
+        """
+        global _presence_cache_ts, _presence_cache_val
+        now = monotonic()
+        if _presence_cache_val is not None and (now - _presence_cache_ts) < _PRESENCE_CACHE_TTL:
+            return _presence_cache_val
+
         macs: set[str] = set()
         ips: set[str] = set()
         source_map: dict[str, str] = {}
@@ -53,7 +74,10 @@ class DeviceService:
             # Fall back to DB-only view if agent is temporarily unavailable.
             pass
 
-        return macs, ips, source_map, clients
+        result = (macs, ips, source_map, clients)
+        _presence_cache_ts = now
+        _presence_cache_val = result
+        return result
 
     def _recently_seen(self, device: Device) -> bool:
         if not device.last_seen:
@@ -67,7 +91,15 @@ class DeviceService:
         present_macs: set[str],
         present_ips: set[str],
         source_map: dict[str, str],
+        ready_model_ids: set[int] | None = None,
     ) -> None:
+        """Attach ``connected``, ``connection_source``, and ``model_status`` to device.
+
+        Args:
+            ready_model_ids: Pre-computed set of device IDs that have a trained
+                model on disk.  When provided, avoids a per-device ``Path.exists()``
+                syscall.  Pass ``None`` to fall back to the legacy per-device check.
+        """
         mac = (device.mac_address or "").lower()
         ip = device.ip_address or ""
 
@@ -84,11 +116,14 @@ class DeviceService:
             connected = True
             connection_source = "recent_traffic"
 
-        model_status = "missing"
-        if getattr(device, "id", None) and getattr(device, "id", 0) > 0:
-            model_file = Path(self.settings.model_path) / f"isolation_forest_model_device_{device.id}.joblib"
-            if model_file.exists():
-                model_status = "ready"
+        dev_id = getattr(device, "id", None)
+        if ready_model_ids is not None:
+            model_status = "ready" if (dev_id and dev_id > 0 and dev_id in ready_model_ids) else "missing"
+        elif dev_id and dev_id > 0:
+            model_file = Path(self.settings.model_path) / f"isolation_forest_model_device_{dev_id}.joblib"
+            model_status = "ready" if model_file.exists() else "missing"
+        else:
+            model_status = "missing"
 
         setattr(device, "connected", connected)
         setattr(device, "connection_source", connection_source)
@@ -132,9 +167,33 @@ class DeviceService:
         )
         return result.scalar_one_or_none()
 
-    async def list_devices(self, skip: int = 0, limit: int = 100, 
+    async def _ready_model_ids(self) -> set[int]:
+        """Return set of device IDs with a trained isolation_forest model on disk.
+
+        Uses a single os.listdir() instead of N per-device Path.exists() calls.
+        Falls back to empty set if the model directory does not exist yet.
+        """
+        model_dir = self.settings.model_path
+        try:
+            entries = os.listdir(model_dir)
+        except OSError:
+            return set()
+        ids: set[int] = set()
+        for name in entries:
+            # Pattern: isolation_forest_model_device_<id>.joblib
+            if name.startswith("isolation_forest_model_device_") and name.endswith(".joblib"):
+                try:
+                    ids.add(int(name[len("isolation_forest_model_device_"):-len(".joblib")]))
+                except ValueError:
+                    pass
+        return ids
+
+    async def list_devices(self, skip: int = 0, limit: int = 100,
                            active_only: bool = False) -> tuple[List[Device], int]:
         started = perf_counter()
+
+        # Batch model-file check — one os.listdir() instead of N Path.exists() calls.
+        ready_ids = await self._ready_model_ids()
 
         if active_only:
             query = select(Device).order_by(desc(Device.risk_score), desc(Device.last_seen))
@@ -143,7 +202,7 @@ class DeviceService:
 
             present_macs, present_ips, source_map, clients = await self._presence_maps()
             for device in devices:
-                self._decorate_device_presence(device, present_macs, present_ips, source_map)
+                self._decorate_device_presence(device, present_macs, present_ips, source_map, ready_ids)
 
             seen_keys = set()
             for device in devices:
@@ -179,7 +238,7 @@ class DeviceService:
 
         present_macs, present_ips, source_map, clients = await self._presence_maps()
         for device in devices:
-            self._decorate_device_presence(device, present_macs, present_ips, source_map)
+            self._decorate_device_presence(device, present_macs, present_ips, source_map, ready_ids)
 
         seen_keys = set()
         for device in devices:
@@ -205,9 +264,39 @@ class DeviceService:
         return devices, total
 
     async def count_connected_devices(self) -> int:
+        """Count connected devices without loading full device objects.
+
+        Combines:
+        1. A DB COUNT(*) of recently-seen devices (last_seen within the active window).
+        2. DHCP-lease clients from the (cached) presence map that are NOT already in DB.
+
+        This avoids the previous approach of loading up to 1 000 full Device rows
+        + decorating each with a gateway-agent HTTP call + Path.exists() per device.
+        """
         started = perf_counter()
-        devices, _ = await self.list_devices(limit=1000, active_only=True)
-        count = len(devices)
+        window_minutes = self.settings.active_device_window_minutes
+        cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
+
+        # 1. DB count of recently-active devices.
+        count_result = await self.db.execute(
+            select(func.count()).select_from(Device).where(Device.last_seen >= cutoff)
+        )
+        db_count = int(count_result.scalar() or 0)
+
+        # 2. DHCP-lease clients not in DB (synthetic devices seen only in gateway-agent).
+        _, present_ips, _, clients = await self._presence_maps()
+        # Fetch all DB IPs to check overlap — lightweight scalar query.
+        if clients:
+            ip_result = await self.db.execute(select(Device.ip_address))
+            db_ips = {row[0] for row in ip_result.fetchall() if row[0]}
+            synthetic_count = sum(
+                1 for c in clients
+                if (c.get("ip_address") or "") not in db_ips
+            )
+        else:
+            synthetic_count = 0
+
+        count = db_count + synthetic_count
         log.info("count_connected_devices_timed", count=count, duration_ms=round((perf_counter() - started) * 1000, 2))
         return count
 
@@ -216,7 +305,8 @@ class DeviceService:
         if not device:
             return None
         present_macs, present_ips, source_map, _ = await self._presence_maps()
-        self._decorate_device_presence(device, present_macs, present_ips, source_map)
+        ready_ids = await self._ready_model_ids()
+        self._decorate_device_presence(device, present_macs, present_ips, source_map, ready_ids)
         return device
 
     async def update_device(self, device_id: int, data: DeviceUpdate) -> Optional[Device]:

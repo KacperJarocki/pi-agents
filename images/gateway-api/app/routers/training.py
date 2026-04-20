@@ -259,7 +259,7 @@ async def get_device_training_data(
         meta_rows = (await db.execute(text(
             "SELECT model_type, trained_at, samples, threshold, score_mean, "
             "estimated_anomaly_rate FROM model_metadata "
-            "WHERE device_id = :did ORDER BY timestamp DESC LIMIT 4"
+            "WHERE device_id = :did ORDER BY trained_at DESC LIMIT 4"
         ), {"did": device_id})).fetchall()
 
         models = []

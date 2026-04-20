@@ -786,6 +786,7 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
     # IMPORTANT: run migrations BEFORE creating the index so that the index can
     # reference device_id even when the table was created without that column.
     migration_columns = [
+        ("timestamp", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ("device_id", "INTEGER"),
         ("trained_at", "TEXT"),
         ("samples", "INTEGER"),

@@ -523,6 +523,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                         scored_results.append(
                             {
                                 **row,
+                                "model_type": model_type,
                                 "threshold": device_detector.threshold,
                                 "norm_score": norm_s,
                                 "norm_threshold": norm_t,
@@ -532,6 +533,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         scored_results = [
             {
                 **row,
+                "model_type": default_model_type,
                 "threshold": detector.threshold,
                 "norm_score": detector.normalize_score(row["anomaly_score"]),
                 "norm_threshold": detector.normalize_threshold(),
@@ -627,6 +629,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             "features": inference_features,
             "behavior_alerts": behavior_alerts,
             "is_isolation_forest_anomaly": is_anomaly,
+            "model_type": a.get("model_type", "isolation_forest"),
             "raw_features": a.get("features") or {},
         })
 

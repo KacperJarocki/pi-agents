@@ -1294,13 +1294,21 @@ async def get_device_model_configs() -> dict[int, str]:
         await conn.close()
 
 
-async def batch_save_inference_cycle(results: list[dict], retention_days: int = 7):
+async def batch_save_inference_cycle(results: list[dict], retention_days: int = 7,
+                                     alerts_retention_days: int = 14):
     """Write all inference results for one cycle using a single DB connection.
 
     Each item in ``results`` must contain:
         device_id, bucket_start, anomaly_score, risk_score, is_anomaly,
         severity, features (dict), behavior_alerts (list[dict]),
-        is_isolation_forest_anomaly (bool)
+        is_isolation_forest_anomaly (bool), model_type (str)
+
+    Parameters
+    ----------
+    retention_days : int
+        Days to keep device_inference_history rows (default 7).
+    alerts_retention_days : int
+        Days to keep device_behavior_alerts rows (default 14, per AGENTS.md).
     """
     if not results:
         return
@@ -1382,22 +1390,37 @@ async def batch_save_inference_cycle(results: list[dict], retention_days: int = 
                     ),
                 )
 
-            # 4. Insert anomaly if flagged by the active model
+            # 4. Insert anomaly if flagged by the active model (with dedup)
             if r.get("is_isolation_forest_anomaly"):
-                await conn.execute(
-                    """
-                    INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        device_id,
-                        "isolation_forest",
-                        severity,
-                        float(anomaly_score),
-                        f"IsolationForest anomaly score={anomaly_score:.4f}",
-                        json.dumps(r.get("raw_features") or {}),
-                    ),
-                )
+                model_type = r.get("model_type", "isolation_forest")
+                # Deduplicate: skip if an anomaly already exists for this
+                # device + model_type within the same feature bucket.
+                bucket_iso = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
+                existing = None
+                if bucket_iso:
+                    cursor = await conn.execute(
+                        """SELECT id FROM anomalies
+                           WHERE device_id = ? AND anomaly_type = ?
+                             AND timestamp >= ? AND timestamp < datetime(?, '+5 minutes')
+                           LIMIT 1""",
+                        (device_id, model_type, bucket_iso, bucket_iso),
+                    )
+                    existing = await cursor.fetchone()
+                if existing is None:
+                    await conn.execute(
+                        """
+                        INSERT INTO anomalies (device_id, anomaly_type, severity, score, description, features)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            device_id,
+                            model_type,
+                            severity,
+                            float(anomaly_score),
+                            f"{model_type} anomaly score={anomaly_score:.4f}",
+                            json.dumps(r.get("raw_features") or {}),
+                        ),
+                    )
 
         # Prune old data in one pass
         await conn.execute(
@@ -1406,7 +1429,7 @@ async def batch_save_inference_cycle(results: list[dict], retention_days: int = 
         )
         await conn.execute(
             "DELETE FROM device_behavior_alerts WHERE timestamp < datetime('now', '-' || ? || ' days')",
-            (retention_days,),
+            (alerts_retention_days,),
         )
         await conn.commit()
     finally:

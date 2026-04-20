@@ -635,5 +635,84 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 | **Joblib** | Format pliku do serializacji modeli scikit-learn. Plik `.joblib` zawiera wytrenowany model + threshold + score stats. |
 | **Adaptive threshold** | Threshold obliczany automatycznie z danych treningowych (percentyl na poziomie contamination). Każdy model ma swój. |
 | **Per-device model** | Osobny model ML dla każdego urządzenia (zamiast jednego globalnego). Pozwala wykrywać anomalie specyficzne dla urządzenia. |
+
+---
+
+## Testowanie end-to-end (E2E)
+
+### Przegląd
+
+System posiada skrypt `scripts/verify-e2e.sh` który weryfikuje cały pipeline od collectora po alerty na dashboardzie. Skrypt automatycznie:
+
+1. Sprawdza czy collector zbiera ruch (traffic_flows)
+2. Sprawdza czy istnieją wytrenowane modele (model_metadata)
+3. Sprawdza czy inference loop działa (pod status + logi)
+4. Zapisuje snapshot anomalii i alertów PRZED testem
+5. Generuje anomalny ruch przez IoT WiFi AP
+6. Czeka na cykl inference (konfigurowalne, domyślnie 5 min)
+7. Porównuje stan PO teście — sprawdza czy:
+   - Risk score wzrósł
+   - Nowe anomalie zostały utworzone
+   - Nowe behavior alerts się pojawiły
+8. Weryfikuje WebSocket endpoint dashboardu
+9. Pokazuje health summary podów K8s
+
+### Wymagania
+
+- `kubectl` skonfigurowane z dostępem do klastra
+- `curl` zainstalowane
+- Uruchomienie z urządzenia podłączonego do IoT WiFi (dla generowania ruchu)
+- Przynajmniej jeden wytrenowany model dla testowanego urządzenia
+
+### Użycie
+
+```bash
+# Pełny test E2E (generuje ruch + weryfikuje)
+./scripts/verify-e2e.sh
+
+# Tylko weryfikacja stanu (bez generowania ruchu)
+./scripts/verify-e2e.sh --skip-traffic
+
+# Konkretne urządzenie + konkretny tryb ruchu
+./scripts/verify-e2e.sh --device-id 2 --traffic-mode portscan
+
+# Dłuższe czekanie na inference
+./scripts/verify-e2e.sh --wait-minutes 10
+
+# Verbose — pokaż surowe odpowiedzi API
+./scripts/verify-e2e.sh --verbose
+```
+
+### Tryby generowania ruchu
+
+Skrypt `scripts/generate-anomaly-traffic.sh` obsługuje 9 trybów, każdy celuje w inne heurystyki:
+
+| Tryb | Alert types | Opis |
+|------|-------------|------|
+| `burst` | traffic_pattern_drift, dns_burst | Masowy HTTP + DNS |
+| `spike` | traffic_pattern_drift | Max parallel downloads |
+| `mix` | traffic_pattern_drift, dns_burst | HTTP + DNS przeplatane |
+| `portscan` | port_churn | TCP probe na 16 portów |
+| `dnsfail` | dns_failure_spike, dns_nxdomain_burst | NXDOMAIN queries |
+| `icmpsweep` | icmp_sweep_suspected, icmp_echo_fanout | ICMP ping sweep |
+| `beacon` | beaconing_suspected | Regularne małe requesty (10 min) |
+| `novelty` | destination_novelty | Nowe IP/domeny |
+| `full` | Wszystkie powyższe | Sekwencyjnie wszystkie tryby (~8 min) |
+
+### Interpretacja wyników
+
+- **PASS** — kontrolka przeszła pomyślnie
+- **WARN** — kontrolka nie przeszła ale może to być oczekiwane (np. za mało danych baseline)
+- **FAIL** — kontrolka nie przeszła — wymaga uwagi
+
+### Typowe problemy
+
+| Objaw | Przyczyna | Rozwiązanie |
+|-------|-----------|-------------|
+| "No trained models" | Za mało danych treningowych | Wygeneruj ruch (`burst` mode, 2h), poczekaj na CronJob |
+| "Risk score still 0" | Inference nie scoruje | Sprawdź logi: `kubectl logs deploy/ml-inference -n iot-security` |
+| "No new anomalies" | Threshold za wysoki / za mało baseline | Więcej normalnego ruchu → retraining → anomaly traffic |
+| "No alerts in last hour" | Za mało historii (168h baseline) | System potrzebuje kilku dni normalnego ruchu |
+| "Cannot reach API" | Nie na IoT WiFi / API down | Sprawdź `kubectl get pods` i WiFi connection |
 | **Active model** | Który z 4 typów modelu jest używany do obliczania risk_score dla urządzenia. Domyślnie Isolation Forest. Można zmienić w UI. |
 | **Score normalization** | Mapowanie surowych scores na z-score żeby porównywać modele na wspólnej skali. |

@@ -1,6 +1,6 @@
 # ML Pipeline — Pełna dokumentacja
 
-> Ostatnia aktualizacja: Kwiecień 2026
+> Ostatnia aktualizacja: Kwiecień 2026 (Fazy 7–11)
 
 **Powiązane dokumenty:**
 [Collector](COLLECTOR.md) · [Gateway Agent](GATEWAY_AGENT.md) · [Gateway API](GATEWAY_API.md) · [Dashboard](DASHBOARD.md) · [Infrastructure](INFRASTRUCTURE.md) · [Data Flow](DATA_FLOW.md)
@@ -86,11 +86,11 @@ Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla
    device_id=3, bucket_start=2026-04-20 14:00:00
    ```
 
-3. Dla każdego okna liczy **8 cech** (features):
+3. Dla każdego okna liczy **12 cech** (features):
 
 | Feature | Co liczy | Przykład normalny | Przykład anomalii |
 |---------|----------|-------------------|-------------------|
-| `total_bytes` | Suma wszystkich bajtów | 15,000 | 5,000,000 |
+| `total_bytes` | Suma `bytes_sent + bytes_received` | 15,000 | 5,000,000 |
 | `packets` | Liczba pakietów | 50 | 10,000 |
 | `unique_destinations` | Ile różnych IP docelowych | 3 | 150 |
 | `unique_ports` | Ile różnych portów | 2 (80, 443) | 50 |
@@ -98,18 +98,28 @@ Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla
 | `avg_bytes_per_packet` | Średni rozmiar pakietu | 300 | 50 |
 | `packet_rate` | Pakiety na sekundę | 0.17 | 33.3 |
 | `connection_duration_avg` | Średni czas połączenia (ms) | 5000 | 50 |
+| `protocol_entropy` | Różnorodność protokołów (Shannon) | 0.3 (głównie TCP) | 0.9 (wiele protokołów) |
+| `dst_ip_entropy` | Różnorodność docelowych IP (Shannon) | 0.2 | 0.95 |
+| `dns_to_total_ratio` | DNS queries / całkowite pakiety | 0.05 | 0.8 |
+| `iat_std` | Odchylenie std między-paketowe (ms) | 200 | 5 (regularne beaconing) |
 
 ### Co to jest bucket?
 
 Bucket = jedno 5-minutowe okno czasowe. Jeśli urządzenie jest aktywne 24h, to masz **288 bucketów na dobę** (24 × 60 / 5 = 288).
 
-Trening wymaga minimum **20 bucketów** per device (domyślnie). To oznacza ~100 minut aktywności urządzenia.
+Trening wymaga minimum **30 bucketów** per device (domyślnie). To oznacza ~150 minut aktywności urządzenia.
+
+### Backward compatibility
+
+Modele wytrenowane przed Fazą 9 mają tylko 8 features. System automatycznie wykrywa liczbę features z atrybutu `n_features_in_` modelu sklearn i używa odpowiedniej liczby kolumn. Stare modele działają dalej bez retrainingu — zostaną zastąpione 12-featurowymi po następnym cyklu treningowym.
 
 ---
 
 ## Modele ML — jak wykrywamy anomalie
 
 System trenuje **4 różne modele** per urządzenie. Każdy patrzy na dane z innej perspektywy.
+
+> **Ensemble (od Fazy 8):** Wszystkie 4 modele scorują każdy bucket niezależnie. Wynik łączymy przez **majority vote** (≥ 2/4 modeli flaguje = anomalia) i **ważoną średnią** ml_risk (IF=40%, LOF=30%, OCSVM=20%, AE=10%). Wynikowy `ensemble_ml_risk` trafia do risk score. Pole `inference_features.per_model_risks` w historii inference zawiera rozbicie per model dla debugowania.
 
 ### Isolation Forest (domyślny)
 
@@ -149,7 +159,9 @@ Rysuje "granicę" (hiperpowierzchnię) wokół normalnych danych w przestrzeni w
 ### Autoencoder (sieć neuronowa)
 
 **Jak działa (prosta wersja):**
-Sieć neuronowa próbuje **skompresować** 8 features do mniejszej reprezentacji, a potem **odtworzyć** oryginał. Normalne dane — odtworzenie jest dobre (mały błąd). Anomalne dane — sieć ich nigdy nie widziała, więc odtworzenie jest kiepskie (duży błąd).
+Sieć neuronowa próbuje **skompresować** 12 features do mniejszej reprezentacji, a potem **odtworzyć** oryginał. Normalne dane — odtworzenie jest dobre (mały błąd). Anomalne dane — sieć ich nigdy nie widziała, więc odtworzenie jest kiepskie (duży błąd).
+
+Architektura: `n → hidden → max(4, hidden//2) → hidden → n` gdzie `hidden = max(4, n//2)`.
 
 **Parametry:**
 - `max_iter` (domyślnie 500) — ile kroków treningu.
@@ -218,13 +230,13 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 
 ### Alerty Behavior (wpływają na behavior_risk, cap 35)
 
-| Alert | Co wykrywa | Severity | Przykład |
-|-------|-----------|----------|---------|
-| `destination_novelty` | Nowe docelowe IP, których nie było w historii | warning/critical | Kamera zaczęła łączyć się z nowym serwerem w Chinach |
-| `dns_burst` | Nagły skok zapytań DNS | warning/critical | Z 5 DNS/5min na 500 DNS/5min |
-| `port_churn` | Nowe porty, których urządzenie wcześniej nie używało | warning | Urządzenie zaczęło używać portu 8443 |
-| `traffic_pattern_drift` | Zmiana w profilu ruchu (bytes, packets) | warning | Z 10KB/5min na 5MB/5min |
-| `beaconing_suspected` | Regularny, periodyczny ruch (C2-like) | warning/critical | Co 60 sekund dokładnie 200B do tego samego IP |
+| Alert | Co wykrywa | Próg | Severity | Przykład |
+|-------|-----------|------|----------|---------|
+| `destination_novelty` | Nowe docelowe IP, których nie było w historii | ≥ 4 nowe IP (zmienione z 2) i ratio ≥ 0.4 | warning/critical | Kamera zaczęła łączyć się z nowym serwerem w Chinach |
+| `dns_burst` | Nagły skok zapytań DNS | ≥ 10 queries (zmienione z 5) i 2× baseline | warning/critical | Z 5 DNS/5min na 500 DNS/5min |
+| `port_churn` | Nowe porty + wysoki traffic portowy | ≥ 6 portów **I** ≥ 5 nowych (zmienione z OR na AND) | warning | Urządzenie zaczęło używać nowych portów przy wysokim ruchu |
+| `traffic_pattern_drift` | Zmiana w profilu ruchu (bytes, packets) | — | warning | Z 10KB/5min na 5MB/5min |
+| `beaconing_suspected` | Regularny, periodyczny ruch (C2-like) | — | warning/critical | Co 60 sekund dokładnie 200B do tego samego IP |
 
 ### Alerty Protocol (wpływają na protocol_risk, cap 20)
 
@@ -243,13 +255,13 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 
 - **Kiedy:** Co 30 minut (konfiguracja w `k8s/gateway/ml-trainer-cronjob.yaml`)
 - **Co robi:**
-  1. Pobiera traffic_flows z ostatnich `TRAINING_HOURS` (domyślnie 24h)
+  1. Pobiera traffic_flows z ostatnich `TRAINING_HOURS` (domyślnie **168h = 7 dni**, zmienione z 48h)
   2. Tworzy feature buckets (5-min okna)
-  3. Dla każdego urządzenia z >= `MIN_TRAINING_SAMPLES` (domyślnie 20) bucketów:
+  3. Dla każdego urządzenia z >= `MIN_TRAINING_SAMPLES` (domyślnie **30**, zmienione z 10) bucketów:
      - Trenuje **wszystkie 4 modele** (IF, LOF, OCSVM, Autoencoder)
-     - Zapisuje model + threshold + score_stats do `.joblib`
+     - Zapisuje model + threshold + score_stats + `features_count` do `.joblib`
      - Zapisuje metryki do `model_metadata`
-  4. Urządzenia z < 20 bucketów są pomijane (za mało danych)
+  4. Urządzenia z < 30 bucketów są pomijane (za mało danych)
 
 ### Ręczny (Train Now)
 
@@ -268,7 +280,7 @@ W trybie per-device, `contamination` nie jest stałe — jest obliczane adaptacy
 adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
 ```
 
-- Mało danych (20 bucketów) → contamination = 0.1 (10%) — bardziej agresywne wykrywanie
+- Mało danych (< 60 bucketów) → contamination = 0.1 (10%) — bardziej agresywne wykrywanie
 - Dużo danych (500 bucketów) → contamination = 0.03 (3%) — konserwatywne
 
 Możesz nadpisać tę wartość per device (patrz [Konfiguracja per device](#konfiguracja-per-device)).
@@ -285,9 +297,10 @@ Inference działa jako ciągła pętla (Deployment, nie CronJob):
    - Pobiera traffic_flows z ostatnich 24h
    - Tworzy feature buckets
    - Bierze **ostatni bucket** per device
-   - Ładuje modele z dysku (cache na mtime)
-   - Scoruje **wszystkie 4 modele** per device → zapisuje do `device_model_scores`
-   - Dla **aktywnego modelu**: liczy risk_score, generuje behavior_alerts
+   - Ładuje modele z dysku (cache na mtime, odczytuje `features_count` z payloadu lub `n_features_in_`)
+   - Scoruje **wszystkie 4 modele** per device → **ensemble majority vote** (≥ 2/4 = anomalia)
+   - Oblicza `ensemble_ml_risk` jako ważoną średnią (IF 40%, LOF 30%, OCSVM 20%, AE 10%)
+   - Generuje behavior_alerts (9 heurystyk)
    - Zapisuje wyniki: `devices.risk_score`, `device_inference_history`, `anomalies`, `device_behavior_alerts`
    - Czyści stare dane (retention: flows 7 dni, history 7 dni, alerts 14 dni)
 
@@ -314,9 +327,9 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 |----------|-----------|--------|---------|---------------|
 | `contamination` | 0.05 (5%) | 0.01–0.20 | Jaki % danych treningowych uznajemy za anomalie. Wyższe = więcej anomalii wykrywanych, ale więcej false positives. | Za dużo false positives? Obniż do 0.02–0.03. Za mało wykryć? Podnieś do 0.08–0.10. |
 | `n_estimators` | 200 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = dokładniej ale wolniejszy trening. | Na RPi z mało CPU zostaw 100–200. Na mocniejszej maszynie 300–500. |
-| `training_hours` | 24 | 6–168 | Ile godzin wstecz patrzeć po dane do treningu. Dłuższe = więcej danych, stabilniejsze modele. | Nowe urządzenie? 6–12h. Stabilne środowisko? 48–168h. |
-| `min_training_samples` | 20 | 5–100 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 5–10 (ale model będzie słabszy). Chcesz dokładność? 50+. |
-| `feature_bucket_minutes` | 2 | 1–10 | Szerokość okna czasowego bucketa w minutach. Krótszy = drobniejsza granulacja. | 1–2 min = drobne anomalie, więcej szumu. 5–10 min = stabilniejsze, mniej false positives. |
+| `training_hours` | **168** | 6–336 | Ile godzin wstecz patrzeć po dane do treningu. 168h = 7 dni, łapie weekly patterns. | Nowe urządzenie? 48h. Stabilne środowisko z weekly patterns? 168h (domyślnie). |
+| `min_training_samples` | **30** | 10–200 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 10 (ale model będzie słabszy). Chcesz dokładność? 50+. |
+| `feature_bucket_minutes` | 5 | 1–10 | Szerokość okna czasowego bucketa w minutach. Krótszy = drobniejsza granulacja. | 1–2 min = drobne anomalie, więcej szumu. 5–10 min = stabilniejsze, mniej false positives. |
 
 ### Per-device overrides
 
@@ -355,7 +368,7 @@ Dashboard → POST /api/devices/{id}/train?model_type=isolation_forest
 
 ### Kiedy NIE trenować
 
-- Masz < 20 bucketów danych (sprawdź w "Training Data" view)
+- Masz < 30 bucketów danych (sprawdź w "Training Data" view)
 - Właśnie trenowałeś (poczekaj aż inference podchwyci nowy model, ~60s)
 - Jest aktywna anomalia — nowe dane mogą "zatruć" model (model nauczy się że anomalia to norma)
 
@@ -390,8 +403,8 @@ Paginowana tabela surowych pakietów. 50 na stronę. Kolumny: timestamp, src_ip,
 
 **`global_training_config`** — jeden wiersz, globalne defaults:
 ```
-contamination=0.05, n_estimators=200, training_hours=24,
-min_training_samples=20, feature_bucket_minutes=2
+contamination=0.05, n_estimators=200, training_hours=168,
+min_training_samples=30, feature_bucket_minutes=5
 ```
 
 **`device_training_config`** — per device overrides (puste = użyj global):
@@ -481,7 +494,7 @@ Tabele używane bezpośrednio przez ML pipeline:
 | model_type | TEXT | isolation_forest / lof / ocsvm / autoencoder |
 | trained_at | TEXT | Kiedy trenowano (ISO timestamp) |
 | samples | INTEGER | Ile bucketów użyto |
-| features | INTEGER | Ile features (8) |
+| features | INTEGER | Ile features (12, poprzednio 8) |
 | contamination | REAL | Użyta wartość contamination |
 | threshold | REAL | Obliczony adaptive threshold |
 | score_mean/std/p5/p50/p95 | REAL | Rozkład scores z treningu |
@@ -499,9 +512,9 @@ Tabele używane bezpośrednio przez ML pipeline:
 |---------|-----|---------|
 | contamination | REAL | 0.05 |
 | n_estimators | INTEGER | 200 |
-| training_hours | INTEGER | 24 |
-| min_training_samples | INTEGER | 20 |
-| feature_bucket_minutes | INTEGER | 2 |
+| training_hours | INTEGER | **168** |
+| min_training_samples | INTEGER | **30** |
+| feature_bucket_minutes | INTEGER | 5 |
 
 ### `device_training_config` — per-device override
 
@@ -562,7 +575,7 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 
 ### "Model nie trenuje dla mojego urządzenia"
 
-1. **Sprawdź ilość danych:** Otwórz device → Training Data. Potrzebujesz minimum 20 bucketów.
+1. **Sprawdź ilość danych:** Otwórz device → Training Data. Potrzebujesz minimum 30 bucketów.
 2. **Urządzenie jest podłączone?** Sprawdź connection badge. Jeśli "Not connected", collector nie zbiera danych.
 3. **Za krótki training_hours:** Jeśli urządzenie podłączyłeś niedawno, ustaw `training_hours` na wartość mniejszą niż czas od podłączenia.
 4. **Logi:** `kubectl logs -l app=ml-trainer -n iot-security --tail=50` — szukaj `training_not_enough_samples_for_device`.
@@ -579,6 +592,13 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 1. **Sprawdź aktywny model:** Dropdown na device page. Może aktywny model nie wykrywa anomalii, ale inny tak (patrz Model Comparison table).
 2. **Sprawdź threshold:** ML Model Health → kolumna "Threshold". Jeśli threshold jest bardzo niski, model jest zbyt liberalny.
 3. **Correlation bonus:** Risk rośnie mocniej gdy ML + heurystyki razem flagują. Tylko ML = max 35%.
+
+### "X has 12 features, but model is expecting 8 features"
+
+Modele wytrenowane przed Fazą 9 mają 8 features. System automatycznie wykrywa właściwą liczbę przez `n_features_in_` (sklearn) lub `features_count` zapisane w payload joblib. Jeśli widzisz ten błąd:
+1. Sprawdź wersję kodu — musisz mieć commit `88350f6` lub nowszy.
+2. Jeśli model to LOF bez wrappera scaler (pre-Faza 7): `'LocalOutlierFactor' object is not subscriptable` — naprawione w `1650565`, wymaga aktualizacji poda.
+3. Długoterminowo: po retreningu modele zostaną zapisane z 12 features i problem zniknie.
 
 ### "Inference nie działa / pod restartuje się"
 

@@ -1,6 +1,6 @@
 # Data Flow — End-to-end lineage danych
 
-> Ostatnia aktualizacja: Kwiecień 2026
+> Ostatnia aktualizacja: Kwiecień 2026 (Fazy 7–11)
 
 ---
 
@@ -50,11 +50,13 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   ┌─────────────────────────▼───────────────────────────────────────┐
   │  3. TRAIN (co 30 min, CronJob)                                  │
   │                                                                 │
-  │  SELECT traffic_flows WHERE timestamp >= now - 24h              │
+  │  SELECT traffic_flows WHERE timestamp >= now - 168h             │
   │  FeatureExtractor: 5-min buckets per device                     │
-  │    (8 features: bytes, packets, destinations, ports,            │
-  │     dns_queries, avg_bytes/pkt, packet_rate, conn_duration)     │
-  │  AnomalyDetector.fit() per device (min 20 buckets)              │
+  │    (12 features: bytes, packets, destinations, ports,           │
+  │     dns_queries, avg_bytes/pkt, packet_rate, conn_duration,     │
+  │     protocol_entropy, dst_ip_entropy, dns_to_total_ratio,       │
+  │     iat_std)                                                     │
+  │  AnomalyDetector.fit() per device (min 30 buckets)              │
   │  joblib.dump() → /data/models/..._device_{id}.joblib            │
   │  INSERT model_metadata                                          │
   │                                                                 │
@@ -65,7 +67,8 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   │                                                                 │
   │  SELECT traffic_flows (24h recent + 168h baseline)              │
   │  FeatureExtractor → latest bucket per device                    │
-  │  AnomalyDetector.score() → normalized 0–1                       │
+  │  AnomalyDetector.score() → ensemble majority vote (≥2/4)        │
+  │  ensemble_ml_risk: weighted avg (IF40% LOF30% OCSVM20% AE10%)   │
   │  _build_behavior_alerts() → 9 heurystyk                         │
   │  _risk_with_contributors() → composite risk 0–100               │
   │       │                                                         │
@@ -118,7 +121,8 @@ Jak surowe pola z tshark (15 pól per pakiet) stają się 8 feature-ami ML?
 | `tcp.srcport` / `udp.srcport` | → | `src_port` |
 | `tcp.dstport` / `udp.dstport` | → | `dst_port` |
 | `_ws.col.Protocol` | → | `protocol` |
-| `frame.len` | → | `bytes_sent` |
+| `frame.len` (gdy src_ip w LAN) | → | `bytes_sent` |
+| `frame.len` (gdy dst_ip w LAN) | → | `bytes_received` |
 | `eth.addr` | → | *(resolve_device → device_id)* |
 | `dns.qry.name` | → | `dns_query` |
 | `dns.flags.rcode` | → | `flags.dns_rcode` (JSON) |
@@ -127,28 +131,40 @@ Jak surowe pola z tshark (15 pól per pakiet) stają się 8 feature-ami ML?
 | `tcp.len` | → | *(nieużywane)* |
 | `udp.length` | → | *(nieużywane)* |
 
+> **Kierunkowość (od Fazy 11):** Collector sprawdza, czy `src_ip` lub `dst_ip` należy do `LAN_SUBNET`.
+> Jeśli urządzenie *wysyła* (`src_ip` w LAN) — `frame.len` → `bytes_sent`. Jeśli *odbiera* (`dst_ip` w LAN) — `frame.len` → `bytes_received`. Pozwala to rozróżnić exfiltrację (duże `bytes_sent`) od download spikes (duże `bytes_received`).
+
 ### Krok 2: traffic_flows → feature buckets
 
-FeatureExtractor grupuje flow-y w buckety po `FEATURE_BUCKET_MINUTES` minut (domyślnie 2 w K8s)
+FeatureExtractor grupuje flow-y w buckety po `FEATURE_BUCKET_MINUTES` minut (domyślnie 5 w K8s)
 per device_id:
 
 | Feature ML | Jak obliczane | Z jakich kolumn |
 |------------|---------------|-----------------|
-| `total_bytes` | `SUM(bytes_sent)` | `bytes_sent` |
+| `total_bytes` | `SUM(bytes_sent + bytes_received)` | `bytes_sent`, `bytes_received` |
 | `total_packets` | `COUNT(*)` | — (1 per row) |
 | `unique_destinations` | `COUNT(DISTINCT dst_ip)` | `dst_ip` |
 | `unique_ports` | `COUNT(DISTINCT dst_port)` | `dst_port` |
 | `dns_queries` | `COUNT(WHERE dns_query IS NOT NULL)` | `dns_query` |
-| `avg_bytes_per_packet` | `total_bytes / total_packets` | `bytes_sent` |
+| `avg_bytes_per_packet` | `total_bytes / total_packets` | `bytes_sent`, `bytes_received` |
 | `packet_rate` | `total_packets / bucket_minutes` | — |
 | `connection_duration_avg` | `AVG(duration_ms)` | `duration_ms` (zawsze 0 w MVP) |
+| `protocol_entropy` | Shannon entropy protokołów | `protocol` |
+| `dst_ip_entropy` | Shannon entropy dst IP | `dst_ip` |
+| `dns_to_total_ratio` | `dns_queries / total_packets` | `dns_query` |
+| `iat_std` | Odchylenie std między-pakietowe (s) | `timestamp` |
 
 **Uwaga**: `connection_duration_avg` jest zawsze 0 w MVP, bo collector nie mierzy czasu trwania
 połączenia (każdy pakiet = osobny rekord z `duration_ms=0`).
 
+**Backward compatibility**: Modele wytrenowane przed Fazą 9 mają 8 features. Inference automatycznie
+wykrywa `features_count` z payloadu joblib lub z `model.n_features_in_` i używa tylko odpowiednich kolumn.
+
 ### Krok 3: feature buckets → scoring
 
-AnomalyDetector używa 8 features z bucketu do obliczenia anomaly score (0–1).
+AnomalyDetector używa 12 features z bucketu do obliczenia anomaly score. Wszystkie 4 modele
+(IF, LOF, OCSVM, Autoencoder) scorują niezależnie. Ensemble majority vote (≥2/4) decyduje
+o `is_anomaly`, a ważona średnia tworzy `ensemble_ml_risk`.
 Score jest następnie łączony z behavior alerts i protocol signals w composite risk score (0–100).
 
 Szczegóły algorytmów ML → [ML Pipeline](ML_PIPELINE.md)
@@ -229,8 +245,8 @@ Jedna baza SQLite: `/data/iot-security.db` (WAL mode, `busy_timeout=5000ms`).
 | `src_ip` / `dst_ip` | TEXT | |
 | `src_port` / `dst_port` | INTEGER | 0 dla ICMP |
 | `protocol` | TEXT | TCP / UDP / ICMP / … |
-| `bytes_sent` | INTEGER | frame.len z tshark |
-| `bytes_received` | INTEGER | Zawsze 0 (collector pisze tylko bytes_sent) |
+| `bytes_sent` | INTEGER | `frame.len` gdy src_ip w LAN (outbound) |
+| `bytes_received` | INTEGER | `frame.len` gdy dst_ip w LAN (inbound); od Fazy 11 |
 | `packets` | INTEGER | Domyślnie 1 per rekord |
 | `duration_ms` | INTEGER | Domyślnie 0 |
 | `dns_query` | TEXT | dns.qry.name (jeśli DNS) |

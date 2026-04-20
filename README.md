@@ -75,7 +75,7 @@ k8s/
 | collector | Deployment | Always | Traffic capture via tcpdump/tshark |
 | gateway-agent | Deployment | Always | WiFi AP + DHCP + NAT control |
 | gateway-api | Deployment | Always | REST API + WebSocket alerts |
-| ml-trainer | CronJob | Every 30 min | Isolation Forest training |
+| ml-trainer | CronJob | Every 30 min | Train all 4 models per device (168h window, min 30 buckets) |
 | ml-inference | Deployment | Always | Batch anomaly inference |
 | dashboard | Deployment | Always | Web UI |
 
@@ -191,20 +191,23 @@ Services:
 
 ## ML Pipeline
 
-- **Algorithm**: Isolation Forest (sklearn)
-- **Features**: bucketed per-device samples (bytes, packets, unique destinations/ports, DNS queries, packet rate)
-- **Training**: CronJob every 30 minutes for MVP
-- **Inference**: Batch every 60 seconds on 2-minute buckets
-- **MVP mode**: per-device models with adaptive device baseline support
-- **Minimum training samples**: 20 per-device buckets
+- **Algorithms**: Isolation Forest, LOF, OCSVM, Autoencoder (sklearn/keras) — wszystkie 4 trenowane per device
+- **Ensemble**: majority vote (≥2/4 modeli = anomalia), weighted-avg ml_risk (IF=40%, LOF=30%, OCSVM=20%, AE=10%)
+- **Features**: 12 per-device features per 5-min bucket (bytes_sent+received, packets, unique_destinations, unique_ports, dns_queries, avg_bytes/pkt, packet_rate, conn_duration_avg, protocol_entropy, dst_ip_entropy, dns_to_total_ratio, iat_std)
+- **Training**: CronJob every 30 minutes; on-demand via K8s Job
+- **Training window**: 168h (7 days) — catches weekly traffic patterns
+- **Inference**: Batch every 5 minutes (configurable via `INFERENCE_INTERVAL`)
+- **Minimum training samples**: 30 per-device buckets
+- **Adaptive threshold**: contamination = max(0.03, min(0.1, 5.0 / samples))
+- **Backward compat**: old 8-feature models load correctly (features_count inferred from `n_features_in_`)
 
 ## Detection Layers
 
-- ML scoring is combined with heuristic behavior alerts to raise `risk_score` faster on suspicious bursts.
-- Current heuristic alerts include `destination_novelty`, `dns_burst`, `port_churn`, `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, and `icmp_sweep_suspected`.
-- The collector enriches flows with DNS response codes and ICMP metadata so protocol-level signals can be shown in the API and dashboard.
-- Risk Engine v2 now breaks the final score into `ml_risk`, `behavior_risk`, `protocol_risk`, and `correlation_bonus` so the device console can explain why risk changed.
-- Protocol heuristics now also include `dns_nxdomain_burst` and `icmp_echo_fanout` for low-cost DGA-like and sweep-like detection.
+- **ML ensemble**: 4 models (IF, LOF, OCSVM, Autoencoder) vote per device bucket; majority (≥2) triggers anomaly.
+- **Risk composition**: `ml_risk` (0–35) + `behavior_risk` (0–35) + `protocol_risk` (0–20) + `correlation_bonus` (0–15) = final 0–100.
+- **Heuristic alerts** (9 types): `destination_novelty` (≥4 new IPs), `dns_burst` (≥10 queries floor), `port_churn` (high ports AND new ports), `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, `dns_nxdomain_burst`, `icmp_sweep_suspected`, `icmp_echo_fanout`.
+- **Bytes direction**: collector splits `frame.len` into `bytes_sent` (outbound, src in LAN) and `bytes_received` (inbound, dst in LAN) — enables exfiltration vs. download distinction.
+- **Protocol signals**: DNS response codes and ICMP metadata enriched by collector for protocol-level heuristics.
 
 ## Device Console
 

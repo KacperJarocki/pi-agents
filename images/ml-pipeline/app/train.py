@@ -10,6 +10,8 @@ from .ml_core import (
     AVAILABLE_MODEL_TYPES, save_model_training_metadata,
     get_global_training_config, get_effective_training_config,
     get_device_flows, get_latest_flow_timestamp, get_latest_trained_at,
+    batch_get_latest_flow_timestamps, batch_get_latest_trained_at,
+    batch_get_effective_training_configs,
 )
 
 
@@ -152,6 +154,12 @@ async def train_model():
 
     if per_device_models:
         trained_devices = 0
+        all_device_ids = [int(did) for did in features['device_id'].unique()]
+
+        # Batch-load timestamps and configs — replaces 4 DB round-trips per device
+        latest_flow_map = await batch_get_latest_flow_timestamps(all_device_ids)
+        latest_trained_map = await batch_get_latest_trained_at(all_device_ids)
+        device_cfg_map = await batch_get_effective_training_configs(all_device_ids)
 
         for device_id, group in features.groupby('device_id'):
             samples = int(len(group))
@@ -159,8 +167,8 @@ async def train_model():
             # Skip training if no new flows arrived since last training run.
             # This avoids redundant model rebuilds on the 30-min CronJob schedule.
             try:
-                latest_flow = await get_latest_flow_timestamp(int(device_id))
-                latest_trained = await get_latest_trained_at(int(device_id))
+                latest_flow = latest_flow_map.get(int(device_id))
+                latest_trained = latest_trained_map.get(int(device_id))
                 if latest_flow and latest_trained and latest_flow <= latest_trained:
                     log.info("training_skipped_no_new_flows",
                              device_id=int(device_id),
@@ -171,9 +179,9 @@ async def train_model():
                 log.warning("training_skip_check_failed",
                             device_id=int(device_id), error=str(skip_exc))
 
-            # Load per-device config overrides (merged with global defaults)
+            # Per-device config already pre-loaded in batch above
             try:
-                dev_cfg = await get_effective_training_config(int(device_id))
+                dev_cfg = device_cfg_map.get(int(device_id), {})
             except Exception:
                 dev_cfg = {}
             dev_min_samples = dev_cfg.get("min_training_samples", min_samples)

@@ -1514,6 +1514,94 @@ async def batch_save_model_scores(scores: list[dict]):
         await conn.close()
 
 
+async def batch_get_latest_flow_timestamps(device_ids: list[int]) -> dict[int, str | None]:
+    """Return MAX(timestamp) from traffic_flows for each device in one query."""
+    if not device_ids:
+        return {}
+    conn = await get_db_connection()
+    try:
+        placeholders = ",".join("?" * len(device_ids))
+        cursor = await conn.execute(
+            f"SELECT device_id, MAX(timestamp) FROM traffic_flows "
+            f"WHERE device_id IN ({placeholders}) GROUP BY device_id",
+            device_ids,
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await conn.close()
+    result = {did: None for did in device_ids}
+    for row in rows:
+        result[row[0]] = row[1]
+    return result
+
+
+async def batch_get_latest_trained_at(device_ids: list[int]) -> dict[int, str | None]:
+    """Return MAX(trained_at) from model_metadata for each device in one query."""
+    if not device_ids:
+        return {}
+    conn = await get_db_connection()
+    try:
+        placeholders = ",".join("?" * len(device_ids))
+        cursor = await conn.execute(
+            f"SELECT device_id, MAX(trained_at) FROM model_metadata "
+            f"WHERE device_id IN ({placeholders}) GROUP BY device_id",
+            device_ids,
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await conn.close()
+    result = {did: None for did in device_ids}
+    for row in rows:
+        result[row[0]] = row[1]
+    return result
+
+
+async def batch_get_effective_training_configs(device_ids: list[int]) -> dict[int, dict]:
+    """Return merged training configs for all devices in two queries.
+
+    Fetches global config once, then all per-device overrides in one query.
+    """
+    if not device_ids:
+        return {}
+    global_cfg = await get_global_training_config()
+    conn = await get_db_connection()
+    try:
+        placeholders = ",".join("?" * len(device_ids))
+        cursor = await conn.execute(
+            f"SELECT device_id, training_hours, min_training_samples, contamination, "
+            f"n_estimators, feature_bucket_minutes "
+            f"FROM device_training_config WHERE device_id IN ({placeholders})",
+            device_ids,
+        )
+        rows = await cursor.fetchall()
+    finally:
+        await conn.close()
+    overrides = {}
+    for row in rows:
+        overrides[row[0]] = {
+            "training_hours": row[1],
+            "min_training_samples": row[2],
+            "contamination": row[3],
+            "n_estimators": row[4],
+            "feature_bucket_minutes": row[5],
+        }
+    configs = {}
+    for did in device_ids:
+        merged = dict(global_cfg)
+        merged["device_id"] = did
+        dev_cfg = overrides.get(did)
+        if dev_cfg:
+            for key in ("training_hours", "min_training_samples", "contamination",
+                        "n_estimators", "feature_bucket_minutes"):
+                if dev_cfg.get(key) is not None:
+                    merged[key] = dev_cfg[key]
+            merged["has_overrides"] = True
+        else:
+            merged["has_overrides"] = False
+        configs[did] = merged
+    return configs
+
+
 async def get_latest_flow_timestamp(device_id: int | None = None) -> str | None:
     """Return the MAX(timestamp) from traffic_flows for a device (or globally).
 

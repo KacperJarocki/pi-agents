@@ -78,17 +78,33 @@ MODEL_DIR = os.getenv("MODEL_PATH", "/data/models")
 class FeatureExtractor:
     """Aggregate raw traffic_flows rows into fixed-width time buckets.
 
-    Each (device_id, bucket_start) pair produces one row with 8 numeric
+    Each (device_id, bucket_start) pair produces one row with 12 numeric
     features.  The bucket width defaults to ``FEATURE_BUCKET_MINUTES`` env-var
     (default 5 minutes).
     """
 
+    # First 8 columns are the original feature set (backward-compat with old models).
+    # New columns appended at the end so old models can use features[:8].
     FEATURE_COLUMNS = [
         'total_bytes', 'packets', 'unique_destinations',
         'unique_ports', 'dns_queries', 'avg_bytes_per_packet',
-        'packet_rate', 'connection_duration_avg'
+        'packet_rate', 'connection_duration_avg',
+        # New in Faza 9:
+        'protocol_entropy',    # Shannon entropy of protocol distribution (TCP/UDP/ICMP/…)
+        'dst_ip_entropy',      # Shannon entropy of destination IP distribution
+        'dns_to_total_ratio',  # dns_queries / packets (0-1; high = DNS tunneling)
+        'iat_std',             # Std-dev of inter-arrival times (low = beaconing)
     ]
-    
+
+    @staticmethod
+    def _shannon_entropy(series: "pd.Series") -> float:
+        """Compute normalised Shannon entropy (0=uniform single value, 1=max diversity)."""
+        counts = series.value_counts(normalize=True)
+        if len(counts) <= 1:
+            return 0.0
+        import math
+        return float(-sum(p * math.log2(p) for p in counts if p > 0))
+
     def __init__(self, bucket_minutes: int | None = None):
         self.bucket_minutes = bucket_minutes or int(os.getenv("FEATURE_BUCKET_MINUTES", "5"))
 
@@ -105,24 +121,27 @@ class FeatureExtractor:
         for (device_id, bucket_start), group in flows_with_bucket.groupby(['device_id', 'bucket_start']):
             device_flows = group.sort_values('timestamp')
             
-            total_bytes = device_flows['bytes_sent'].sum() + device_flows['bytes_received'].sum()
             packets = len(device_flows)
+            bytes_col = device_flows['bytes_sent'].sum() + device_flows.get('bytes_received', pd.Series([0]*packets)).sum() if 'bytes_received' in device_flows.columns else device_flows['bytes_sent'].sum()
+            total_bytes = float(bytes_col)
             unique_destinations = device_flows['dst_ip'].nunique()
             unique_ports = device_flows['dst_port'].nunique()
-            dns_queries = device_flows['dns_query'].notna().sum()
-            
-            total_packet_bytes = device_flows['bytes_sent'].sum() + device_flows['bytes_received'].sum()
-            avg_bytes_per_packet = total_packet_bytes / packets if packets > 0 else 0
+            dns_queries = int(device_flows['dns_query'].notna().sum())
+
+            avg_bytes_per_packet = total_bytes / packets if packets > 0 else 0.0
             
             time_span = (device_flows['timestamp'].max() - device_flows['timestamp'].min()).total_seconds()
-            packet_rate = packets / time_span if time_span > 0 else 0
-            
-            if len(device_flows) > 1:
-                durations = device_flows['timestamp'].diff().dropna().dt.total_seconds()
-                connection_duration_avg = durations.mean() if len(durations) > 0 else 0
-            else:
-                connection_duration_avg = 0
-            
+            packet_rate = packets / time_span if time_span > 0 else 0.0
+
+            iats = device_flows['timestamp'].diff().dropna().dt.total_seconds()
+            connection_duration_avg = float(iats.mean()) if len(iats) > 0 else 0.0
+            iat_std = float(iats.std()) if len(iats) > 1 else 0.0
+
+            # New features
+            protocol_entropy = self._shannon_entropy(device_flows['protocol']) if 'protocol' in device_flows.columns else 0.0
+            dst_ip_entropy = self._shannon_entropy(device_flows['dst_ip'].dropna()) if not device_flows['dst_ip'].dropna().empty else 0.0
+            dns_to_total_ratio = dns_queries / packets if packets > 0 else 0.0
+
             features.append({
                 'device_id': device_id,
                 'bucket_start': bucket_start,
@@ -134,6 +153,10 @@ class FeatureExtractor:
                 'avg_bytes_per_packet': avg_bytes_per_packet,
                 'packet_rate': packet_rate,
                 'connection_duration_avg': connection_duration_avg,
+                'protocol_entropy': protocol_entropy,
+                'dst_ip_entropy': dst_ip_entropy,
+                'dns_to_total_ratio': dns_to_total_ratio,
+                'iat_std': iat_std,
             })
         
         return pd.DataFrame(features)
@@ -172,6 +195,8 @@ class BaseDetector(ABC):
         self.threshold = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
         # Score distribution from training data (set by _compute_and_store_score_stats)
         self._score_stats: dict = {}
+        # Number of features model was trained on (set by _apply_payload, used for compat)
+        self._features_count: int = len(FeatureExtractor.FEATURE_COLUMNS)
 
     # ── file path helpers ────────────────────────────────────────────────────
 
@@ -228,6 +253,9 @@ class BaseDetector(ABC):
         if isinstance(payload, dict):
             self.threshold = float(payload.get("threshold", self.threshold))
             self._score_stats = payload.get("score_stats", {})
+            # features_count allows scoring with the correct number of input columns
+            # when models trained on old 8-column data are loaded by a 12-column extractor.
+            self._features_count: int = int(payload.get("features_count", len(FeatureExtractor.FEATURE_COLUMNS)))
 
     def save_model(self, model, device_id: int | None = None):
         """Persist model together with adaptive threshold and score stats.
@@ -242,6 +270,7 @@ class BaseDetector(ABC):
             "model": model,
             "threshold": self.threshold,
             "score_stats": self._score_stats,
+            "features_count": len(FeatureExtractor.FEATURE_COLUMNS),
         }
         joblib.dump(payload, model_file)
         self.model = model
@@ -338,7 +367,10 @@ class BaseDetector(ABC):
         """Score feature rows; returns list of dicts with anomaly annotations."""
         if self.model is None or features.empty:
             return []
-        X = features[FeatureExtractor.FEATURE_COLUMNS].values
+        # Use only the columns the model was trained on (backward compat: old 8-col models).
+        n = getattr(self, "_features_count", len(FeatureExtractor.FEATURE_COLUMNS))
+        cols = FeatureExtractor.FEATURE_COLUMNS[:n]
+        X = features[cols].values
         scores = self.decision_scores(X)
         rows = []
         for idx, s in enumerate(scores):
@@ -351,7 +383,7 @@ class BaseDetector(ABC):
                 # Using (threshold - abs(threshold)) handles both negative and positive
                 # thresholds: the critical zone is always a symmetric step below the cut.
                 'severity': 'critical' if s < self.threshold - abs(self.threshold) else 'warning',
-                'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
+                'features': features.iloc[idx][cols].to_dict(),
             })
         return rows
 
@@ -359,7 +391,9 @@ class BaseDetector(ABC):
         """Return only anomalous rows (score < threshold)."""
         if self.model is None or features.empty:
             return []
-        X = features[FeatureExtractor.FEATURE_COLUMNS].values
+        n = getattr(self, "_features_count", len(FeatureExtractor.FEATURE_COLUMNS))
+        cols = FeatureExtractor.FEATURE_COLUMNS[:n]
+        X = features[cols].values
         scores = self.decision_scores(X)
         anomalies = []
         for idx, s in enumerate(scores):
@@ -368,7 +402,7 @@ class BaseDetector(ABC):
                     'device_id': int(features.iloc[idx]['device_id']),
                     'anomaly_score': float(s),
                     'severity': 'critical' if s < self.threshold - abs(self.threshold) else 'warning',
-                    'features': features.iloc[idx][FeatureExtractor.FEATURE_COLUMNS].to_dict(),
+                    'features': features.iloc[idx][cols].to_dict(),
                 })
         return anomalies
 

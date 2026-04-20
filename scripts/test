@@ -1,0 +1,46 @@
+
+[1m[0;36m━━ PHASE 1 — API verification (you should NOT be on the IoT WiFi AP) ━━[0m
+
+[1m[0;34m══ Prerequisites ══[0m
+[0;32m  ✓ PASS[0m curl available
+[0;32m  ✓ PASS[0m python3 available
+[0;31m  ✗ FAIL[0m Cannot reach API at http://iot-api.homelab.kacperjarocki.dev
+
+  Make sure you are NOT on the IoT WiFi AP (the API is behind Traefik ingress).
+  Or use --no-pause if running from the cluster itself.
+
+[1m[0;36m━━ PHASE 1 — API verification (you should NOT be on the IoT WiFi AP) ━━[0m
+
+[1m[0;34m══ Prerequisites ══[0m
+[0;32m  ✓ PASS[0m curl available
+[0;32m  ✓ PASS[0m python3 available
+[0;32m  ✓ PASS[0m API reachable at http://iot-api.homelab.kacperjarocki.dev
+
+[1m[0;34m══ 1. Collector — traffic_flows ══[0m
+[0;34m  ℹ[0m Auto-detected device_id=6
+[0;34m  ℹ[0m Device 6: last_seen=2026-04-20T10:39:55, risk_score=53.6119
+[0;32m  ✓ PASS[0m Device 6 has been seen by collector (last_seen=2026-04-20T10:39:55)
+[0;34m  ℹ[0m Flows in last 1 hour: 1530
+[0;32m  ✓ PASS[0m Collector writing flows (1530 in last hour)
+
+[1m[0;34m══ 2. ML Trainer — model_metadata ══[0m
+[0;34m  ℹ[0m Models ready: 3, health data available: True
+[0;32m  ✓ PASS[0m Device 6 has 4 trained model(s)
+    model=autoencoder  samples=21  threshold=-0.451255  trained_at=2026-04-20T10:07:26.211976+00:00
+    model=isolation_forest  samples=21  threshold=0.05249  trained_at=2026-04-20T10:07:25.679100+00:00
+    model=lof  samples=21  threshold=0.557484  trained_at=2026-04-20T10:07:25.690284+00:00
+    model=ocsvm  samples=21  threshold=-2.6e-05  trained_at=2026-04-20T10:07:25.701013+00:00
+
+[1m[0;34m══ 3. ML Inference — risk scoring ══[0m
+[0;31m  ✗ FAIL[0m ml-inference pod status: unknown
+[1;33m  ⚠ WARN[0m No recent inference_complete log found
+[0;32m  ✓ PASS[0m Device 6 has risk_score=53.6119 (non-zero, inference is scoring)
+
+[1m[0;34m══ 4. Snapshot — anomalies & alerts BEFORE traffic ══[0m
+[0;34m  ℹ[0m Anomalies (device 6): 0
+[0;34m  ℹ[0m Unified alerts (all devices, last 1h): 1
+
+[1m[0;36m━━ PHASE 2 — Anomaly traffic generation (requires IoT WiFi AP) ━━[0m
+
+[1m[1;33m  ⏸  Connect to the IoT WiFi AP now[0m
+[1;33m     Press Enter when ready...[0m

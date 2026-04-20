@@ -477,13 +477,23 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
     model_path = os.getenv("MODEL_PATH", "/data/models")
 
-    # Load per-device model type configs (determines which model drives risk_score)
+    # Load per-device model type configs (kept for logging / per-device overrides)
     device_model_configs = await get_device_model_configs()
+
+    # Ensemble weights for weighted-average ml_risk (must sum to 1.0)
+    _ENSEMBLE_WEIGHTS: dict[str, float] = {
+        "isolation_forest": 0.40,
+        "lof":              0.30,
+        "ocsvm":            0.20,
+        "autoencoder":      0.10,
+    }
 
     # Score ALL models per device, collect results for device_model_scores table
     all_model_scores: list[dict] = []
-    # Active model scored results (for risk/anomalies/history)
+    # One ensemble result per device (for risk/anomalies/history)
     scored_results = []
+
+    _anomaly_threshold_default = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
 
     if per_device_models:
         for device_id, group in features.groupby('device_id'):
@@ -491,11 +501,13 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             active_model_type = device_model_configs.get(int(device_id), default_model_type)
             bucket_start = latest.iloc[0].get('bucket_start') if not latest.empty else None
 
-            # Score ALL available model types for this device
+            # Collect per-model scores for this device
+            per_model: dict[str, dict] = {}  # model_type -> {norm_score, norm_threshold, raw_score, is_anomaly, threshold, features, severity}
+
             for model_type in AVAILABLE_MODEL_TYPES:
                 device_detector = get_detector(model_type, model_path=model_path)
                 if not device_detector.load_model(device_id=int(device_id)):
-                    # For active model, also try legacy fallback
+                    # For the active/legacy model try old-format fallback
                     if model_type == active_model_type:
                         legacy_detector = AnomalyDetector(model_path=model_path)
                         if not legacy_detector.load_model(device_id=int(device_id)):
@@ -503,13 +515,10 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                             continue
                         device_detector = legacy_detector
                     else:
-                        continue  # Non-active model not yet trained, skip
+                        continue  # Model not yet trained for this device, skip
 
                 rows = device_detector.score(latest)
                 for row in rows:
-                    # Use z-score-normalised values for risk so all model types share a
-                    # common scale; fall back to raw score when score_stats are absent
-                    # (e.g. old-format models loaded via backward-compat path).
                     norm_s = device_detector.normalize_score(row["anomaly_score"])
                     norm_t = device_detector.normalize_threshold()
                     ml_risk = _risk_from_score(norm_s, norm_t)
@@ -521,19 +530,53 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                         "risk_score": float(ml_risk),
                         "is_anomaly": bool(row["is_anomaly"]),
                     })
+                    per_model[model_type] = {
+                        "norm_score": norm_s,
+                        "norm_threshold": norm_t,
+                        "raw_score": float(row["anomaly_score"]),
+                        "is_anomaly": bool(row["is_anomaly"]),
+                        "threshold": device_detector.threshold,
+                        "features": row.get("features"),
+                        "severity": row.get("severity", "warning"),
+                        "ml_risk": ml_risk,
+                    }
 
-                    # If this is the active model, add to scored_results for risk pipeline.
-                    # Keep raw threshold for observability; pass normalised values separately.
-                    if model_type == active_model_type:
-                        scored_results.append(
-                            {
-                                **row,
-                                "model_type": model_type,
-                                "threshold": device_detector.threshold,
-                                "norm_score": norm_s,
-                                "norm_threshold": norm_t,
-                            }
-                        )
+            if not per_model:
+                continue
+
+            # ── Ensemble: majority vote + weighted-average ml_risk ──────────
+            anomaly_votes = sum(1 for m in per_model.values() if m["is_anomaly"])
+            ensemble_is_anomaly = anomaly_votes >= 2  # majority of available models
+
+            total_weight = sum(_ENSEMBLE_WEIGHTS.get(mt, 0.1) for mt in per_model)
+            ensemble_ml_risk = sum(
+                per_model[mt]["ml_risk"] * _ENSEMBLE_WEIGHTS.get(mt, 0.1)
+                for mt in per_model
+            ) / max(total_weight, 1e-9)
+
+            # Use active model's raw scores for observability; fall back to first available
+            ref = per_model.get(active_model_type) or next(iter(per_model.values()))
+            ensemble_severity = "critical" if (ensemble_is_anomaly and anomaly_votes >= 3) else (
+                "warning" if ensemble_is_anomaly else "normal"
+            )
+
+            scored_results.append({
+                "device_id": int(device_id),
+                "bucket_start": bucket_start,
+                "anomaly_score": ref["raw_score"],
+                "is_anomaly": ensemble_is_anomaly,
+                "severity": ref["severity"],
+                "threshold": ref["threshold"],
+                "norm_score": ref["norm_score"],
+                "norm_threshold": ref["norm_threshold"],
+                "features": ref["features"],
+                "model_type": active_model_type,
+                # Ensemble metadata for observability
+                "ensemble_votes": anomaly_votes,
+                "ensemble_models_available": len(per_model),
+                "ensemble_ml_risk": round(ensemble_ml_risk, 4),
+                "per_model_risks": {mt: round(v["ml_risk"], 4) for mt, v in per_model.items()},
+            })
     else:
         scored_results = [
             {
@@ -566,7 +609,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         score = a["anomaly_score"]
         is_anomaly = bool(a.get("is_anomaly"))
         severity = a["severity"]
-        threshold = float(a.get("threshold", os.getenv("ANOMALY_THRESHOLD", "-0.5")))
+        threshold = float(a.get("threshold", _anomaly_threshold_default))
         # Prefer normalised (z-score) values so the risk function operates on a
         # unified scale regardless of which model type produced the score.
         # Falls back to raw score/threshold when normalisation stats are unavailable.
@@ -588,7 +631,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         ] if bucket_start is not None and not dev_flows.empty else pd.DataFrame()
 
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
-        ml_risk = _risk_from_score(norm_score, norm_threshold)
+        # Use ensemble ml_risk if available (per_device_models path), else compute from norm_score
+        ml_risk = float(a.get("ensemble_ml_risk", _risk_from_score(norm_score, norm_threshold)))
         risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
         risk_score = risk_breakdown["final_risk"]
         inference_features = {
@@ -602,6 +646,9 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             "correlation_bonus": risk_breakdown["correlation_bonus"],
             "risk_top_reason": risk_breakdown["top_reason"],
             "risk_reason_summary": risk_breakdown["reason_summary"],
+            "ensemble_votes": a.get("ensemble_votes"),
+            "ensemble_models_available": a.get("ensemble_models_available"),
+            "per_model_risks": a.get("per_model_risks"),
         }
 
         log.info(
@@ -619,6 +666,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             behavior_alert_count=len(behavior_alerts),
             top_reason=risk_breakdown["top_reason"],
             is_anomaly=is_anomaly,
+            ensemble_votes=a.get("ensemble_votes"),
+            ensemble_models=a.get("ensemble_models_available"),
         )
 
         if is_anomaly:

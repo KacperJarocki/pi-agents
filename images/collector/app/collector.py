@@ -449,6 +449,17 @@ class TrafficCollector:
 
             frame_len = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
 
+            # Classify frame as outbound (bytes_sent) or inbound (bytes_received)
+            # from the perspective of the LAN client.  When the source is a LAN
+            # address the client is sending; when the destination is a LAN address
+            # the client is receiving.
+            if self._is_lan_ip(src_ip):
+                bytes_sent = frame_len
+                bytes_received = 0
+            else:
+                bytes_sent = 0
+                bytes_received = frame_len
+
             mac_addr = parts[10] if len(parts) > 10 and parts[10] else None
             dns_query = parts[11] if len(parts) > 11 and parts[11] else None
             dns_rcode = parts[12] if len(parts) > 12 and parts[12] else None
@@ -481,6 +492,8 @@ class TrafficCollector:
                 "dst_port": int(dst_port),
                 "protocol": protocol.upper(),
                 "bytes": frame_len,
+                "bytes_sent": bytes_sent,
+                "bytes_received": bytes_received,
                 "mac_src": mac_src,   # eth.src — sender's L2 address
                 "mac_dst": mac_dst,   # eth.dst — receiver's L2 address
                 "dns_query": dns_query,

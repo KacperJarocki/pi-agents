@@ -199,7 +199,7 @@ def _build_behavior_alerts(
     previous_destinations = set(history_flows["dst_ip"].dropna().astype(str)) if not history_flows.empty else set()
     new_destinations = sorted(dest for dest in latest_destinations if dest not in previous_destinations)
     destination_ratio = len(new_destinations) / max(len(latest_destinations), 1)
-    if len(new_destinations) >= max(2, int(baseline_destinations["p95"] + 1)) and destination_ratio >= 0.4:
+    if len(new_destinations) >= max(4, int(baseline_destinations["p95"] + 1)) and destination_ratio >= 0.4:
         score = min(100.0, len(new_destinations) * 12.5 + destination_ratio * 25.0 + latest_destination_count * 4.0)
         alerts.append(
             {
@@ -228,7 +228,7 @@ def _build_behavior_alerts(
     ) if _history_by_bucket else 0.0
     dns_ratio = latest_dns_queries / max(baseline_dns["median"], 1.0)
     unique_dns_ratio = latest_unique_dns / max(baseline_unique_dns, 1.0)
-    if latest_dns_queries >= max(5, baseline_dns["p95"] + 2, baseline_dns["median"] * 2) and latest_unique_dns >= max(3, baseline_unique_dns * 2, 3):
+    if latest_dns_queries >= max(10, baseline_dns["p95"] + 2, baseline_dns["median"] * 2) and latest_unique_dns >= max(3, baseline_unique_dns * 2, 3):
         score = min(100.0, dns_ratio * 18.0 + unique_dns_ratio * 12.0)
         alerts.append(
             {
@@ -253,7 +253,7 @@ def _build_behavior_alerts(
     previous_ports = set(history_flows["dst_port"].dropna().astype(int).tolist()) if not history_flows.empty else set()
     new_ports = sorted(port for port in latest_bucket["dst_port"].dropna().astype(int).unique().tolist() if port not in previous_ports)
     port_ratio = latest_ports / max(baseline_ports["median"], 1.0)
-    if latest_ports >= max(6, baseline_ports["p95"] + 2, baseline_ports["median"] * 2) or len(new_ports) >= 5:
+    if latest_ports >= max(6, baseline_ports["p95"] + 2, baseline_ports["median"] * 2) and len(new_ports) >= 5:
         score = min(100.0, port_ratio * 16.0 + len(new_ports) * 6.0)
         alerts.append(
             {

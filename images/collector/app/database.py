@@ -223,7 +223,8 @@ class Database:
                 flow.get("src_port", 0),
                 flow.get("dst_port", 0),
                 flow["protocol"],
-                flow.get("bytes", 0),
+                flow.get("bytes_sent", flow.get("bytes", 0)),
+                flow.get("bytes_received", 0),
                 flow.get("dns_query"),
                 json.dumps(flow.get("flags")) if flow.get("flags") is not None else None,
             ))
@@ -234,8 +235,8 @@ class Database:
         await self.conn.executemany(
             """
             INSERT INTO traffic_flows
-            (device_id, timestamp, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, dns_query, flags)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (device_id, timestamp, src_ip, dst_ip, src_port, dst_port, protocol, bytes_sent, bytes_received, dns_query, flags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             flow_rows,
         )

@@ -509,6 +509,11 @@ Pełna baza SQLite at `/data/iot-security.db`.
 | score_mean/std/p5/p50/p95 | REAL | Rozkład scores z treningu |
 | estimated_anomaly_rate | REAL | Oczekiwana frakcja anomalii |
 | training_hours | INTEGER | Lookback window (godziny) |
+| version | TEXT NOT NULL | Wersja schematu (np. "1.0") — wymagana przez legacy constraint |
+
+> **Uwaga schema:** Tabela `model_metadata` może zawierać kolumnę `version TEXT NOT NULL` jeśli została
+> utworzona przez starszą wersję kodu. Kolumna ta nie jest zarządzana przez bieżące migracje i jest
+> automatycznie wypełniana wartością `"1.0"` przy każdym zapisie metadanych treningu.
 
 ### `global_training_config` — globalne domyślne parametry
 
@@ -604,8 +609,9 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 ### "Dashboard nie pokazuje ML Model Health"
 
 1. **Proxy route:** Dashboard musi mieć route `/api/metrics/ml-status` w `main.py`.
-2. **model_metadata pusty:** Tabela istnieje ale nie ma danych — trzeba poczekać na pierwszy trening (CronJob co 30 min).
-3. **Network:** Dashboard → gateway-api connection. Sprawdź `GATEWAY_API_URL` env var.
+2. **model_metadata pusty:** Tabela istnieje ale nie ma danych — trzeba poczekać na pierwszy trening (CronJob co 30 min) lub użyć Train Now.
+3. **Legacy schema:** Jeśli tabela `model_metadata` była utworzona przez starszy kod, może mieć kolumnę `version TEXT NOT NULL`. Trening wtedy cicho failuje z `NOT NULL constraint failed: model_metadata.version`. Od wersji `4e8b24d` INSERT zawsze podaje `version = "1.0"` — wystarczy uruchomić trening ponownie.
+4. **Network:** Dashboard → gateway-api connection. Sprawdź `GATEWAY_API_URL` env var.
 
 ---
 

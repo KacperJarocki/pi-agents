@@ -1048,8 +1048,8 @@ async def save_model_training_metadata(
                 device_id, model_type, trained_at, samples, features,
                 contamination, threshold,
                 score_mean, score_std, score_p5, score_p50, score_p95,
-                estimated_anomaly_rate, training_hours, extra
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                estimated_anomaly_rate, training_hours, extra, version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 device_id,
@@ -1067,6 +1067,7 @@ async def save_model_training_metadata(
                 round(estimated_anomaly_rate, 6),
                 training_hours,
                 json.dumps(extra or {}),
+                "1.0",  # version — required by legacy schema NOT NULL constraint
             ),
         )
         # Keep only the last 10 training runs per device+model_type
@@ -1115,7 +1116,7 @@ async def get_model_metadata(
                    score_mean, score_std, score_p5, score_p50, score_p95,
                    estimated_anomaly_rate, training_hours
             FROM model_metadata {where}
-            ORDER BY timestamp DESC LIMIT ?
+            ORDER BY id DESC LIMIT ?
             """,
             params,
         )

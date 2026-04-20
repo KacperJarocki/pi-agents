@@ -813,7 +813,7 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
 
     # Index is created after migrations so device_id is guaranteed to exist.
     await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, timestamp)"
+        "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, trained_at)"
     )
 
 
@@ -1077,7 +1077,7 @@ async def save_model_training_metadata(
               AND id NOT IN (
                   SELECT id FROM model_metadata
                   WHERE device_id IS ? AND model_type = ?
-                  ORDER BY timestamp DESC LIMIT 10
+                  ORDER BY id DESC LIMIT 10
               )
             """,
             (device_id, model_type, device_id, model_type),

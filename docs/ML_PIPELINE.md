@@ -2,6 +2,9 @@
 
 > Ostatnia aktualizacja: Kwiecień 2026
 
+**Powiązane dokumenty:**
+[Collector](COLLECTOR.md) · [Gateway Agent](GATEWAY_AGENT.md) · [Gateway API](GATEWAY_API.md) · [Dashboard](DASHBOARD.md) · [Infrastructure](INFRASTRUCTURE.md) · [Data Flow](DATA_FLOW.md)
+
 ---
 
 ## Spis treści
@@ -41,70 +44,32 @@ Prosta analogia: wyobraź sobie, że Twój inteligentny termostat normalnie łą
 
 ## Architektura — jak dane płyną
 
+> Pełny diagram end-to-end: [Data Flow](DATA_FLOW.md)
+
 ```
-  Urządzenia IoT (telefony, kamery, termostaty...)
+  collector (tcpdump+tshark) → INSERT traffic_flows (SQLite)
        │
-       │ łączą się z WiFi (hostapd)
        ▼
-  ┌─────────────────┐
-  │  gateway-agent   │  Zarządza WiFi AP, DHCP, NAT
-  │  (hostNetwork)   │  Wystawia listę podłączonych urządzeń
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────┐
-  │    collector     │  Przechwytuje pakiety sieciowe (tcpdump + tshark)
-  │  (hostNetwork)   │  Parsuje: IP, porty, DNS, ICMP, rozmiar
-  │                  │  Zapisuje do bazy: traffic_flows + devices
-  └────────┬────────┘
-           │
-           │  SQLite (WAL mode, /data/iot-security.db)
-           ▼
-  ┌─────────────────┐
-  │   ml-trainer     │  CronJob co 30 minut
-  │                  │  1. Czyta traffic_flows z ostatnich 24h
-  │                  │  2. Tworzy "feature buckets" (5-min okna per device)
-  │                  │  3. Trenuje 4 modele ML per device
-  │                  │  4. Zapisuje modele do /data/models/*.joblib
-  │                  │  5. Zapisuje metryki do model_metadata
-  └─────────────────┘
-           │
-           │  Pliki .joblib na dysku (Longhorn PVC)
-           ▼
-  ┌─────────────────┐
-  │  ml-inference    │  Loop co 60 sekund
-  │                  │  1. Czyta traffic_flows
-  │                  │  2. Ładuje modele z dysku
-  │                  │  3. Scoruje każde urządzenie (anomaly_score)
-  │                  │  4. Liczy risk_score (0–100%)
-  │                  │  5. Generuje behavior_alerts (9 heurystyk)
-  │                  │  6. Zapisuje wyniki do bazy
-  └────────┬────────┘
-           │
-           │  SQLite
-           ▼
-  ┌─────────────────┐
-  │   gateway-api    │  REST API (FastAPI + uvicorn)
-  │                  │  Czyta z bazy, serwuje dane do dashboardu
-  │                  │  WebSocket /ws/alerts — push nowych anomalii
-  └────────┬────────┘
-           │
-           │  HTTP / WebSocket
-           ▼
-  ┌─────────────────┐
-  │    dashboard     │  Web UI (FastAPI + HTMX + TailwindCSS)
-  │                  │  Widoki: Devices, Timeline, Top Talkers, Anomalies
-  │                  │  Per-device: risk, model comparison, alerty, wykresy
-  └─────────────────┘
+  ml-trainer (CronJob co 30 min) → FeatureExtractor → fit() → .joblib
+       │
+       ▼
+  ml-inference (loop co 60s) → score() + behavior_alerts → risk_score
+       │
+       ▼
+  gateway-api → dashboard
 ```
 
 **Kluczowe:** Trener i inference to **osobne procesy**. Nie komunikują się bezpośrednio. Dzielą:
 - Bazę SQLite (`/data/iot-security.db`) — WAL mode pozwala czytać i pisać równocześnie
 - Pliki modeli (`/data/models/`) — inference sprawdza mtime pliku co cykl
 
+Szczegóły poszczególnych komponentów: [Collector](COLLECTOR.md), [Gateway Agent](GATEWAY_AGENT.md), [Gateway API](GATEWAY_API.md), [Dashboard](DASHBOARD.md).
+
 ---
 
 ## Feature Extraction — zamiana ruchu na liczby
+
+> Jak surowe pola tshark mapują się na features: [Data Flow — Mapowanie](DATA_FLOW.md#mapowanie-pola-tshark--ml-features)
 
 Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla modelu ML. Trzeba je zamienić na **feature buckets** — podsumowania ruchu per urządzenie w oknach czasowych.
 
@@ -493,7 +458,20 @@ Threshold też jest wyrażony jako z-score, więc `_risk_from_score(z_score, z_t
 
 ## Tabele w bazie danych
 
-Pełna baza SQLite at `/data/iot-security.db`.
+> Pełny schemat bazy danych: [Data Flow — Schemat bazy danych](DATA_FLOW.md#schemat-bazy-danych)
+
+Tabele używane bezpośrednio przez ML pipeline:
+
+| Tabela | Rola ML | Kto pisze | Kto czyta |
+|--------|---------|-----------|-----------|
+| `traffic_flows` | Surowe dane wejściowe | collector | ml-trainer, ml-inference |
+| `model_metadata` | Metryki treningu | ml-trainer | gateway-api (ML Health) |
+| `device_inference_history` | Historia wyników inference | ml-inference | gateway-api (wykresy) |
+| `device_behavior_alerts` | Alerty heurystyczne | ml-inference | gateway-api (feed alertów) |
+| `anomalies` | Anomalie ML | ml-inference | gateway-api (feed anomalii) |
+| `devices` | Risk score | ml-inference (UPDATE) | gateway-api (dashboard) |
+| `global_training_config` | Globalne parametry | gateway-api | ml-trainer, ml-inference |
+| `device_training_config` | Per-device parametry | gateway-api | ml-trainer, ml-inference |
 
 ### `model_metadata` — metryki treningu
 
@@ -543,6 +521,8 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 ---
 
 ## API Endpoints (ML-related)
+
+> Pełna lista endpointów API: [Gateway API](GATEWAY_API.md#endpointy)
 
 ### Training
 

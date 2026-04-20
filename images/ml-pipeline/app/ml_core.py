@@ -607,7 +607,11 @@ async def get_device_flows(device_id: int, hours: int = 24) -> pd.DataFrame:
     return df
 
 
+_MAX_INFERENCE_FLOWS: int = int(os.getenv("MAX_INFERENCE_FLOWS", "500000"))
+
+
 async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
+    row_limit = _MAX_INFERENCE_FLOWS
     async with aiosqlite.connect(DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
@@ -619,10 +623,13 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
             FROM traffic_flows
             WHERE timestamp >= datetime('now', '-' || ? || ' hours')
             ORDER BY device_id, timestamp
-        """, (hours,))
+            LIMIT ?
+        """, (hours, row_limit))
         rows = await cursor.fetchall()
     if not rows:
         return pd.DataFrame()
+    if len(rows) >= row_limit:
+        log.warning("get_all_recent_flows_truncated", row_limit=row_limit, hours=hours)
     df = pd.DataFrame([dict(row) for row in rows])
     df['timestamp'] = pd.to_datetime(df['timestamp'], format="mixed")
     if 'flags' in df.columns:
@@ -630,6 +637,50 @@ async def get_all_recent_flows(hours: int = 24) -> pd.DataFrame:
         df['dns_rcode'] = df['flags'].apply(lambda value: value.get('dns_rcode') if isinstance(value, dict) else None)
         df['icmp_type'] = df['flags'].apply(lambda value: value.get('icmp_type') if isinstance(value, dict) else None)
         df['icmp_code'] = df['flags'].apply(lambda value: value.get('icmp_code') if isinstance(value, dict) else None)
+    return df
+
+
+async def get_device_inference_history_features(hours: int = 168) -> pd.DataFrame:
+    """Load aggregated feature buckets from device_inference_history.
+
+    Returns a DataFrame with columns: device_id, bucket_start, total_bytes,
+    packets, unique_destinations, unique_ports, dns_queries,
+    avg_bytes_per_packet, packet_rate, connection_duration_avg.
+
+    Used as the history baseline in run_inference_once so we avoid loading
+    7 days of raw traffic_flows into memory on each inference cycle.
+    """
+    feature_cols = [
+        'total_bytes', 'packets', 'unique_destinations', 'unique_ports',
+        'dns_queries', 'avg_bytes_per_packet', 'packet_rate',
+        'connection_duration_avg',
+    ]
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        cursor = await conn.execute("""
+            SELECT device_id, bucket_start, features
+            FROM device_inference_history
+            WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+            ORDER BY device_id, bucket_start
+        """, (hours,))
+        rows = await cursor.fetchall()
+    if not rows:
+        return pd.DataFrame(columns=['device_id', 'bucket_start'] + feature_cols)
+    records = []
+    for row in rows:
+        raw = json.loads(row['features']) if row['features'] else {}
+        record = {
+            'device_id': row['device_id'],
+            'bucket_start': row['bucket_start'],
+        }
+        for col in feature_cols:
+            record[col] = raw.get(col, 0.0)
+        records.append(record)
+    df = pd.DataFrame(records)
+    df['bucket_start'] = pd.to_datetime(df['bucket_start'], format="mixed")
     return df
 
 

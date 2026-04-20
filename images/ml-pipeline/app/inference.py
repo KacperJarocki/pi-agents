@@ -6,7 +6,7 @@ from statistics import median, pstdev
 
 import pandas as pd
 
-from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows
+from .ml_core import FeatureExtractor, AnomalyDetector, get_all_recent_flows, get_device_inference_history_features
 from .ml_core import log
 from .ml_core import batch_save_inference_cycle, ensure_schema, DB_PATH, get_detector, get_device_model_configs
 from .ml_core import AVAILABLE_MODEL_TYPES, batch_save_model_scores
@@ -448,9 +448,11 @@ def _build_behavior_alerts(
 
 
 async def run_inference_once(detector: AnomalyDetector, hours: int):
-    # Load flows once (baseline_hours >= hours, so we load the larger window)
-    baseline_hours = int(os.getenv("BEHAVIOR_BASELINE_HOURS", "168"))
-    all_flows = await get_all_recent_flows(hours=max(hours, baseline_hours))
+    # Load raw flows for the inference window only (24h by default).
+    # History features are loaded from device_inference_history (up to 7 days)
+    # to avoid pulling hundreds of thousands of raw rows into memory.
+    baseline_history_hours = int(os.getenv("BEHAVIOR_BASELINE_HOURS", "168"))
+    all_flows = await get_all_recent_flows(hours=hours)
     
     if all_flows.empty:
         log.info("inference_no_data")
@@ -463,14 +465,17 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     extractor = FeatureExtractor()
     features = _cached_extract(extractor, flows, "inference:recent")
     
-    # Prepare baseline flows with bucket_start column
+    # Prepare baseline flows with bucket_start column (24h raw flows for beaconing detection)
     baseline_flows = all_flows
     if not baseline_flows.empty:
         baseline_flows["bucket_start"] = baseline_flows["timestamp"].dt.floor(f"{extractor.bucket_minutes}min")
     
-    baseline_features = _cached_extract(extractor, baseline_flows, "inference:baseline")
+    # Load history features from device_inference_history instead of re-extracting from raw flows
+    baseline_features = await get_device_inference_history_features(hours=baseline_history_hours)
+
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
+    model_path = os.getenv("MODEL_PATH", "/data/models")
 
     # Load per-device model type configs (determines which model drives risk_score)
     device_model_configs = await get_device_model_configs()
@@ -488,11 +493,11 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
 
             # Score ALL available model types for this device
             for model_type in AVAILABLE_MODEL_TYPES:
-                device_detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+                device_detector = get_detector(model_type, model_path=model_path)
                 if not device_detector.load_model(device_id=int(device_id)):
                     # For active model, also try legacy fallback
                     if model_type == active_model_type:
-                        legacy_detector = AnomalyDetector(model_path=os.getenv("MODEL_PATH", "/data/models"))
+                        legacy_detector = AnomalyDetector(model_path=model_path)
                         if not legacy_detector.load_model(device_id=int(device_id)):
                             log.warning("inference_model_missing_for_device", device_id=int(device_id), model_type=model_type)
                             continue

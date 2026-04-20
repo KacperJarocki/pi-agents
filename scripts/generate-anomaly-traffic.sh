@@ -72,6 +72,12 @@ trap cleanup EXIT INT TERM
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 check_ml_status() {
+  # When called from verify-e2e.sh on the AP network, the API is unreachable.
+  # SKIP_ML_CHECK=1 suppresses the API call.
+  if [[ "${SKIP_ML_CHECK:-0}" == "1" ]]; then
+    printf '[info] Skipping ML status check (SKIP_ML_CHECK=1)\n'
+    return
+  fi
   local status
   status=$(curl -sf --max-time 5 "${API_URL}/api/v1/metrics/ml-status" 2>/dev/null || true)
   if [[ -z "$status" ]]; then

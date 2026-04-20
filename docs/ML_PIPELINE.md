@@ -642,36 +642,48 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 
 ### Przegląd
 
-System posiada skrypt `scripts/verify-e2e.sh` który weryfikuje cały pipeline od collectora po alerty na dashboardzie. Skrypt automatycznie:
+System posiada skrypt `scripts/verify-e2e.sh` który weryfikuje cały pipeline od collectora po alerty na dashboardzie.
 
-1. Sprawdza czy collector zbiera ruch (traffic_flows)
-2. Sprawdza czy istnieją wytrenowane modele (model_metadata)
-3. Sprawdza czy inference loop działa (pod status + logi)
-4. Zapisuje snapshot anomalii i alertów PRZED testem
-5. Generuje anomalny ruch przez IoT WiFi AP
-6. Czeka na cykl inference (konfigurowalne, domyślnie 5 min)
-7. Porównuje stan PO teście — sprawdza czy:
-   - Risk score wzrósł
-   - Nowe anomalie zostały utworzone
-   - Nowe behavior alerts się pojawiły
-8. Weryfikuje WebSocket endpoint dashboardu
-9. Pokazuje health summary podów K8s
+**Problem sieciowy**: Będąc podłączonym do IoT WiFi AP, nie masz dostępu do API (za Traefik ingress). Dlatego skrypt działa w trzech fazach z pauzami na przełączenie sieci:
+
+```
+Faza 1 (off AP)  → Sprawdzenie stanu via API
+     ↓  pauza: "Podłącz się do IoT WiFi AP, naciśnij Enter"
+Faza 2 (on AP)   → Generowanie anomalnego ruchu
+     ↓  pauza: "Odłącz się od AP, wróć do normalnej sieci, naciśnij Enter"
+Faza 3 (off AP)  → Czekanie na inference + weryfikacja wyników
+```
+
+Skrypt automatycznie:
+
+1. **Faza 1** — Sprawdza collector, trainer, inference, robi snapshot alertów
+2. **Faza 2** — Generuje anomalny ruch (uruchamia `generate-anomaly-traffic.sh`)
+3. **Faza 3** — Czeka na cykl inference, porównuje stan PRZED vs PO:
+   - Risk score wzrósł?
+   - Nowe anomalie utworzone?
+   - Nowe behavior alerts?
+4. Weryfikuje WebSocket endpoint dashboardu
+5. Pokazuje health summary podów K8s
 
 ### Wymagania
 
-- `kubectl` skonfigurowane z dostępem do klastra
-- `curl` zainstalowane
-- Uruchomienie z urządzenia podłączonego do IoT WiFi (dla generowania ruchu)
+- `curl` i `python3` zainstalowane
+- API dostępne (Faza 1 i 3 — NIE na AP)
+- Dostęp do IoT WiFi AP (Faza 2 — generowanie ruchu)
+- `kubectl` skonfigurowane (opcjonalnie, dla pod health checks)
 - Przynajmniej jeden wytrenowany model dla testowanego urządzenia
 
 ### Użycie
 
 ```bash
-# Pełny test E2E (generuje ruch + weryfikuje)
+# Pełny test E2E — z pauzami na przełączenie sieci
 ./scripts/verify-e2e.sh
 
-# Tylko weryfikacja stanu (bez generowania ruchu)
+# Tylko weryfikacja stanu (bez generowania ruchu, bez pauz)
 ./scripts/verify-e2e.sh --skip-traffic
+
+# Bez pauz — uruchamiasz z klastra lub masz dostęp do obu sieci
+./scripts/verify-e2e.sh --no-pause
 
 # Konkretne urządzenie + konkretny tryb ruchu
 ./scripts/verify-e2e.sh --device-id 2 --traffic-mode portscan
@@ -713,6 +725,6 @@ Skrypt `scripts/generate-anomaly-traffic.sh` obsługuje 9 trybów, każdy celuje
 | "Risk score still 0" | Inference nie scoruje | Sprawdź logi: `kubectl logs deploy/ml-inference -n iot-security` |
 | "No new anomalies" | Threshold za wysoki / za mało baseline | Więcej normalnego ruchu → retraining → anomaly traffic |
 | "No alerts in last hour" | Za mało historii (168h baseline) | System potrzebuje kilku dni normalnego ruchu |
-| "Cannot reach API" | Nie na IoT WiFi / API down | Sprawdź `kubectl get pods` i WiFi connection |
+| "Cannot reach API" | Podłączony do IoT AP / API down | Upewnij się, że NIE jesteś na IoT WiFi (API jest za Traefik ingress). Użyj `--no-pause` jeśli jesteś na klastrze |
 | **Active model** | Który z 4 typów modelu jest używany do obliczania risk_score dla urządzenia. Domyślnie Isolation Forest. Można zmienić w UI. |
 | **Score normalization** | Mapowanie surowych scores na z-score żeby porównywać modele na wspólnej skali. |

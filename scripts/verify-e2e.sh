@@ -6,13 +6,22 @@
 #   collector → traffic_flows → ml-trainer → model → ml-inference →
 #   anomalies + behavior_alerts + risk_score → dashboard alerts
 #
+# The script runs in three phases with network-switch pauses between them:
+#
+#   Phase 1 (off AP)  — API verification: collector, trainer, inference state
+#         ↓  pause: "Connect to the IoT WiFi AP, then press Enter"
+#   Phase 2 (on AP)   — Anomaly traffic generation via generate-anomaly-traffic.sh
+#         ↓  pause: "Disconnect from AP, reconnect to normal network, press Enter"
+#   Phase 3 (off AP)  — Wait for inference, verify new anomalies/alerts/risk
+#
 # Usage:
 #   ./scripts/verify-e2e.sh [OPTIONS]
 #
 # Options:
 #   --api-url URL        Gateway API URL (default: http://iot-api.homelab.kacperjarocki.dev)
 #   --device-id ID       Device ID to verify (default: auto-detect first device)
-#   --skip-traffic       Skip anomaly traffic generation (verify existing state only)
+#   --skip-traffic       Skip traffic generation — verify existing state only (Phase 1+3)
+#   --no-pause           Skip network-switch pauses (use when running from the cluster)
 #   --traffic-mode MODE  Traffic mode: burst|portscan|dnsfail|full (default: full)
 #   --wait-minutes MIN   Minutes to wait for inference after traffic (default: 5)
 #   --namespace NS       K8s namespace (default: iot-security)
@@ -20,10 +29,10 @@
 #   -h, --help           Show this help
 #
 # Prerequisites:
-#   - kubectl configured with access to the cluster
-#   - curl installed
-#   - Run from a device connected to the IoT WiFi (for traffic generation)
-#   - At least one trained model for the target device
+#   - curl and python3 installed
+#   - API reachable (Phase 1 & 3 — off the AP network)
+#   - Connected to the IoT WiFi AP (Phase 2 — traffic generation)
+#   - kubectl configured (optional, for pod health checks)
 #
 # Exit codes:
 #   0  All checks passed
@@ -36,6 +45,7 @@ set -euo pipefail
 API_URL="${API_URL:-http://iot-api.homelab.kacperjarocki.dev}"
 DEVICE_ID=""
 SKIP_TRAFFIC=false
+NO_PAUSE=false
 TRAFFIC_MODE="full"
 WAIT_MINUTES=5
 NAMESPACE="iot-security"
@@ -47,19 +57,21 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --api-url)     API_URL="$2"; shift 2 ;;
-    --device-id)   DEVICE_ID="$2"; shift 2 ;;
+    --api-url)      API_URL="$2"; shift 2 ;;
+    --device-id)    DEVICE_ID="$2"; shift 2 ;;
     --skip-traffic) SKIP_TRAFFIC=true; shift ;;
+    --no-pause)     NO_PAUSE=true; shift ;;
     --traffic-mode) TRAFFIC_MODE="$2"; shift 2 ;;
     --wait-minutes) WAIT_MINUTES="$2"; shift 2 ;;
-    --namespace)   NAMESPACE="$2"; shift 2 ;;
-    --verbose)     VERBOSE=true; shift ;;
+    --namespace)    NAMESPACE="$2"; shift 2 ;;
+    --verbose)      VERBOSE=true; shift ;;
     -h|--help)
       sed -n '2,/^# ─.*─$/p' "$0" | sed 's/^# \?//'
       exit 0
@@ -76,8 +88,20 @@ WARN=0
 check_pass() { printf "${GREEN}  ✓ PASS${NC} %s\n" "$1"; PASS=$((PASS + 1)); }
 check_fail() { printf "${RED}  ✗ FAIL${NC} %s\n" "$1"; FAIL=$((FAIL + 1)); }
 check_warn() { printf "${YELLOW}  ⚠ WARN${NC} %s\n" "$1"; WARN=$((WARN + 1)); }
+phase()      { printf "\n${BOLD}${CYAN}━━ %s ━━${NC}\n" "$1"; }
 section()    { printf "\n${BOLD}${BLUE}══ %s ══${NC}\n" "$1"; }
 info()       { printf "${BLUE}  ℹ${NC} %s\n" "$1"; }
+
+wait_for_user() {
+  if $NO_PAUSE; then
+    info "(--no-pause) Skipping network switch pause"
+    return
+  fi
+  printf "\n${BOLD}${YELLOW}  ⏸  %s${NC}\n" "$1"
+  printf "${YELLOW}     Press Enter when ready...${NC}"
+  read -r
+  printf "\n"
+}
 
 api_get() {
   local path="$1"
@@ -93,7 +117,6 @@ api_get() {
 }
 
 json_field() {
-  # Simple JSON field extraction using python3 (always available on the gateway)
   python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps($1))" 2>/dev/null
 }
 
@@ -101,25 +124,29 @@ json_val() {
   python3 -c "import json,sys; d=json.load(sys.stdin); v=$1; print(v if v is not None else '')" 2>/dev/null
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1 — API verification (off AP)
+# ══════════════════════════════════════════════════════════════════════════════
+phase "PHASE 1 — API verification (you should NOT be on the IoT WiFi AP)"
+
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 section "Prerequisites"
 
 command -v curl >/dev/null 2>&1 && check_pass "curl available" || { check_fail "curl not found"; exit 2; }
 command -v python3 >/dev/null 2>&1 && check_pass "python3 available" || { check_fail "python3 not found"; exit 2; }
 
-# Test API connectivity
 if api_get "/devices" >/dev/null 2>&1; then
   check_pass "API reachable at ${API_URL}"
 else
   check_fail "Cannot reach API at ${API_URL}"
-  printf '\n  Make sure you are on the IoT WiFi or the API is port-forwarded.\n'
+  printf '\n  Make sure you are NOT on the IoT WiFi AP (the API is behind Traefik ingress).\n'
+  printf '  Or use --no-pause if running from the cluster itself.\n'
   exit 2
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── 1. Collector ──────────────────────────────────────────────────────────────
 section "1. Collector — traffic_flows"
 
-# Auto-detect device if not specified
 if [[ -z "$DEVICE_ID" ]]; then
   DEVICE_ID=$(api_get "/devices" | json_val "d['devices'][0]['id'] if d.get('devices') else ''")
   if [[ -z "$DEVICE_ID" ]]; then
@@ -129,7 +156,6 @@ if [[ -z "$DEVICE_ID" ]]; then
   info "Auto-detected device_id=${DEVICE_ID}"
 fi
 
-# Check device exists and has recent activity
 DEVICE_JSON=$(api_get "/devices/${DEVICE_ID}" || echo '{}')
 LAST_SEEN=$(echo "$DEVICE_JSON" | json_val "d.get('last_seen', '')")
 RISK_BEFORE=$(echo "$DEVICE_JSON" | json_val "d.get('risk_score', 0)")
@@ -141,7 +167,6 @@ else
   check_warn "Device ${DEVICE_ID} has no last_seen — collector may not have captured traffic yet"
 fi
 
-# Check flow count via training-data endpoint
 TRAINING_DATA=$(api_get "/ml/devices/${DEVICE_ID}/training-data?hours=1" || echo '{}')
 FLOW_COUNT_1H=$(echo "$TRAINING_DATA" | json_val "d.get('flow_count', 0)")
 info "Flows in last 1 hour: ${FLOW_COUNT_1H}"
@@ -152,7 +177,7 @@ else
   check_warn "No flows in last hour — collector may be idle or device has no traffic"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── 2. ML Trainer ─────────────────────────────────────────────────────────────
 section "2. ML Trainer — model_metadata"
 
 ML_STATUS=$(api_get "/metrics/ml-status" || echo '{}')
@@ -160,7 +185,6 @@ MODELS_READY=$(echo "$ML_STATUS" | json_val "d.get('device_models_ready', 0)")
 MODEL_HEALTH=$(echo "$ML_STATUS" | json_val "d.get('model_health_available', False)")
 info "Models ready: ${MODELS_READY}, health data available: ${MODEL_HEALTH}"
 
-# Check if this specific device has training metrics
 DEVICE_METRICS=$(echo "$ML_STATUS" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -175,7 +199,6 @@ print(json.dumps({'count': 0, 'metrics': []}))
 METRIC_COUNT=$(echo "$DEVICE_METRICS" | json_val "d['count']")
 if [[ "$METRIC_COUNT" -gt 0 ]] 2>/dev/null; then
   check_pass "Device ${DEVICE_ID} has ${METRIC_COUNT} trained model(s)"
-  # Show model details
   echo "$DEVICE_METRICS" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -188,10 +211,9 @@ else
   info "Or:  Train Now via dashboard after enough traffic is collected"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── 3. ML Inference ───────────────────────────────────────────────────────────
 section "3. ML Inference — risk scoring"
 
-# Check inference pod is running
 if command -v kubectl >/dev/null 2>&1; then
   INF_STATUS=$(kubectl get pods -n "$NAMESPACE" -l component=ml-inference -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "unknown")
   if [[ "$INF_STATUS" == "Running" ]]; then
@@ -200,7 +222,6 @@ if command -v kubectl >/dev/null 2>&1; then
     check_fail "ml-inference pod status: ${INF_STATUS}"
   fi
 
-  # Check recent inference logs
   LAST_INF_LOG=$(kubectl logs -n "$NAMESPACE" deploy/ml-inference --tail=5 2>/dev/null | grep -o '"event":"inference_complete"' | head -1 || echo "")
   if [[ -n "$LAST_INF_LOG" ]]; then
     check_pass "Inference loop is producing results"
@@ -211,14 +232,13 @@ else
   check_warn "kubectl not available — skipping pod status checks"
 fi
 
-# Check device risk score
 if [[ "$RISK_BEFORE" != "0" && "$RISK_BEFORE" != "None" && -n "$RISK_BEFORE" ]] 2>/dev/null; then
   check_pass "Device ${DEVICE_ID} has risk_score=${RISK_BEFORE} (non-zero, inference is scoring)"
 else
   check_warn "Device ${DEVICE_ID} risk_score=${RISK_BEFORE} — may need more inference cycles"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ── 4. Snapshot ───────────────────────────────────────────────────────────────
 section "4. Snapshot — anomalies & alerts BEFORE traffic"
 
 ANOMALIES_BEFORE=$(api_get "/anomalies?device_id=${DEVICE_ID}&limit=1" || echo '{}')
@@ -230,9 +250,16 @@ ALERT_COUNT_BEFORE=$(echo "$ALERTS_BEFORE" | json_val "d.get('total', 0)")
 info "Unified alerts (all devices, last 1h): ${ALERT_COUNT_BEFORE}"
 
 # ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2 — Traffic generation (on AP)
+# ══════════════════════════════════════════════════════════════════════════════
 if $SKIP_TRAFFIC; then
-  section "5. SKIPPED — anomaly traffic generation (--skip-traffic)"
+  phase "PHASE 2 — SKIPPED (--skip-traffic)"
+  info "Skipping traffic generation and network switch pauses"
 else
+  phase "PHASE 2 — Anomaly traffic generation (requires IoT WiFi AP)"
+
+  wait_for_user "Connect to the IoT WiFi AP now"
+
   section "5. Generating anomaly traffic (mode=${TRAFFIC_MODE})"
 
   if [[ ! -f "${SCRIPT_DIR}/generate-anomaly-traffic.sh" ]]; then
@@ -240,15 +267,31 @@ else
   else
     info "Starting traffic generation (mode=${TRAFFIC_MODE})..."
     info "This will take a few minutes depending on the mode."
-    # Run with shorter duration for testing
-    SECONDS_TOTAL=120 bash "${SCRIPT_DIR}/generate-anomaly-traffic.sh" "$TRAFFIC_MODE" || {
+    # Tell generate-anomaly-traffic.sh to skip the ML status API call
+    # (we can't reach the API from the AP network).
+    SKIP_ML_CHECK=1 SECONDS_TOTAL=120 bash "${SCRIPT_DIR}/generate-anomaly-traffic.sh" "$TRAFFIC_MODE" || {
       check_warn "Traffic generation exited with non-zero (some probes may have failed — this is normal)"
     }
     check_pass "Anomaly traffic generation completed"
   fi
 
-  # ── Wait for inference ────────────────────────────────────────────────────
-  section "6. Waiting for inference to process (${WAIT_MINUTES} min)"
+  # ── Switch back to normal network ──────────────────────────────────────────
+  phase "PHASE 3 — Post-traffic verification (requires normal network)"
+
+  wait_for_user "Disconnect from the IoT WiFi AP and reconnect to your normal network"
+
+  # Verify API is reachable again after network switch
+  section "6. Reconnection check"
+  if api_get "/devices" >/dev/null 2>&1; then
+    check_pass "API reachable again at ${API_URL}"
+  else
+    check_fail "Cannot reach API at ${API_URL} — are you back on your normal network?"
+    printf '\n  Reconnect to your normal network and re-run with --skip-traffic to verify results.\n'
+    exit 1
+  fi
+
+  # ── Wait for inference ──────────────────────────────────────────────────────
+  section "7. Waiting for inference to process (${WAIT_MINUTES} min)"
   info "Inference interval is 60s. Waiting ${WAIT_MINUTES} minutes for at least 1 full cycle..."
 
   TOTAL_WAIT=$((WAIT_MINUTES * 60))
@@ -264,14 +307,14 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-section "7. Verification — anomalies & alerts AFTER traffic"
+# PHASE 3 (cont.) — Verify results via API
+# ══════════════════════════════════════════════════════════════════════════════
+section "8. Verification — anomalies & alerts AFTER traffic"
 
-# Re-fetch device state
 DEVICE_JSON_AFTER=$(api_get "/devices/${DEVICE_ID}" || echo '{}')
 RISK_AFTER=$(echo "$DEVICE_JSON_AFTER" | json_val "d.get('risk_score', 0)")
 info "Risk score: before=${RISK_BEFORE} → after=${RISK_AFTER}"
 
-# Check risk score changed
 if python3 -c "
 before = float('${RISK_BEFORE}' or '0')
 after = float('${RISK_AFTER}' or '0')
@@ -284,7 +327,6 @@ else
   check_fail "Risk score is still 0 — inference may not have scored the device"
 fi
 
-# Check anomalies
 ANOMALIES_AFTER=$(api_get "/anomalies?device_id=${DEVICE_ID}&limit=5" || echo '{}')
 ANOMALY_COUNT_AFTER=$(echo "$ANOMALIES_AFTER" | json_val "d.get('total', 0)")
 info "Anomalies: before=${ANOMALY_COUNT_BEFORE} → after=${ANOMALY_COUNT_AFTER}"
@@ -292,7 +334,6 @@ info "Anomalies: before=${ANOMALY_COUNT_BEFORE} → after=${ANOMALY_COUNT_AFTER}
 if [[ "$ANOMALY_COUNT_AFTER" -gt "$ANOMALY_COUNT_BEFORE" ]] 2>/dev/null; then
   NEW_ANOMALIES=$((ANOMALY_COUNT_AFTER - ANOMALY_COUNT_BEFORE))
   check_pass "NEW anomalies created: +${NEW_ANOMALIES}"
-  # Show latest anomaly details
   echo "$ANOMALIES_AFTER" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -310,7 +351,6 @@ else
   info "  - Inference hasn't run yet (wait 1-2 more minutes)"
 fi
 
-# Check behavior alerts
 ALERTS_AFTER=$(api_get "/alerts?limit=50&since_hours=1" || echo '{}')
 ALERT_COUNT_AFTER=$(echo "$ALERTS_AFTER" | json_val "d.get('total', 0)")
 info "Unified alerts (last 1h): before=${ALERT_COUNT_BEFORE} → after=${ALERT_COUNT_AFTER}"
@@ -318,7 +358,6 @@ info "Unified alerts (last 1h): before=${ALERT_COUNT_BEFORE} → after=${ALERT_C
 if [[ "$ALERT_COUNT_AFTER" -gt "$ALERT_COUNT_BEFORE" ]] 2>/dev/null; then
   NEW_ALERTS=$((ALERT_COUNT_AFTER - ALERT_COUNT_BEFORE))
   check_pass "NEW alerts created: +${NEW_ALERTS}"
-  # Show alert types
   echo "$ALERTS_AFTER" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -337,15 +376,13 @@ else
   info "If the system is new, alerts will appear after a few hours of normal traffic"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
-section "8. Dashboard WebSocket — alert delivery"
+# ── 9. Dashboard WebSocket ────────────────────────────────────────────────────
+section "9. Dashboard WebSocket — alert delivery"
 
-# Test WS connectivity (just check if the endpoint responds to HTTP upgrade)
 WS_CHECK=$(curl -sf --max-time 5 -o /dev/null -w '%{http_code}' \
   -H "Upgrade: websocket" -H "Connection: Upgrade" \
   "${API_URL/http/http}/../ws/alerts" 2>/dev/null || echo "000")
 
-# Try dashboard WS endpoint instead (the one that actually pushes alerts)
 DASHBOARD_URL="${DASHBOARD_URL:-http://iot-dashboard.homelab.kacperjarocki.dev}"
 DASH_WS_CHECK=$(curl -sf --max-time 5 -o /dev/null -w '%{http_code}' \
   "${DASHBOARD_URL}/ws/alerts" 2>/dev/null || echo "000")
@@ -358,15 +395,14 @@ else
   check_warn "Cannot reach dashboard WS endpoint — check DASHBOARD_URL"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
-section "9. Pod health summary"
+# ── 10. Pod health ────────────────────────────────────────────────────────────
+section "10. Pod health summary"
 
 if command -v kubectl >/dev/null 2>&1; then
   printf '\n'
   kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || check_warn "kubectl failed"
   printf '\n'
 
-  # Check CronJob last schedule
   LAST_CRON=$(kubectl get cronjob ml-trainer -n "$NAMESPACE" -o jsonpath='{.status.lastScheduleTime}' 2>/dev/null || echo "unknown")
   info "ml-trainer CronJob last run: ${LAST_CRON}"
 else

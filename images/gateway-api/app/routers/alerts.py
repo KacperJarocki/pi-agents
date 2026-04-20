@@ -13,13 +13,25 @@ async def list_alerts(
     limit: int = Query(50, ge=1, le=500),
     severity: Optional[str] = None,
     since_hours: int = Query(24, ge=1, le=168),
+    source: Optional[str] = Query(
+        None,
+        description="Filter by alert source: 'anomaly' (ML models) or 'behavior' (heuristics). Omit for all.",
+        pattern="^(anomaly|behavior)$",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Unified alert feed: IsolationForest anomalies + heuristic behavior alerts."""
+    """Unified alert feed: ML anomalies + heuristic behavior alerts.
+
+    Use the ``source`` query parameter to filter:
+    - ``anomaly``  — only ML-generated anomalies (Isolation Forest, LOF, …)
+    - ``behavior`` — only heuristic behavior alerts
+    - omit        — both sources (default)
+    """
     service = AlertService(db)
     alerts, total = await service.list_unified_alerts(
         limit=limit,
         severity=severity,
         since_hours=since_hours,
+        source=source,
     )
     return UnifiedAlertListResponse(total=total, alerts=alerts)

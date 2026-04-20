@@ -149,7 +149,15 @@
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
-                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Alerts</div>
+                    <div class="flex items-center justify-between">
+                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Behavior Alerts</div>
+                        <select id="device-alert-source-filter" class="select select-xs select-bordered bg-base-300 text-xs"
+                                onchange="applyDeviceAlertFilter()">
+                            <option value="">All Sources</option>
+                            <option value="anomaly">Anomaly Detection</option>
+                            <option value="behavior">Behavior Analysis</option>
+                        </select>
+                    </div>
                     <div id="behavior-alert-feed" class="mt-3 space-y-3 max-h-[340px] overflow-y-auto"></div>
                 </div>
             </div>
@@ -585,6 +593,50 @@
             metaNode.innerHTML = `<span>min ${formatter ? formatter(minValue) : minValue.toFixed(4)}</span><span>max ${formatter ? formatter(maxValue) : maxValue.toFixed(4)}</span><span>${data.length} samples</span>`;
         }
 
+        /* ── Device alert source filter (Anomaly Detection / Behavior Analysis) ── */
+        window._deviceBehaviorRows = [];
+        window._deviceAnomalyRows = [];
+        function applyDeviceAlertFilter() {
+            const filter = document.getElementById('device-alert-source-filter')?.value || '';
+            const node = document.getElementById('behavior-alert-feed');
+            const showBehavior = filter !== 'anomaly';
+            const showAnomaly = filter !== 'behavior';
+            const behaviorRows = showBehavior ? window._deviceBehaviorRows : [];
+            const anomalyRows = showAnomaly ? window._deviceAnomalyRows : [];
+
+            if (!behaviorRows.length && !anomalyRows.length) {
+                node.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No alerts for this device yet</div>';
+                return;
+            }
+            const behaviorHtml = behaviorRows.map(item => `
+                <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
+                    <div class="flex items-center justify-between gap-3 w-full">
+                        <div class="flex items-center gap-2">
+                            <span class="text-white font-medium">${esc(item.title)}</span>
+                            <span class="badge badge-xs badge-info">Behavior</span>
+                        </div>
+                        <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
+                    </div>
+                    <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
+                    <div class="mt-1 text-xs text-sky-300">${esc(item.alert_type)} / score=${Number(item.score || 0).toFixed(2)}</div>
+                </div>
+            `).join('');
+            const anomalyHtml = anomalyRows.map(item => `
+                <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
+                    <div class="flex items-center justify-between gap-3 w-full">
+                        <div class="flex items-center gap-2">
+                            <span class="text-white font-medium">${esc(item.anomaly_type)}</span>
+                            <span class="badge badge-xs badge-secondary">Anomaly</span>
+                        </div>
+                        <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
+                    </div>
+                    <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
+                    <div class="mt-1 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${esc(item.severity)}</div>
+                </div>
+            `).join('');
+            node.innerHTML = behaviorHtml + anomalyHtml;
+        }
+
         async function loadDevice() {
             _refreshCycle++;
             const heavy = (_refreshCycle % 2 === 1);
@@ -656,31 +708,11 @@
             const anomalyNode = document.getElementById('behavior-alert-feed');
             const behaviorRows = behaviorAlerts.alerts || [];
             const anomalyRows = anomalies.anomalies || [];
-            if (!behaviorRows.length && !anomalyRows.length) {
-                anomalyNode.innerHTML = '<div class="terminal rounded-xl p-3 text-slate-500">No behavior alerts for this device yet</div>';
-            } else {
-                const behaviorHtml = behaviorRows.map(item => `
-                    <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
-                        <div class="flex items-center justify-between gap-3 w-full">
-                            <div class="text-white font-medium">${esc(item.title)}</div>
-                            <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
-                        </div>
-                        <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
-                        <div class="mt-1 text-xs text-sky-300">${esc(item.alert_type)} / score=${Number(item.score || 0).toFixed(2)}</div>
-                    </div>
-                `).join('');
-                const anomalyHtml = anomalyRows.map(item => `
-                    <div class="alert ${item.severity === 'critical' ? 'alert-error' : 'alert-warning'} flex-col items-start">
-                        <div class="flex items-center justify-between gap-3 w-full">
-                            <div class="text-white font-medium">${esc(item.anomaly_type)}</div>
-                            <div class="text-xs text-slate-400">${fmtTs(item.timestamp)}</div>
-                        </div>
-                        <div class="mt-1 text-sm opacity-80">${esc(item.description || 'No description')}</div>
-                        <div class="mt-1 text-xs text-sky-300">score=${Number(item.score || 0).toFixed(4)} / ${esc(item.severity)}</div>
-                    </div>
-                `).join('');
-                anomalyNode.innerHTML = behaviorHtml + anomalyHtml;
-            }
+
+            // Store raw data for client-side source filtering
+            window._deviceBehaviorRows = behaviorRows;
+            window._deviceAnomalyRows = anomalyRows;
+            applyDeviceAlertFilter();
 
             if (heavy) {
                 renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
@@ -689,12 +721,8 @@
 
                 const alertRows = behaviorAlerts.alerts || [];
                 const anomalyRows2 = anomalies.anomalies || [];
-                const allDeviceAlerts = [
-                    ...alertRows.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), severity: a.severity, type: a.alert_type})),
-                    ...anomalyRows2.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), severity: a.severity, type: a.anomaly_type})),
-                ];
-                const devWarn = allDeviceAlerts.filter(a => a.severity !== 'critical');
-                const devCrit = allDeviceAlerts.filter(a => a.severity === 'critical');
+                const devAnomaly = anomalyRows2.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), type: a.anomaly_type}));
+                const devBehavior = alertRows.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), type: a.alert_type}));
 
                 const actx = document.getElementById('device-alert-timeline-chart');
                 if (deviceAlertChart) deviceAlertChart.destroy();
@@ -702,8 +730,8 @@
                     type: 'scatter',
                     data: {
                         datasets: [
-                            { label: 'Warning', data: devWarn, backgroundColor: 'rgba(245,158,11,0.7)', pointRadius: 5 },
-                            { label: 'Critical', data: devCrit, backgroundColor: 'rgba(239,68,68,0.7)', pointRadius: 6 },
+                            { label: 'Anomaly Detection', data: devAnomaly, backgroundColor: 'rgba(139,92,246,0.7)', borderColor: 'rgba(139,92,246,1)', pointRadius: 5 },
+                            { label: 'Behavior Analysis', data: devBehavior, backgroundColor: 'rgba(56,189,248,0.7)', borderColor: 'rgba(56,189,248,1)', pointRadius: 5 },
                         ]
                     },
                     options: {

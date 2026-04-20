@@ -257,8 +257,11 @@ async def get_alerts(limit: int = 50, since_hours: int = 24, severity: str | Non
 
 
 @app.get("/partial/alerts")
-async def partial_alerts(limit: int = 50, since_hours: int = 24):
-    data = await fetch_api(f"/alerts?limit={limit}&since_hours={since_hours}")
+async def partial_alerts(limit: int = 50, since_hours: int = 24, source: str = ""):
+    qs = f"/alerts?limit={limit}&since_hours={since_hours}"
+    if source in ("anomaly", "behavior"):
+        qs += f"&source={source}"
+    data = await fetch_api(qs)
     alerts = data.get("alerts", [])
 
     if not alerts:
@@ -280,9 +283,9 @@ async def partial_alerts(limit: int = 50, since_hours: int = 24):
 
         sev_badge = "badge-error" if severity == "critical" else "badge-warning"
         src_badge = (
-            '<span class="badge badge-xs badge-secondary">ML</span>'
+            '<span class="badge badge-xs badge-secondary">Anomaly</span>'
             if source == "isolation_forest" else
-            '<span class="badge badge-xs badge-info">heuristic</span>'
+            '<span class="badge badge-xs badge-info">Behavior</span>'
         )
         resolved_badge = (
             '<span class="badge badge-xs badge-ghost">resolved</span>' if resolved else ""

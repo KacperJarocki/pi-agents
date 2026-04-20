@@ -754,11 +754,19 @@ class AlertService:
         limit: int = 50,
         severity: Optional[str] = None,
         since_hours: int = 24,
+        source: Optional[str] = None,
     ) -> tuple[list, int]:
+        """Return unified alert feed with optional source filter.
+
+        Args:
+            source: ``'anomaly'`` for ML-only, ``'behavior'`` for heuristics-only,
+                    ``None`` for both (UNION ALL).
+        """
         since_param = f"-{since_hours} hours"
         sev_clause = "AND severity = :severity" if severity else ""
 
-        sql_text = f"""
+        # -- Build per-source SELECTs --------------------------------
+        anomaly_select = f"""
             SELECT
                 'isolation_forest' AS source,
                 a.id,
@@ -775,9 +783,9 @@ class AlertService:
             LEFT JOIN devices d ON d.id = a.device_id
             WHERE a.timestamp >= datetime('now', :since)
             {sev_clause}
+        """
 
-            UNION ALL
-
+        behavior_select = f"""
             SELECT
                 'behavior' AS source,
                 b.id,
@@ -794,22 +802,38 @@ class AlertService:
             LEFT JOIN devices d ON d.id = b.device_id
             WHERE b.timestamp >= datetime('now', :since)
             {sev_clause}
+        """
 
+        anomaly_count = f"""
+            SELECT a.id FROM anomalies a
+            WHERE a.timestamp >= datetime('now', :since)
+            {sev_clause}
+        """
+
+        behavior_count = f"""
+            SELECT b.id FROM device_behavior_alerts b
+            WHERE b.timestamp >= datetime('now', :since)
+            {sev_clause}
+        """
+
+        # -- Compose query based on source filter ---------------------
+        if source == "anomaly":
+            inner = anomaly_select
+            count_inner = anomaly_count
+        elif source == "behavior":
+            inner = behavior_select
+            count_inner = behavior_count
+        else:
+            inner = f"{anomaly_select}\nUNION ALL\n{behavior_select}"
+            count_inner = f"{anomaly_count}\nUNION ALL\n{behavior_count}"
+
+        sql_text = f"""
+            {inner}
             ORDER BY timestamp DESC
             LIMIT :limit
         """
 
-        count_sql = f"""
-            SELECT COUNT(*) FROM (
-                SELECT a.id FROM anomalies a
-                WHERE a.timestamp >= datetime('now', :since)
-                {sev_clause}
-                UNION ALL
-                SELECT b.id FROM device_behavior_alerts b
-                WHERE b.timestamp >= datetime('now', :since)
-                {sev_clause}
-            )
-        """
+        count_sql = f"SELECT COUNT(*) FROM ({count_inner})"
 
         params: dict = {"since": since_param, "limit": limit}
         if severity:

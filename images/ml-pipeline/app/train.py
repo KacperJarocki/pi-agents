@@ -40,7 +40,7 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
         return 0
 
     X = device_features[FeatureExtractor.FEATURE_COLUMNS].values
-    adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
+    adaptive_contamination = max(0.02, min(0.05, 3.0 / samples))
     trained = 0
 
     for model_type in model_types:
@@ -197,7 +197,7 @@ async def train_model():
                 continue
 
             X = group[FeatureExtractor.FEATURE_COLUMNS].values
-            adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
+            adaptive_contamination = max(0.02, min(0.05, 3.0 / samples))
             device_trained = False
 
             # Train ALL model types per device

@@ -383,8 +383,24 @@ async def get_device_raw_flows(device_id: int, page: int = 1, limit: int = 50, h
 
 
 @app.post("/api/ml/devices/{device_id}/train")
-async def trigger_train_now(device_id: int, model_type: str = "isolation_forest"):
-    return await call_api("POST", f"/ml/devices/{device_id}/train?model_type={model_type}")
+async def trigger_train_now(
+    device_id: int,
+    model_type: str = "isolation_forest",
+    cpu_request: Optional[str] = None,
+    cpu_limit: Optional[str] = None,
+    mem_request: Optional[str] = None,
+    mem_limit: Optional[str] = None,
+):
+    params = f"model_type={model_type}"
+    if cpu_request:
+        params += f"&cpu_request={cpu_request}"
+    if cpu_limit:
+        params += f"&cpu_limit={cpu_limit}"
+    if mem_request:
+        params += f"&mem_request={mem_request}"
+    if mem_limit:
+        params += f"&mem_limit={mem_limit}"
+    return await call_api("POST", f"/ml/devices/{device_id}/train?{params}")
 
 
 @app.get("/api/ml/devices/{device_id}/train/status")

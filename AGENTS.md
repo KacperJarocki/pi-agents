@@ -209,3 +209,19 @@ Requires `CAP_NET_ADMIN` + `CAP_NET_RAW`, `hostNetwork: true`, `INTERFACE=wlan0`
 | `INTERFACE` | `wlan0` | collector |
 
 Config loaded via `pydantic_settings.BaseSettings`; supports `.env` in the working directory.
+
+---
+
+## Git Workflow
+
+**Always commit and push after completing a task.** Never leave changes uncommitted.
+
+```bash
+git add <files>
+git commit -m "<type>: <short description>"
+git push
+```
+
+- Branch: `main` — push directly (no PRs required for this repo)
+- Commit message types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- Push every session — don't accumulate local-only commits

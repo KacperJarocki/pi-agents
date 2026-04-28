@@ -1023,25 +1023,36 @@ class DeviceModelConfigService:
             for row in rows
         ]
 
-    async def get_model_score_history(self, device_id: int, model_type: str, hours: int = 168) -> list[dict]:
-        """Return score history for a specific model_type."""
+    async def get_model_score_history(self, device_id: int, model_type: str, hours: int = 24) -> list[dict]:
+        """Return score history for a specific model_type.
+
+        Timestamps are returned as ISO 8601 UTC strings (``YYYY-MM-DDTHH:MM:SSZ``)
+        so that JavaScript ``new Date(ts)`` always parses them as UTC regardless
+        of the browser's local timezone.
+        """
         sql = text("""
             SELECT timestamp, bucket_start, anomaly_score, risk_score, is_anomaly
             FROM device_model_scores
             WHERE device_id = :did AND model_type = :mt
               AND timestamp >= datetime('now', :since)
             ORDER BY timestamp ASC
-            LIMIT 512
+            LIMIT 300
         """)
         try:
             result = await self.db.execute(sql, {"did": device_id, "mt": model_type, "since": f"-{hours} hours"})
             rows = result.fetchall()
         except Exception:
             return []
+
+        def _to_iso(ts: str | None) -> str | None:
+            if not ts:
+                return None
+            return ts.replace(' ', 'T') + 'Z'
+
         return [
             {
-                "timestamp": row.timestamp,
-                "bucket_start": row.bucket_start,
+                "timestamp": _to_iso(row.timestamp),
+                "bucket_start": _to_iso(row.bucket_start),
                 "anomaly_score": float(row.anomaly_score or 0),
                 "risk_score": float(row.risk_score or 0),
                 "is_anomaly": bool(row.is_anomaly),

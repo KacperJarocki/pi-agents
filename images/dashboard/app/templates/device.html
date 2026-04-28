@@ -122,7 +122,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div>
                             <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score Timeline</div>
-                            <div class="text-lg text-white">Risk score over time / 7 days</div>
+                            <div class="text-lg text-white">Risk score over time / 24h</div>
                         </div>
                         <div class="text-xs text-slate-400">Retention: 7 days</div>
                     </div>
@@ -423,7 +423,7 @@
 
         async function loadMultiModelTimeline() {
             const results = await Promise.all(MODEL_TYPES.map(mt =>
-                fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=168`).then(r => r.json()).catch(() => ({data: []}))
+                fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=24`).then(r => r.json()).catch(() => ({data: []}))
             ));
             const datasets = MODEL_TYPES.map((mt, i) => {
                 const data = (results[i].data || []).map(p => ({x: new Date(p.timestamp).getTime(), y: Number(p.risk_score || 0)}));

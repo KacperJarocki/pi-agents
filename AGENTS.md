@@ -118,7 +118,7 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 - `GET /api/v1/devices/{id}/protocol-signals` - Protocol-level signals
 - `GET /api/v1/devices/{id}/model-config` - Per-device ML config
 - `PUT /api/v1/devices/{id}/model-config` - Update per-device ML config
-- `GET /api/v1/devices/{id}/model-scores` - Historical model scores
+- `GET /api/v1/devices/{id}/model-scores` - Historical model scores (last 24h by default, max 168h); timestamps returned as ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`)
 - `POST /api/v1/devices/{id}/block` - Block device
 - `DELETE /api/v1/devices/{id}/block` - Unblock device
 - `PUT /api/v1/devices/{id}/risk-score` - Manual risk override

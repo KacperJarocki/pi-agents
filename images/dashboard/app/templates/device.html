@@ -167,19 +167,24 @@
         <section class="grid grid-cols-1 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="text-xs uppercase tracking-[0.25em] text-slate-400">ML Model Health</div>
-                        <div class="flex items-center gap-2">
-                            <select id="train-model-select" class="select select-xs select-bordered bg-slate-800 text-white">
-                                <option value="isolation_forest">Isolation Forest</option>
-                                <option value="lof">LOF</option>
-                                <option value="ocsvm">One-Class SVM</option>
-                                <option value="autoencoder">Autoencoder</option>
-                            </select>
-                            <button id="train-now-btn" onclick="trainNow()" class="btn btn-xs btn-primary">Train Now</button>
-                            <span id="train-status" class="text-xs text-slate-400"></span>
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">ML Model Health</div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <select id="train-model-select" class="select select-xs select-bordered bg-slate-800 text-white">
+                                    <option value="isolation_forest">Isolation Forest</option>
+                                    <option value="lof">LOF</option>
+                                    <option value="ocsvm">One-Class SVM</option>
+                                    <option value="autoencoder">Autoencoder</option>
+                                </select>
+                                <!-- Resource overrides (optional) -->
+                                <input id="train-cpu-request" type="text" class="input input-xs input-bordered w-20 bg-slate-800 text-white font-mono" placeholder="CPU req" title="CPU request, e.g. 100m">
+                                <input id="train-cpu-limit"   type="text" class="input input-xs input-bordered w-20 bg-slate-800 text-white font-mono" placeholder="CPU lim" title="CPU limit, e.g. 500m">
+                                <input id="train-mem-request" type="text" class="input input-xs input-bordered w-20 bg-slate-800 text-white font-mono" placeholder="MEM req" title="Memory request, e.g. 256Mi">
+                                <input id="train-mem-limit"   type="text" class="input input-xs input-bordered w-20 bg-slate-800 text-white font-mono" placeholder="MEM lim" title="Memory limit, e.g. 512Mi">
+                                <button id="train-now-btn" onclick="trainNow()" class="btn btn-xs btn-primary">Train Now</button>
+                                <span id="train-status" class="text-xs text-slate-400"></span>
+                            </div>
                         </div>
-                    </div>
                     <div class="overflow-x-auto">
                         <table class="table table-xs w-full">
                             <thead>
@@ -987,11 +992,25 @@
             btn.disabled = true;
             btn.textContent = 'Starting...';
             status.textContent = '';
+            status.className = 'text-xs text-slate-400';
+
+            // Build query string — only include resource params when non-empty.
+            const params = new URLSearchParams({ model_type: modelType });
+            const cpuReq = document.getElementById('train-cpu-request').value.trim();
+            const cpuLim = document.getElementById('train-cpu-limit').value.trim();
+            const memReq = document.getElementById('train-mem-request').value.trim();
+            const memLim = document.getElementById('train-mem-limit').value.trim();
+            if (cpuReq) params.set('cpu_request', cpuReq);
+            if (cpuLim) params.set('cpu_limit', cpuLim);
+            if (memReq) params.set('mem_request', memReq);
+            if (memLim) params.set('mem_limit', memLim);
+
             try {
-                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/train?model_type=${modelType}`, { method: 'POST' });
+                const res = await fetch(`/api/ml/devices/${DEVICE_ID}/train?${params}`, { method: 'POST' });
                 const data = await res.json();
-                if (data.error) {
-                    status.textContent = 'Error: ' + data.error;
+                if (!res.ok || data.error) {
+                    status.textContent = 'Error: ' + (data.detail || data.error || res.statusText);
+                    status.className = 'text-xs text-red-400';
                     btn.disabled = false;
                     btn.textContent = 'Train Now';
                     return;
@@ -1000,6 +1019,7 @@
                 pollTrainStatus(modelType);
             } catch(e) {
                 status.textContent = 'Error: ' + e.message;
+                status.className = 'text-xs text-red-400';
                 btn.disabled = false;
                 btn.textContent = 'Train Now';
             }

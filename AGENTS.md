@@ -145,7 +145,7 @@ Issuer: `letsencrypt-http-prod` (Cloudflare DNS-01)
 - `DELETE /api/v1/ml/devices/{id}/training-config` - Reset to global defaults
 - `GET /api/v1/ml/devices/{id}/training-data` - Feature buckets for device
 - `GET /api/v1/ml/devices/{id}/raw-flows` - Raw traffic flows for device
-- `POST /api/v1/ml/devices/{id}/train` - Trigger on-demand training (K8s Job)
+- `POST /api/v1/ml/devices/{id}/train` - Trigger on-demand training (K8s Job); optional query params: `cpu_request`, `cpu_limit`, `mem_request`, `mem_limit` override Job resource requests/limits (e.g. `cpu_request=200m&mem_limit=1Gi`); defaults: `100m`/`500m` CPU, `256Mi`/`512Mi` memory
 - `GET /api/v1/ml/devices/{id}/train/status` - Training job status
 
 ## ML Pipeline

@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -359,7 +360,37 @@ def _sanitize_job_name(device_id: int, model_type: str) -> str:
     return f"ml-train-{device_id}-{safe_model}"
 
 
-def _build_job_manifest(device_id: int, model_type: str) -> dict:
+_CPU_RE = re.compile(r"^\d+m?$")
+_MEM_RE = re.compile(r"^\d+(Ki|Mi|Gi|Ti|K|M|G|T)$")
+
+_DEFAULT_CPU_REQUEST = "100m"
+_DEFAULT_CPU_LIMIT = "500m"
+_DEFAULT_MEM_REQUEST = "256Mi"
+_DEFAULT_MEM_LIMIT = "512Mi"
+
+
+def _validate_resource(value: str, kind: str) -> None:
+    """Raise HTTPException(400) if *value* is not a valid K8s resource quantity.
+
+    kind: "cpu" or "memory"
+    """
+    pattern = _CPU_RE if kind == "cpu" else _MEM_RE
+    if not pattern.match(value):
+        hint = "e.g. 100m, 1" if kind == "cpu" else "e.g. 256Mi, 1Gi"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {kind} resource value '{value}' ({hint})",
+        )
+
+
+def _build_job_manifest(
+    device_id: int,
+    model_type: str,
+    cpu_request: str = _DEFAULT_CPU_REQUEST,
+    cpu_limit: str = _DEFAULT_CPU_LIMIT,
+    mem_request: str = _DEFAULT_MEM_REQUEST,
+    mem_limit: str = _DEFAULT_MEM_LIMIT,
+) -> dict:
     """Build a K8s batch/v1 Job dict for a single-device training run."""
     name = _sanitize_job_name(device_id, model_type)
     return {
@@ -397,8 +428,8 @@ def _build_job_manifest(device_id: int, model_type: str) -> dict:
                             "imagePullPolicy": "Always",
                             "command": ["python", "-m", "app.train"],
                             "resources": {
-                                "requests": {"cpu": "100m", "memory": "256Mi"},
-                                "limits": {"cpu": "500m", "memory": "512Mi"},
+                                "requests": {"cpu": cpu_request, "memory": mem_request},
+                                "limits": {"cpu": cpu_limit, "memory": mem_limit},
                             },
                             "env": [
                                 {"name": "DATABASE_PATH", "value": "/data/iot-security.db"},
@@ -454,6 +485,10 @@ def _get_k8s_batch_api():
 async def train_now(
     device_id: int,
     model_type: str = Query("isolation_forest"),
+    cpu_request: Optional[str] = Query(None, description="CPU request, e.g. 100m"),
+    cpu_limit: Optional[str] = Query(None, description="CPU limit, e.g. 500m"),
+    mem_request: Optional[str] = Query(None, description="Memory request, e.g. 256Mi"),
+    mem_limit: Optional[str] = Query(None, description="Memory limit, e.g. 512Mi"),
     db: AsyncSession = Depends(get_db),
 ):
     """Spawn a K8s Job that trains a single model for a single device.
@@ -466,6 +501,21 @@ async def train_now(
             status_code=400,
             detail=f"Invalid model_type '{model_type}'. Must be one of: {', '.join(sorted(_VALID_MODELS))}",
         )
+
+    # Validate and resolve resource overrides.
+    eff_cpu_request = cpu_request or _DEFAULT_CPU_REQUEST
+    eff_cpu_limit = cpu_limit or _DEFAULT_CPU_LIMIT
+    eff_mem_request = mem_request or _DEFAULT_MEM_REQUEST
+    eff_mem_limit = mem_limit or _DEFAULT_MEM_LIMIT
+
+    if cpu_request:
+        _validate_resource(cpu_request, "cpu")
+    if cpu_limit:
+        _validate_resource(cpu_limit, "cpu")
+    if mem_request:
+        _validate_resource(mem_request, "memory")
+    if mem_limit:
+        _validate_resource(mem_limit, "memory")
 
     # Verify device exists.
     row = (await db.execute(
@@ -488,7 +538,13 @@ async def train_now(
     except Exception:
         pass  # Job doesn't exist — that's fine.
 
-    manifest = _build_job_manifest(device_id, model_type)
+    manifest = _build_job_manifest(
+        device_id, model_type,
+        cpu_request=eff_cpu_request,
+        cpu_limit=eff_cpu_limit,
+        mem_request=eff_mem_request,
+        mem_limit=eff_mem_limit,
+    )
     try:
         batch_api.create_namespaced_job(namespace=_NAMESPACE, body=manifest)
     except Exception as exc:
@@ -501,6 +557,10 @@ async def train_now(
         "namespace": _NAMESPACE,
         "device_id": device_id,
         "model_type": model_type,
+        "resources": {
+            "requests": {"cpu": eff_cpu_request, "memory": eff_mem_request},
+            "limits": {"cpu": eff_cpu_limit, "memory": eff_mem_limit},
+        },
         "status": "created",
     }
 

@@ -8,9 +8,15 @@ Agent-based IoT threat detection system. Gateway RPi acts as WiFi AP + traffic c
 
 ### Local run (no hardware)
 ```bash
-docker-compose up --build
+# Uses podman-compose (not docker — only podman is installed)
+podman-compose up --build
 # API:       http://localhost:8080  (docs: /docs)
 # Dashboard: http://localhost:3000
+```
+
+**Podman machine clock drift**: The podman machine VM clock can lag behind the host (seen as 2h drift). This causes `apt-get update` to fail with "Release file is not valid yet". Fix:
+```bash
+CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s '$CORRECT_TIME UTC'"
 ```
 
 ### With gateway hardware (Linux only — uses hostNetwork + privileged)
@@ -49,38 +55,30 @@ If a test imports from another image, install that image's requirements manually
 `docker-build.yml` triggers only on push to `main` or PRs touching `images/**`. Builds `linux/amd64,linux/arm64` on main push; `linux/amd64` only on PRs (no push). Image tags: `latest` + `sha-{first 8 chars of SHA}`.
 
 ### UI tests with Playwright
-The `playwright-cli` skill is available. Use it to generate and run browser tests against the dashboard (`http://localhost:3000`):
+The `playwright-cli` skill is available. Use it to generate and run browser tests against the dashboard (`http://localhost:3000`).
+
+Playwright tests live in `tests/ui/`. Run them with:
 
 ```bash
-# Start local stack first
-docker-compose up --build -d
-
-# Open the dashboard and capture a snapshot
-playwright-cli open http://localhost:3000
-playwright-cli snapshot
-
-# Interact to generate Playwright TypeScript code automatically
-playwright-cli click e5
-playwright-cli snapshot
-playwright-cli close
+# Stack must be running first (or set reuseExistingServer: false in playwright.config.ts)
+cd tests/ui
+npx playwright test          # headless
+npx playwright test --headed # headed
+npx playwright test --debug  # debug mode
 ```
 
-Each `playwright-cli` action outputs the equivalent Playwright TypeScript code. Collect actions into a test file in `tests/ui/`:
+Test files:
+- `index.spec.ts` — index page (`/`): nav, metric cards, tabs, alert feed
+- `device.spec.ts` — device detail page (`/devices/{id}`): identity, risk, model table, block, training config
+- `gateway.spec.ts` — WiFi AP page (`/gateway`): form fields, four action buttons, POST flows
 
-```typescript
-// tests/ui/dashboard.spec.ts
-import { test, expect } from '@playwright/test';
+Mocks: `fixtures/api-mock.ts` stubs all dashboard proxy routes (`/api/*`) so tests work without real IoT hardware. Routes are mocked at `localhost:3000/api/*` (the dashboard's own proxy), not at gateway-api directly.
 
-test('devices page loads', async ({ page }) => {
-  await page.goto('http://localhost:3000');
-  await expect(page.getByRole('heading', { name: /devices/i })).toBeVisible();
-});
-```
-
-Mock the gateway-api responses to avoid needing real hardware:
-```bash
-playwright-cli route "http://localhost:8080/api/v1/**" --body='{"devices":[]}'
-```
+**Quirks learned from live inspection:**
+- Alpine.js tabs use class `tab-active`, not `aria-selected` — check `toHaveClass(/tab-active/)`
+- `"ML Model Health"` and `"Behavior Alerts"` are `<div class="text-xs">`, not heading elements — use `getByText()`
+- Gateway form `<label>` and `<input>` are not linked via `for`/`id` — target by `locator('input[name="ssid"]')` etc.
+- Device page has 4 comboboxes total: model-select, training-data timerange, ML health model, alert source filter
 
 ---
 

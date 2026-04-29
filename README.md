@@ -230,4 +230,6 @@ Services:
 - collector uses `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet`
 - collector metrics endpoint is disabled for MVP to avoid conflicts with host-level exporters like `node_exporter`
 - SQLite stored on Longhorn PVC at `/data/iot-security.db`
-- Minimum training samples for MVP are 20 per-device buckets
+- Minimum training samples for MVP are 30 per-device buckets
+
+- Playwright mocked UI tests must stub both dashboard proxy routes (`/api/*`) and any asserted HTMX partial routes (`/partial/*`), because partial HTML is rendered server-side by the dashboard before it reaches the browser

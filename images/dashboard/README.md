@@ -37,8 +37,8 @@ W `Risk Breakdown` UI pokazuje:
 - `behavior_risk`
 - `protocol_risk`
 - `correlation_bonus`
-- `previous_risk`
-- `final_risk`
+- `previous_risk_score`
+- `risk_score`
 - status `rising`, `stable` albo `cooling down`
 - `Top reason`
 
@@ -54,6 +54,8 @@ W `Risk Breakdown` UI pokazuje:
 - `/partial/anomalies`
 - `/partial/timeline`
 - `/partial/top-talkers`
+
+W testach Playwright mockowanie `/api/*` nie wystarcza dla sekcji renderowanych przez `/partial/*`. Jeśli asercja dotyczy HTML z partiala, trzeba przechwycić również `/partial/*` po stronie przeglądarki.
 
 ## Troubleshooting
 

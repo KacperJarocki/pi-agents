@@ -98,18 +98,30 @@ export const sampleModelScores = [
   },
 ];
 
+export const sampleModelScoresResponse = {
+  data: sampleModelScores,
+};
+
 export const sampleRiskContributors = {
+  device_id: DEVICE_ID,
   ml_risk: 18.0,
   behavior_risk: 12.0,
   protocol_risk: 5.0,
   correlation_bonus: 7.5,
-  final_risk: 42.5,
-  previous_risk: 40.0,
-  delta: 2.5,
-  trend: 'rising',
+  risk_score: 42.5,
+  previous_risk_score: 40.0,
+  risk_delta: 2.5,
+  status: 'rising',
   top_reason: 'Autoencoder flagged anomaly',
   contributors: [
-    { name: 'autoencoder_score', value: 0.22, weight: 0.1, contribution: 7.5 },
+    {
+      category: 'ml',
+      contributor: 'autoencoder_score',
+      effective_score: 7.5,
+      raw_score: 0.22,
+      reason: 'Autoencoder flagged anomaly',
+      last_seen: '2026-04-29T05:55:00',
+    },
   ],
 };
 
@@ -128,13 +140,22 @@ export const sampleMlStatus = {
     {
       device_id: DEVICE_ID,
       hostname: 'test-device',
-      model_type: 'isolation_forest',
-      status: 'trained',
-      training_samples: 120,
-      threshold: -0.1,
-      score_mean: -0.08,
-      score_std: 0.05,
-      trained_at: '2026-04-29T04:00:00',
+      model_status: 'trained',
+      last_inference_score: -0.12,
+      last_inference_at: '2026-04-29T05:55:00',
+      training_metrics: [
+        {
+          model_type: 'isolation_forest',
+          samples: 120,
+          threshold: -0.1,
+          score_mean: -0.08,
+          score_std: 0.05,
+          score_p5: -0.2,
+          score_p95: 0.04,
+          estimated_anomaly_rate: 0.03,
+          trained_at: '2026-04-29T04:00:00',
+        },
+      ],
     },
   ],
 };

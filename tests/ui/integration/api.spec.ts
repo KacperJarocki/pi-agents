@@ -21,6 +21,37 @@ async function createDevice(request: APIRequestContext) {
   return { payload, body };
 }
 
+async function expectDeviceInList(request: APIRequestContext, deviceId: number, hostname: string) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await request.get('/api/devices');
+    expect(response.ok()).toBeTruthy();
+
+    const body = await response.json();
+    const found = (body.devices || []).some((device: { id?: number; hostname?: string }) => (
+      device.id === deviceId && device.hostname === hostname
+    ));
+
+    if (found) {
+      expect(body).toEqual(
+        expect.objectContaining({
+          total: expect.any(Number),
+          devices: expect.arrayContaining([
+            expect.objectContaining({
+              id: deviceId,
+              hostname,
+            }),
+          ]),
+        })
+      );
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Device ${deviceId} (${hostname}) did not appear in /api/devices after retries`);
+}
+
 test.describe('Integration API', () => {
   test('gateway-api health responds successfully', async ({ request }) => {
     const response = await request.get('http://localhost:8080/health');
@@ -80,18 +111,6 @@ test.describe('Integration API', () => {
       })
     );
 
-    const deviceListResponse = await request.get('/api/devices');
-    expect(deviceListResponse.ok()).toBeTruthy();
-    await expect(deviceListResponse.json()).resolves.toEqual(
-      expect.objectContaining({
-        total: expect.any(Number),
-        devices: expect.arrayContaining([
-          expect.objectContaining({
-            id: body.id,
-            hostname: payload.hostname,
-          }),
-        ]),
-      })
-    );
+    await expectDeviceInList(request, body.id, payload.hostname);
   });
 });

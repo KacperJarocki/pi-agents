@@ -89,6 +89,12 @@ Przeglądarka   →   Dashboard (port 8080)   →   Gateway API (port 8080)
 | `/partial/top-talkers` | Fragment z top talkers |
 | `/partial/alerts` | Fragment z alertami |
 
+### Testowanie Playwright
+
+- Mocki `page.route('**/api/*')` działają tylko dla żądań wykonywanych przez przeglądarkę.
+- Jeśli test sprawdza zawartość sekcji ładowanej z `/partial/*`, trzeba mockować również sam endpoint `/partial/*`.
+- Powód: dashboard renderuje partiale po stronie serwera i dopiero zwraca gotowy HTML do przeglądarki, więc mock samego `/api/*` nie zmienia HTML wygenerowanego przez `httpx` wewnątrz aplikacji.
+
 ### Klient HTTP
 
 - **Biblioteka**: `httpx.AsyncClient` (singleton, tworzony przy starcie)
@@ -134,6 +140,11 @@ Szczegółowy widok pojedynczego urządzenia z **15+ sekcjami**:
 | Raw Flows | Surowe flow-y (paginowane) | ręczne |
 | Block/Unblock | Przycisk blokowania urządzenia | ręczne |
 | Train Now | Przycisk uruchomienia treningu | ręczne |
+
+Ważne shape danych dla testów UI:
+
+- `GET /api/devices/{id}/protocol-signals` powinno zwracać `signals[]` z rekordami `{ label, value, note }`.
+- `GET /api/metrics/ml-status` powinno zwracać `training_metrics[]` dla każdego urządzenia, jeśli test ma weryfikować tabelę `ML Model Health`.
 
 ### 3. Gateway Settings (`/gateway`)
 

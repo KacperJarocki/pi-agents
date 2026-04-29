@@ -28,9 +28,8 @@ test.describe('Index page — /  ', () => {
   });
 
   test('devices tab shows device card with hostname', async ({ page }) => {
-    // Devices tab is active by default — HTMX partial /partial/devices loads cards
+    // Devices tab is active by default and the mocked partial renders the card.
     await expect(page.getByRole('tab', { name: 'Devices' })).toBeVisible();
-    // Device card links to /devices/1
     await expect(page.getByRole('link', { name: /test-device/ })).toBeVisible();
   });
 

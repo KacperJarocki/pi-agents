@@ -6,6 +6,7 @@ import {
   sampleDevice,
   sampleMetricsSummary,
   sampleModelScores,
+  sampleModelScoresResponse,
   sampleRiskContributors,
   sampleTrainingConfig,
   sampleMlStatus,
@@ -62,17 +63,20 @@ export async function setupMocks(page: Page) {
   await page.route(`**/api/devices/${DEVICE_ID}/protocol-signals`, route =>
     route.fulfill({
       json: {
-        dns_failures_24h: 0,
-        icmp_echo_requests_24h: 0,
-        unique_destinations: 0,
+        device_id: DEVICE_ID,
+        hours: 24,
+        signals: [
+          { label: 'dns_failures_24h', value: 0, note: 'No DNS failures' },
+          { label: 'icmp_echo_requests_24h', value: 0, note: 'unique_destinations=0' },
+        ],
       },
     })
   );
   await page.route(`**/api/devices/${DEVICE_ID}/model-config`, route =>
-    route.fulfill({ json: { active_model: 'isolation_forest', available_models: ['isolation_forest', 'lof', 'ocsvm', 'autoencoder'] } })
+    route.fulfill({ json: { model_type: 'isolation_forest', available_models: ['isolation_forest', 'lof', 'ocsvm', 'autoencoder'] } })
   );
   await page.route(`**/api/devices/${DEVICE_ID}/model-scores**`, route =>
-    route.fulfill({ json: sampleModelScores })
+    route.fulfill({ json: sampleModelScoresResponse })
   );
 
   // Block/unblock
@@ -119,8 +123,50 @@ export async function setupMocks(page: Page) {
   );
 
   // ── Partials (HTMX server-rendered fragments) ──────────────────────────────
-  // We do NOT mock these — they are rendered server-side by the dashboard itself
-  // and already call the mocked /api/* endpoints above. Let them pass through.
+  // Mock these in the browser as well, so mocked UI tests do not depend on the
+  // live gateway-api data rendered server-side by the dashboard.
+  await page.route('**/partial/devices', route =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `
+        <a href="/devices/${DEVICE_ID}" class="block">
+          <div class="device-card" data-mac="${sampleDevice.mac_address}">
+            <div class="device-header">
+              <span class="device-name">${sampleDevice.hostname}</span>
+            </div>
+          </div>
+        </a>
+      `,
+    })
+  );
+  await page.route('**/partial/timeline', route =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<div class="timeline-chart"><div class="bar-label">05:55</div></div>',
+    })
+  );
+  await page.route('**/partial/top-talkers', route =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<div class="top-talkers-list"><div class="talker-row">192.168.50.101</div></div>',
+    })
+  );
+  await page.route('**/partial/alerts**', route =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `
+        <div class="flex items-start gap-3 px-4 py-3 border-b border-white/5">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-medium text-sm">isolation forest</span>
+              <span class="badge badge-xs badge-secondary">Anomaly</span>
+            </div>
+            <div class="text-xs text-slate-300 mt-0.5 truncate">Anomaly detected by Isolation Forest</div>
+          </div>
+        </div>
+      `,
+    })
+  );
 
   // ── Gateway WiFi (dashboard form POSTs — not proxy) ────────────────────────
   // gateway.html form actions POST directly to /gateway/validate etc.

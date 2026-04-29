@@ -90,6 +90,8 @@ Test files:
 
 Mocks: `fixtures/api-mock.ts` stubs all dashboard proxy routes (`/api/*`) so mocked tests work without real IoT hardware. Routes are mocked at `localhost:3000/api/*` (the dashboard's own proxy), not at gateway-api directly.
 
+Mocked tests that assert content loaded through HTMX partials must also stub the browser-visible `/partial/*` routes. Those fragments are rendered server-side by the dashboard, so mocking only `page.route('**/api/*')` does not change HTML returned by `/partial/devices`, `/partial/alerts`, `/partial/timeline`, or `/partial/top-talkers`.
+
 Integration tests: `tests/ui/integration/` does not mock `/api/*` and instead exercises the real stack on `localhost:3000` and `localhost:8080`.
 
 **Quirks learned from live inspection:**
@@ -97,6 +99,8 @@ Integration tests: `tests/ui/integration/` does not mock `/api/*` and instead ex
 - `"ML Model Health"` and `"Behavior Alerts"` are `<div class="text-xs">`, not heading elements — use `getByText()`
 - Gateway form `<label>` and `<input>` are not linked via `for`/`id` — target by `locator('input[name="ssid"]')` etc.
 - Device page has 4 comboboxes total: model-select, training-data timerange, ML health model, alert source filter
+- Device `protocol-signals` UI renders `signals[]` rows with `{ label, value, note }`; a flat `{ dns_failures_24h, icmp_echo_requests_24h }` mock will not populate the panel
+- `metrics/ml-status` device rows expose `training_metrics[]` for the ML health table; old flat metric fields are not enough for realistic UI mocks
 
 ---
 
@@ -232,12 +236,18 @@ Config loaded via `pydantic_settings.BaseSettings`; supports `.env` in the worki
 
 **Always commit and push after completing a task.** Never leave changes uncommitted.
 
+Work on a dedicated branch for each task. Do not push straight to `main`.
+
 ```bash
+git checkout -b <type>/<short-description>
 git add <files>
 git commit -m "<type>: <short description>"
 git push
 ```
 
-- Branch: `main` — push directly (no PRs required for this repo)
+- Branch naming: use `<type>/<short-description>` such as `fix/playwright-e2e-stability` or `docs/update-dashboard-notes`
 - Commit message types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- Prefer focused commits with clear intent; avoid mixing unrelated changes in one commit
 - Push every session — don't accumulate local-only commits
+- Prefer opening a PR with a concise title and summary of user-visible or developer-impacting changes
+- PR descriptions should call out test coverage and any documentation or workflow updates

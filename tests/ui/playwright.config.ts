@@ -5,7 +5,8 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
-  retries: 1,
+  retries: process.env.CI ? 2 : 1,
+  workers: process.env.CI ? 1 : undefined,
   reporter: [['list'], ['html', { open: 'never' }]],
 
   use: {
@@ -17,6 +18,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: ['integration/**/*.spec.ts'],
+    },
+    {
+      name: 'integration',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: ['integration/**/*.spec.ts'],
     },
   ],
 

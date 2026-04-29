@@ -47,3 +47,90 @@ jobs:
 
       - name: Client-side dry run
         run: kubectl apply --dry-run=client --validate=false -f /tmp/rendered.yaml
+
+  e2e:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build gateway-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/gateway-api
+          load: true
+          tags: pi-agents-gateway-api:latest
+          cache-from: type=gha,scope=e2e-gateway-api
+          cache-to: type=gha,mode=max,scope=e2e-gateway-api
+
+      - name: Build ml-trainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/ml-pipeline
+          load: true
+          tags: pi-agents-ml-trainer:latest
+          cache-from: type=gha,scope=e2e-ml-pipeline
+          cache-to: type=gha,mode=max,scope=e2e-ml-pipeline
+
+      - name: Build ml-inference image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/ml-pipeline
+          load: true
+          tags: pi-agents-ml-inference:latest
+          cache-from: type=gha,scope=e2e-ml-pipeline
+          cache-to: type=gha,mode=max,scope=e2e-ml-pipeline
+
+      - name: Build dashboard image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./images/dashboard
+          load: true
+          tags: pi-agents-dashboard:latest
+          cache-from: type=gha,scope=e2e-dashboard
+          cache-to: type=gha,mode=max,scope=e2e-dashboard
+
+      - name: Start E2E stack
+        run: docker compose up -d --no-build gateway-api ml-trainer ml-inference dashboard
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/ui/package-lock.json
+
+      - name: Install Playwright dependencies
+        working-directory: tests/ui
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: tests/ui
+        run: npx playwright install chromium --with-deps
+
+      - name: Wait for dashboard
+        run: timeout 120 bash -c 'until curl -sf http://localhost:3000/health; do sleep 2; done'
+
+      - name: Run mocked Playwright tests
+        working-directory: tests/ui
+        run: npx playwright test --project=chromium
+
+      - name: Run integration Playwright tests
+        working-directory: tests/ui
+        run: npx playwright test --project=integration --workers=1
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            tests/ui/playwright-report/
+            tests/ui/test-results/
+          retention-days: 7
+
+      - name: Stop E2E stack
+        if: always()
+        run: docker compose down -v

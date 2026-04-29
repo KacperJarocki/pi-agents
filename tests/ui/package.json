@@ -3,6 +3,8 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:mocked": "playwright test --project=chromium",
+    "test:integration": "playwright test --project=integration --workers=1",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "report": "playwright show-report"

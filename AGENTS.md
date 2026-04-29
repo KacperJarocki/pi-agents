@@ -51,6 +51,16 @@ If a test imports from another image, install that image's requirements manually
 2. Install gateway-agent + ml-pipeline requirements
 3. `python -m unittest discover -v`
 4. (parallel) `kubectl kustomize k8s/gateway | kubectl apply --dry-run=client --validate=false`
+5. `e2e` job builds cached Docker images with Buildx + GHA cache, starts the local stack with `docker compose`, then runs Playwright
+
+### Playwright in CI
+- `validate.yml` has an `e2e` job for end-to-end coverage
+- In CI, use `docker compose` (GitHub runners have Docker, not Podman)
+- The job runs two Playwright suites:
+  - Mocked UI tests: `npx playwright test --project=chromium`
+  - Live integration tests: `npx playwright test --project=integration --workers=1`
+- Docker image layers are cached with `docker/build-push-action` + `type=gha`
+- The job is informational (`continue-on-error: true`) and uploads `playwright-report/` + `test-results/` on failure
 
 `docker-build.yml` triggers only on push to `main` or PRs touching `images/**`. Builds `linux/amd64,linux/arm64` on main push; `linux/amd64` only on PRs (no push). Image tags: `latest` + `sha-{first 8 chars of SHA}`.
 
@@ -62,7 +72,11 @@ Playwright tests live in `tests/ui/`. Run them with:
 ```bash
 # Stack must be running first (or set reuseExistingServer: false in playwright.config.ts)
 cd tests/ui
-npx playwright test          # headless
+npx playwright test          # all Playwright projects
+npx playwright test --project=chromium
+npx playwright test --project=integration --workers=1
+npm run test:mocked
+npm run test:integration
 npx playwright test --headed # headed
 npx playwright test --debug  # debug mode
 ```
@@ -71,8 +85,12 @@ Test files:
 - `index.spec.ts` — index page (`/`): nav, metric cards, tabs, alert feed
 - `device.spec.ts` — device detail page (`/devices/{id}`): identity, risk, model table, block, training config
 - `gateway.spec.ts` — WiFi AP page (`/gateway`): form fields, four action buttons, POST flows
+- `integration/api.spec.ts` — live gateway-api + dashboard proxy checks with no route mocks
+- `integration/pages.spec.ts` — live dashboard page checks with the real local stack
 
-Mocks: `fixtures/api-mock.ts` stubs all dashboard proxy routes (`/api/*`) so tests work without real IoT hardware. Routes are mocked at `localhost:3000/api/*` (the dashboard's own proxy), not at gateway-api directly.
+Mocks: `fixtures/api-mock.ts` stubs all dashboard proxy routes (`/api/*`) so mocked tests work without real IoT hardware. Routes are mocked at `localhost:3000/api/*` (the dashboard's own proxy), not at gateway-api directly.
+
+Integration tests: `tests/ui/integration/` does not mock `/api/*` and instead exercises the real stack on `localhost:3000` and `localhost:8080`.
 
 **Quirks learned from live inspection:**
 - Alpine.js tabs use class `tab-active`, not `aria-selected` — check `toHaveClass(/tab-active/)`

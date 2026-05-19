@@ -15,6 +15,31 @@ from .ml_core import (
 )
 
 
+def _parse_training_timestamp(value: str | None) -> datetime | None:
+    """Normalize SQLite/ISO timestamps before comparing training freshness."""
+    if not value:
+        return None
+    normalized = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        try:
+            parsed = datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S.%f")
+        except ValueError:
+            parsed = datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _should_skip_training(latest_flow: str | None, latest_trained: str | None) -> tuple[bool, datetime | None, datetime | None]:
+    latest_flow_ts = _parse_training_timestamp(latest_flow)
+    latest_trained_ts = _parse_training_timestamp(latest_trained)
+    if latest_flow_ts is None or latest_trained_ts is None:
+        return False, latest_flow_ts, latest_trained_ts
+    return latest_flow_ts <= latest_trained_ts, latest_flow_ts, latest_trained_ts
+
+
 async def _train_single_device(device_id: int, model_types: list[str], hours: int,
                                 min_samples: int, n_estimators: int,
                                 bucket_minutes: int) -> int:
@@ -169,11 +194,15 @@ async def train_model():
             try:
                 latest_flow = latest_flow_map.get(int(device_id))
                 latest_trained = latest_trained_map.get(int(device_id))
-                if latest_flow and latest_trained and latest_flow <= latest_trained:
+                should_skip, latest_flow_ts, latest_trained_ts = _should_skip_training(latest_flow, latest_trained)
+                if should_skip:
                     log.info("training_skipped_no_new_flows",
                              device_id=int(device_id),
                              latest_flow=latest_flow,
-                             latest_trained=latest_trained)
+                             latest_trained=latest_trained,
+                             latest_flow_ts=latest_flow_ts.isoformat() if latest_flow_ts else None,
+                             latest_trained_ts=latest_trained_ts.isoformat() if latest_trained_ts else None,
+                             has_new_flows=False)
                     continue
             except Exception as skip_exc:
                 log.warning("training_skip_check_failed",

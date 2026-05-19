@@ -2,6 +2,8 @@
 
 `scripts/port-sweep.py` generates controlled TCP connect-sweep traffic from a device connected to the IoT Wi-Fi. It does not read the API or dashboard; use dashboard timestamps and model panels to measure false positives, false negatives, and reaction time.
 
+By default, the main profiles run for a full inference bucket or longer. `positive` runs for 300 seconds, so the one-liner produces sustained sweep traffic instead of a short burst.
+
 ## One-Liner
 
 ```bash
@@ -34,6 +36,9 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 # Main positive test
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
 
+# Ten-minute positive test
+./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 600
+
 # Slower sweep for reaction-time and bucket sensitivity checks
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile slow
 
@@ -42,6 +47,9 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 
 # Custom ports
 ./scripts/port-sweep.sh --target 192.168.100.1 --ports 22,23,80,443,3389,5900,6379,27017
+
+# One-shot legacy behavior, useful only for quick smoke checks
+./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 0 --repeat 1
 ```
 
 ## Output

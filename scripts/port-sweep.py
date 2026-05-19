@@ -23,30 +23,35 @@ PROFILES: dict[str, dict[str, object]] = {
     "negative": {
         "ports": [80, 443],
         "rate": 0.5,
+        "duration_seconds": 300.0,
         "label": "benign_low_port_activity",
         "description": "Low-volume normal web-like traffic for false-positive checks.",
     },
     "borderline": {
         "ports": [22, 80, 443, 8080, 8443],
         "rate": 1.0,
+        "duration_seconds": 300.0,
         "label": "borderline_port_sweep",
         "description": "Near the port_churn threshold; useful for boundary checks.",
     },
     "positive": {
         "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
         "rate": 4.0,
+        "duration_seconds": 300.0,
         "label": "attack_port_sweep",
         "description": "Expected to trigger port_churn: >=6 ports and >=5 new ports.",
     },
     "slow": {
         "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
         "rate": 0.2,
+        "duration_seconds": 900.0,
         "label": "slow_port_sweep",
         "description": "Same signal as positive, spread over time to test bucket sensitivity.",
     },
     "aggressive": {
         "ports": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 465, 587, 993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017],
         "rate": 10.0,
+        "duration_seconds": 300.0,
         "label": "aggressive_port_sweep",
         "description": "High-diversity, high-rate sweep for strong model/heuristic response.",
     },
@@ -152,7 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ports", help="comma-separated ports and/or groups: web,iot,admin,db,common")
     parser.add_argument("--rate", type=float, help="probes per second; defaults to profile rate")
     parser.add_argument("--timeout", type=float, default=0.75, help="TCP connect timeout in seconds")
-    parser.add_argument("--repeat", type=int, default=1, help="repeat full target/port sequence")
+    parser.add_argument("--duration", type=float, help="run duration in seconds; defaults to profile duration, use 0 for repeat-only mode")
+    parser.add_argument("--repeat", type=int, default=1, help="minimum number of full target/port cycles")
     parser.add_argument("--jitter", type=float, default=0.1, help="random delay jitter as fraction of base delay")
     parser.add_argument("--randomize", action="store_true", help="shuffle target/port probe order")
     parser.add_argument("--dry-run", action="store_true", help="print the plan without generating traffic")
@@ -170,21 +176,25 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--timeout must be positive")
     if args.repeat <= 0:
         raise SystemExit("--repeat must be positive")
+    if args.duration is not None and args.duration < 0:
+        raise SystemExit("--duration cannot be negative")
     if args.jitter < 0:
         raise SystemExit("--jitter cannot be negative")
 
     targets = load_targets(args)
     ports = parse_ports(args.ports, args.profile)
     rate = float(args.rate or PROFILES[args.profile]["rate"])
+    duration_seconds = float(args.duration if args.duration is not None else PROFILES[args.profile]["duration_seconds"])
     delay = 1.0 / rate
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     label = args.label or str(PROFILES[args.profile]["label"])
     run_dir = Path(args.out_dir) / run_id
     probes_path = run_dir / "probes.jsonl"
 
-    planned = [(target, port) for _ in range(args.repeat) for target in targets for port in ports]
-    if args.randomize:
-        random.shuffle(planned)
+    base_sequence = [(target, port) for target in targets for port in ports]
+    estimated_probe_count = len(base_sequence) * args.repeat
+    if duration_seconds > 0:
+        estimated_probe_count = max(estimated_probe_count, int(duration_seconds * rate))
 
     run_payload: dict[str, object] = {
         "run_id": run_id,
@@ -196,8 +206,9 @@ def main(argv: list[str] | None = None) -> int:
         "ports": ports,
         "target_count": len(targets),
         "port_count": len(ports),
-        "probe_count": len(planned),
+        "estimated_probe_count": estimated_probe_count,
         "rate_per_second": rate,
+        "duration_seconds": duration_seconds,
         "timeout_seconds": args.timeout,
         "repeat": args.repeat,
         "jitter": args.jitter,
@@ -214,17 +225,35 @@ def main(argv: list[str] | None = None) -> int:
     write_json(run_dir / "run.json", run_payload)
 
     counts: dict[str, int] = {"open": 0, "refused": 0, "timeout": 0, "error": 0, "unknown": 0}
-    print(f"[port-sweep] run_id={run_id} profile={args.profile} targets={len(targets)} ports={len(ports)} probes={len(planned)}")
+    print(
+        f"[port-sweep] run_id={run_id} profile={args.profile} targets={len(targets)} "
+        f"ports={len(ports)} duration={duration_seconds}s rate={rate}/s"
+    )
     print(f"[port-sweep] output={run_dir}")
 
     first_probe_at = utc_now()
-    for idx, (target, port) in enumerate(planned, start=1):
-        record = connect_probe(target, port, args.timeout)
-        counts[str(record["outcome"])] = counts.get(str(record["outcome"]), 0) + 1
-        append_jsonl(probes_path, record)
-        print(f"[{idx:04d}/{len(planned):04d}] {target}:{port} {record['outcome']} {record['duration_ms']}ms")
+    end_at = time.monotonic() + duration_seconds if duration_seconds > 0 else None
+    probe_count = 0
+    cycle_count = 0
+    while True:
+        if cycle_count >= args.repeat and (end_at is None or time.monotonic() >= end_at):
+            break
 
-        if idx < len(planned):
+        cycle_count += 1
+        sequence = list(base_sequence)
+        if args.randomize:
+            random.shuffle(sequence)
+
+        for target, port in sequence:
+            if cycle_count > args.repeat and end_at is not None and time.monotonic() >= end_at:
+                break
+
+            probe_count += 1
+            record = connect_probe(target, port, args.timeout)
+            counts[str(record["outcome"])] = counts.get(str(record["outcome"]), 0) + 1
+            append_jsonl(probes_path, record)
+            print(f"[{probe_count:05d}] cycle={cycle_count} {target}:{port} {record['outcome']} {record['duration_ms']}ms")
+
             spread = delay * args.jitter
             sleep_for = max(0.0, delay + random.uniform(-spread, spread))
             time.sleep(sleep_for)
@@ -238,7 +267,9 @@ def main(argv: list[str] | None = None) -> int:
         "ended_at": ended_at,
         "targets": targets,
         "ports": ports,
-        "probe_count": len(planned),
+        "probe_count": probe_count,
+        "cycle_count": cycle_count,
+        "duration_seconds": duration_seconds,
         "outcomes": counts,
         "expected_signal": run_payload["expected_signal"],
         "dashboard_note": "Use this run_id and timestamps when reading FP/FN and reaction time from the dashboard.",

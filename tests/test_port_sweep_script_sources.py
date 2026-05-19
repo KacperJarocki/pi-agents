@@ -12,6 +12,8 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn('"borderline"', src)
         self.assertIn('"aggressive"', src)
         self.assertIn("socket.create_connection", src)
+        self.assertIn("duration_seconds", src)
+        self.assertIn("--duration", src)
         self.assertIn("probes.jsonl", src)
         self.assertIn("summary.json", src)
         self.assertIn("port_churn", src)

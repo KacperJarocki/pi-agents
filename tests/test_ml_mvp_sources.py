@@ -22,6 +22,18 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("training_complete_for_device", src)
         self.assertIn("save_model(detector.model, device_id=int(device_id))", src)
 
+    def test_training_skip_normalizes_timestamp_formats(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "ml-pipeline" / "app" / "train.py").read_text()
+
+        self.assertIn("def _parse_training_timestamp", src)
+        self.assertIn("datetime.fromisoformat", src)
+        self.assertIn("def _should_skip_training", src)
+        self.assertIn("latest_flow_ts <= latest_trained_ts", src)
+        self.assertNotIn("latest_flow <= latest_trained", src)
+
     def test_inference_uses_latest_bucket_per_device(self):
         from pathlib import Path
 

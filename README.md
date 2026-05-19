@@ -98,7 +98,7 @@ Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
 ```
 
-Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 600` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`.
+Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 10m` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; use `--seed 42` for reproducible randomized runs.
 
 ## Building Images
 

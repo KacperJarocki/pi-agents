@@ -30,6 +30,9 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 # Check the planned traffic without sending packets
 ./scripts/port-sweep.sh --profile positive --dry-run
 
+# Reproducible positive run with deterministic jitter/order
+./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --randomize --seed 42
+
 # False-positive baseline
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile negative
 
@@ -37,7 +40,7 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
 
 # Ten-minute positive test
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 600
+./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 10m
 
 # Slower sweep for reaction-time and bucket sensitivity checks
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile slow
@@ -59,11 +62,12 @@ Every run writes local metadata under:
 ```text
 artifacts/port-sweep/<run-id>/
   run.json
+  markers.jsonl
   probes.jsonl
   summary.json
 ```
 
-Use `run.json` and `summary.json` timestamps as the ground-truth experiment window when reading the dashboard.
+Use `run.json`, `markers.jsonl`, and `summary.json` timestamps as the ground-truth experiment window when reading the dashboard. If the run is stopped with `Ctrl+C`, `summary.json` is still written with `interrupted: true`.
 
 ## Suggested Measurement Protocol
 

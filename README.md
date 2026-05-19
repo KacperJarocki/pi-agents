@@ -88,6 +88,17 @@ k8s/
 - `images/ml-pipeline/README.md`
 - `k8s/README.md`
 - `docs/MVP-VERIFICATION.md`
+- `docs/PORT_SWEEP_RESEARCH.md`
+
+## Traffic Research Scripts
+
+Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
+
+```bash
+./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
+```
+
+Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. Each run writes metadata to `artifacts/port-sweep/<run-id>/`.
 
 ## Building Images
 

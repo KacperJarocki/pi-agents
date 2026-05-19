@@ -8,7 +8,7 @@ class TestPortSweepScriptSources(unittest.TestCase):
         src = (repo / "scripts" / "port-sweep.py").read_text()
 
         self.assertIn('"positive"', src)
-        self.assertIn('"negative"', src)
+        self.assertIn('"negative"', src)      
         self.assertIn('"borderline"', src)
         self.assertIn('"aggressive"', src)
         self.assertIn("socket.create_connection", src)

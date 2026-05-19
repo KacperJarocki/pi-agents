@@ -30,6 +30,8 @@ Inferencja:
 6. uruchamia heurystyki behavior
 7. zapisuje anomaly i aktualizuje `risk_score`
 
+Jeśli najnowszy bucket urządzenia jest starszy niż `RISK_STALE_BUCKET_MINUTES` po końcu bucketa, inference resetuje aktywne ryzyko do `0` z powodem `No fresh traffic observed`. To zapobiega ciągłemu pokazywaniu starego ataku jako aktywnego, gdy urządzenie przestało generować ruch.
+
 ## Heurystyki Behavior
 
 Aktualnie inference dopina do ML także:
@@ -79,6 +81,7 @@ Indeksy używane przez ML:
 - `PER_DEVICE_MODELS`
 - `INFERENCE_INTERVAL`
 - `INFERENCE_HOURS`
+- `RISK_STALE_BUCKET_MINUTES`
 
 ## Jak sprawdzić gotowość modelu
 

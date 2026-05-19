@@ -297,6 +297,7 @@ Inference działa jako ciągła pętla (Deployment, nie CronJob):
    - Pobiera traffic_flows z ostatnich 24h
    - Tworzy feature buckets
    - Bierze **ostatni bucket** per device
+   - Jeśli ostatni bucket jest starszy niż `RISK_STALE_BUCKET_MINUTES` po końcu bucketa, zapisuje cooldown `risk_score=0` zamiast ponownie scorować stary atak
    - Ładuje modele z dysku (cache na mtime, odczytuje `features_count` z payloadu lub `n_features_in_`)
    - Scoruje **wszystkie 4 modele** per device → **ensemble majority vote** (≥ 2/4 = anomalia)
    - Oblicza `ensemble_ml_risk` jako ważoną średnią (IF 40%, LOF 30%, OCSVM 20%, AE 10%)
@@ -314,6 +315,10 @@ Kiedy trainer zapisze nowy `.joblib`:
 3. Od tego momentu scoruje nowym modelem
 
 Nie wymaga restartu poda. Opóźnienie = max 60 sekund (jeden cykl inference).
+
+### Reset starego ryzyka
+
+Jeśli urządzenie wygeneruje atakowy bucket, a potem przestanie wysyłać ruch, najnowszym bucketem w 24h oknie nadal byłby ten atak. Bez resetu inference mogłoby wielokrotnie ustawiać wysoki `devices.risk_score`, mimo że od dawna nie ma nowych pakietów. `RISK_STALE_BUCKET_MINUTES` domyślnie wynosi `15`; po tym czasie od końca ostatniego bucketa inference zapisuje normalny punkt z `risk_score=0` i powodem `No fresh traffic observed`.
 
 ---
 

@@ -25,6 +25,17 @@ class TestInferenceStatusSources(unittest.TestCase):
         self.assertIn("last_inference_score", ml_core)
         self.assertIn("last_inference_at = CURRENT_TIMESTAMP", ml_core)
 
+    def test_inference_resets_stale_latest_bucket(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
+
+        self.assertIn("RISK_STALE_BUCKET_MINUTES", src)
+        self.assertIn("_bucket_is_stale", src)
+        self.assertIn("_stale_device_result", src)
+        self.assertIn("No fresh traffic observed", src)
+
     def test_ml_core_updates_last_inference_columns(self):
         from pathlib import Path
 

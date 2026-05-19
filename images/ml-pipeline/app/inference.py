@@ -33,6 +33,44 @@ def _flows_hash(flows: pd.DataFrame) -> str:
     return hashlib.md5(key.encode()).hexdigest()
 
 
+def _bucket_is_stale(bucket_start, bucket_minutes: int) -> bool:
+    """Return True when the latest bucket is too old to represent active traffic."""
+    if bucket_start is None or pd.isna(bucket_start):
+        return True
+    stale_after_minutes = int(os.getenv("RISK_STALE_BUCKET_MINUTES", "15"))
+    bucket_ts = pd.Timestamp(bucket_start)
+    if bucket_ts.tzinfo is not None:
+        bucket_ts = bucket_ts.tz_convert(None)
+    bucket_end = bucket_ts + pd.Timedelta(minutes=bucket_minutes)
+    return bucket_end < pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(minutes=stale_after_minutes)
+
+
+def _stale_device_result(device_id: int, bucket_start) -> dict:
+    stale_bucket_start = bucket_start.isoformat(sep=" ") if bucket_start is not None else None
+    return {
+        "device_id": int(device_id),
+        "bucket_start": bucket_start,
+        "anomaly_score": 0.0,
+        "risk_score": 0.0,
+        "is_anomaly": False,
+        "severity": "normal",
+        "features": {
+            "ml_risk": 0.0,
+            "behavior_risk": 0.0,
+            "protocol_risk": 0.0,
+            "correlation_bonus": 0.0,
+            "risk_top_reason": "No fresh traffic observed",
+            "risk_reason_summary": ["Latest traffic bucket is stale; active risk reset"],
+            "stale_bucket": True,
+            "stale_bucket_start": stale_bucket_start,
+        },
+        "behavior_alerts": [],
+        "is_isolation_forest_anomaly": False,
+        "model_type": "stale_reset",
+        "raw_features": {},
+    }
+
+
 def _cached_extract(extractor: FeatureExtractor, flows: pd.DataFrame, cache_key: str) -> pd.DataFrame:
     """Return cached features if flows haven't changed, otherwise extract fresh."""
     h = _flows_hash(flows)
@@ -501,6 +539,11 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             active_model_type = device_model_configs.get(int(device_id), default_model_type)
             bucket_start = latest.iloc[0].get('bucket_start') if not latest.empty else None
 
+            if _bucket_is_stale(bucket_start, extractor.bucket_minutes):
+                scored_results.append(_stale_device_result(int(device_id), bucket_start))
+                log.info("inference_stale_bucket_reset", device_id=int(device_id), bucket_start=str(bucket_start))
+                continue
+
             # Collect per-model scores for this device
             per_model: dict[str, dict] = {}  # model_type -> {norm_score, norm_threshold, raw_score, is_anomaly, threshold, features, severity}
 
@@ -605,6 +648,10 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     anomaly_count = 0
     batch_results = []
     for a in scored_results:
+        if a.get("model_type") == "stale_reset":
+            batch_results.append(a)
+            continue
+
         device_id = a["device_id"]
         score = a["anomaly_score"]
         is_anomaly = bool(a.get("is_anomaly"))

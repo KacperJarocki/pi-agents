@@ -100,6 +100,14 @@ Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
 
 Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 10m` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; use `--seed 42` for reproducible randomized runs.
 
+Generate benign IoT-like baseline traffic from the tested device:
+
+```bash
+./scripts/iot-device-emulator.sh --profile sensor --duration 30m
+```
+
+Use `sensor`, `plug`, and `camera-idle` profiles to create normal traffic windows before comparing model reactions to attack traffic.
+
 ## Building Images
 
 Images are built automatically via GitHub Actions on push to `images/*`:
@@ -208,6 +216,7 @@ Services:
 - **Training**: CronJob every 30 minutes; on-demand via K8s Job
 - **Training window**: 168h (7 days) — catches weekly traffic patterns
 - **Inference**: Batch every 5 minutes (configurable via `INFERENCE_INTERVAL`)
+- **Risk reset**: stale latest buckets reset active risk after `RISK_STALE_BUCKET_MINUTES` (default 15) instead of repeatedly scoring old attack traffic.
 - **Minimum training samples**: 30 per-device buckets
 - **Adaptive threshold**: contamination = max(0.03, min(0.1, 5.0 / samples))
 - **Backward compat**: old 8-feature models load correctly (features_count inferred from `n_features_in_`)

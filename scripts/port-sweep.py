@@ -11,11 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import signal
 import socket
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -23,30 +24,35 @@ PROFILES: dict[str, dict[str, object]] = {
     "negative": {
         "ports": [80, 443],
         "rate": 0.5,
+        "duration_seconds": 300.0,
         "label": "benign_low_port_activity",
         "description": "Low-volume normal web-like traffic for false-positive checks.",
     },
     "borderline": {
         "ports": [22, 80, 443, 8080, 8443],
         "rate": 1.0,
+        "duration_seconds": 300.0,
         "label": "borderline_port_sweep",
         "description": "Near the port_churn threshold; useful for boundary checks.",
     },
     "positive": {
         "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
         "rate": 4.0,
+        "duration_seconds": 300.0,
         "label": "attack_port_sweep",
         "description": "Expected to trigger port_churn: >=6 ports and >=5 new ports.",
     },
     "slow": {
         "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
         "rate": 0.2,
+        "duration_seconds": 900.0,
         "label": "slow_port_sweep",
         "description": "Same signal as positive, spread over time to test bucket sensitivity.",
     },
     "aggressive": {
         "ports": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 465, 587, 993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017],
         "rate": 10.0,
+        "duration_seconds": 300.0,
         "label": "aggressive_port_sweep",
         "description": "High-diversity, high-rate sweep for strong model/heuristic response.",
     },
@@ -62,8 +68,37 @@ PORT_GROUPS: dict[str, list[int]] = {
 }
 
 
+STOP_REQUESTED = False
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def request_stop(_signum: int, _frame: object) -> None:
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+
+
+def parse_duration(value: str) -> float:
+    raw = value.strip().lower()
+    if not raw:
+        raise argparse.ArgumentTypeError("duration cannot be empty")
+    multipliers = {"s": 1.0, "m": 60.0, "h": 3600.0}
+    suffix = raw[-1]
+    if suffix in multipliers:
+        raw_number = raw[:-1]
+        multiplier = multipliers[suffix]
+    else:
+        raw_number = raw
+        multiplier = 1.0
+    try:
+        duration = float(raw_number) * multiplier
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid duration: {value}") from exc
+    if duration < 0:
+        raise argparse.ArgumentTypeError("duration cannot be negative")
+    return duration
 
 
 def parse_ports(value: str | None, profile: str) -> list[int]:
@@ -141,6 +176,15 @@ def append_jsonl(path: Path, payload: dict[str, object]) -> None:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def format_eta(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{sec:02d}s"
+    return f"{minutes}m{sec:02d}s"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate controlled TCP port-sweep traffic for IoT anomaly research.",
@@ -152,9 +196,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ports", help="comma-separated ports and/or groups: web,iot,admin,db,common")
     parser.add_argument("--rate", type=float, help="probes per second; defaults to profile rate")
     parser.add_argument("--timeout", type=float, default=0.75, help="TCP connect timeout in seconds")
-    parser.add_argument("--repeat", type=int, default=1, help="repeat full target/port sequence")
+    parser.add_argument("--duration", type=parse_duration, help="run duration; accepts seconds or suffixes like 10m/1h, use 0 for repeat-only mode")
+    parser.add_argument("--repeat", type=int, default=1, help="minimum number of full target/port cycles")
     parser.add_argument("--jitter", type=float, default=0.1, help="random delay jitter as fraction of base delay")
     parser.add_argument("--randomize", action="store_true", help="shuffle target/port probe order")
+    parser.add_argument("--seed", type=int, help="random seed for reproducible jitter and shuffled order")
+    parser.add_argument("--progress-every", type=int, default=25, help="print progress every N probes; use 0 to disable")
     parser.add_argument("--dry-run", action="store_true", help="print the plan without generating traffic")
     parser.add_argument("--label", help="ground-truth label stored in run.json")
     parser.add_argument("--run-id", help="stable run id for output paths")
@@ -164,27 +211,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
     if args.rate is not None and args.rate <= 0:
         raise SystemExit("--rate must be positive")
     if args.timeout <= 0:
         raise SystemExit("--timeout must be positive")
     if args.repeat <= 0:
         raise SystemExit("--repeat must be positive")
+    if args.duration is not None and args.duration < 0:
+        raise SystemExit("--duration cannot be negative")
     if args.jitter < 0:
         raise SystemExit("--jitter cannot be negative")
+    if args.progress_every < 0:
+        raise SystemExit("--progress-every cannot be negative")
+
+    if args.seed is not None:
+        random.seed(args.seed)
 
     targets = load_targets(args)
     ports = parse_ports(args.ports, args.profile)
     rate = float(args.rate or PROFILES[args.profile]["rate"])
+    duration_seconds = float(args.duration if args.duration is not None else PROFILES[args.profile]["duration_seconds"])
     delay = 1.0 / rate
     run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     label = args.label or str(PROFILES[args.profile]["label"])
     run_dir = Path(args.out_dir) / run_id
     probes_path = run_dir / "probes.jsonl"
+    markers_path = run_dir / "markers.jsonl"
 
-    planned = [(target, port) for _ in range(args.repeat) for target in targets for port in ports]
-    if args.randomize:
-        random.shuffle(planned)
+    base_sequence = [(target, port) for target in targets for port in ports]
+    estimated_probe_count = len(base_sequence) * args.repeat
+    if duration_seconds > 0:
+        estimated_probe_count = max(estimated_probe_count, int(duration_seconds * rate))
+    estimated_end_at = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds) if duration_seconds > 0 else None
 
     run_payload: dict[str, object] = {
         "run_id": run_id,
@@ -196,12 +256,16 @@ def main(argv: list[str] | None = None) -> int:
         "ports": ports,
         "target_count": len(targets),
         "port_count": len(ports),
-        "probe_count": len(planned),
+        "estimated_probe_count": estimated_probe_count,
         "rate_per_second": rate,
+        "duration_seconds": duration_seconds,
         "timeout_seconds": args.timeout,
         "repeat": args.repeat,
         "jitter": args.jitter,
         "randomize": args.randomize,
+        "seed": args.seed,
+        "progress_every": args.progress_every,
+        "estimated_end_at": estimated_end_at.isoformat(timespec="milliseconds") if estimated_end_at else None,
         "dry_run": args.dry_run,
         "expected_signal": "port_churn" if args.profile in {"positive", "slow", "aggressive"} else "none_or_boundary",
     }
@@ -212,22 +276,64 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir.mkdir(parents=True, exist_ok=True)
     write_json(run_dir / "run.json", run_payload)
+    append_jsonl(markers_path, {"ts": utc_now(), "event": "run_start", "run_id": run_id, "profile": args.profile})
 
     counts: dict[str, int] = {"open": 0, "refused": 0, "timeout": 0, "error": 0, "unknown": 0}
-    print(f"[port-sweep] run_id={run_id} profile={args.profile} targets={len(targets)} ports={len(ports)} probes={len(planned)}")
+    print(
+        f"[port-sweep] run_id={run_id} profile={args.profile} targets={len(targets)} "
+        f"ports={len(ports)} duration={duration_seconds}s rate={rate}/s"
+    )
     print(f"[port-sweep] output={run_dir}")
 
     first_probe_at = utc_now()
-    for idx, (target, port) in enumerate(planned, start=1):
-        record = connect_probe(target, port, args.timeout)
-        counts[str(record["outcome"])] = counts.get(str(record["outcome"]), 0) + 1
-        append_jsonl(probes_path, record)
-        print(f"[{idx:04d}/{len(planned):04d}] {target}:{port} {record['outcome']} {record['duration_ms']}ms")
+    end_at = time.monotonic() + duration_seconds if duration_seconds > 0 else None
+    started_monotonic = time.monotonic()
+    probe_count = 0
+    cycle_count = 0
+    interrupted = False
+    while not STOP_REQUESTED:
+        now_monotonic = time.monotonic()
+        if cycle_count >= args.repeat and (end_at is None or now_monotonic >= end_at):
+            break
 
-        if idx < len(planned):
+        cycle_count += 1
+        sequence = list(base_sequence)
+        if args.randomize:
+            random.shuffle(sequence)
+        append_jsonl(markers_path, {"ts": utc_now(), "event": "cycle_start", "cycle": cycle_count})
+
+        for target, port in sequence:
+            if STOP_REQUESTED:
+                interrupted = True
+                break
+            if cycle_count > args.repeat and end_at is not None and time.monotonic() >= end_at:
+                break
+
+            probe_count += 1
+            record = connect_probe(target, port, args.timeout)
+            counts[str(record["outcome"])] = counts.get(str(record["outcome"]), 0) + 1
+            append_jsonl(probes_path, record)
+            should_print = args.progress_every == 0 or probe_count == 1 or probe_count % args.progress_every == 0
+            if should_print:
+                if end_at is not None:
+                    remaining = max(0.0, end_at - time.monotonic())
+                    eta = format_eta(remaining)
+                    progress = min(100.0, (time.monotonic() - started_monotonic) / max(duration_seconds, 1e-9) * 100.0)
+                    suffix = f" progress={progress:.1f}% eta={eta}"
+                else:
+                    suffix = ""
+                print(f"[{probe_count:05d}] cycle={cycle_count} {target}:{port} {record['outcome']} {record['duration_ms']}ms{suffix}")
+
             spread = delay * args.jitter
             sleep_for = max(0.0, delay + random.uniform(-spread, spread))
+            if end_at is not None:
+                sleep_for = min(sleep_for, max(0.0, end_at - time.monotonic()))
             time.sleep(sleep_for)
+
+        append_jsonl(markers_path, {"ts": utc_now(), "event": "cycle_end", "cycle": cycle_count, "probe_count": probe_count})
+
+    if STOP_REQUESTED:
+        interrupted = True
 
     ended_at = utc_now()
     summary: dict[str, object] = {
@@ -238,14 +344,19 @@ def main(argv: list[str] | None = None) -> int:
         "ended_at": ended_at,
         "targets": targets,
         "ports": ports,
-        "probe_count": len(planned),
+        "probe_count": probe_count,
+        "cycle_count": cycle_count,
+        "duration_seconds": duration_seconds,
+        "interrupted": interrupted,
         "outcomes": counts,
         "expected_signal": run_payload["expected_signal"],
         "dashboard_note": "Use this run_id and timestamps when reading FP/FN and reaction time from the dashboard.",
     }
+    append_jsonl(markers_path, {"ts": ended_at, "event": "run_end", "run_id": run_id, "interrupted": interrupted, "probe_count": probe_count})
     write_json(run_dir / "summary.json", summary)
-    print(f"[port-sweep] complete summary={run_dir / 'summary.json'}")
-    return 0
+    status = "interrupted" if interrupted else "complete"
+    print(f"[port-sweep] {status} summary={run_dir / 'summary.json'}")
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":

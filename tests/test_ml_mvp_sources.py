@@ -54,6 +54,7 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn('MIN_TRAINING_SAMPLES', trainer)
         self.assertIn('FEATURE_BUCKET_MINUTES', trainer)
         self.assertIn('PER_DEVICE_MODELS', trainer)
+        self.assertIn('MODEL_REGISTRY_RETENTION_DAYS', trainer)
         self.assertIn('value: "2"', trainer)
         self.assertIn('FEATURE_BUCKET_MINUTES', inference)
         self.assertIn('INFERENCE_INTERVAL', inference)

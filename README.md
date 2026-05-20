@@ -108,6 +108,20 @@ Generate benign IoT-like baseline traffic from the tested device:
 
 Use `sensor`, `plug`, and `camera-idle` profiles to create normal traffic windows before comparing model reactions to attack traffic.
 
+Backtest a historical traffic window against an archived model artifact:
+
+```bash
+./scripts/model-backtest.sh --device-id 10 --model-type isolation_forest --start "2026-05-19 19:20:00" --end "2026-05-19 19:40:00" --label attack_port_sweep
+```
+
+Model artifacts are versioned under `/data/models/archive/` and retained for 14 days by default (`MODEL_REGISTRY_RETENTION_DAYS`). Use `summary.json` from backtests to classify TP/FP/FN/TN for experiment windows.
+
+Activate an archived model version for rollback:
+
+```bash
+./scripts/model-activate.sh --model-registry-id 123
+```
+
 ## Building Images
 
 Images are built automatically via GitHub Actions on push to `images/*`:
@@ -215,6 +229,7 @@ Services:
 - **Features**: 12 per-device features per 5-min bucket (bytes_sent+received, packets, unique_destinations, unique_ports, dns_queries, avg_bytes/pkt, packet_rate, conn_duration_avg, protocol_entropy, dst_ip_entropy, dns_to_total_ratio, iat_std)
 - **Training**: CronJob every 30 minutes; on-demand via K8s Job
 - **Training window**: 168h (7 days) — catches weekly traffic patterns
+- **Model registry**: current model files are archived under `/data/models/archive/` for rollback/backtesting, default retention 14 days.
 - **Inference**: Batch every 5 minutes (configurable via `INFERENCE_INTERVAL`)
 - **Risk reset**: stale latest buckets reset active risk after `RISK_STALE_BUCKET_MINUTES` (default 15) instead of repeatedly scoring old attack traffic.
 - **Minimum training samples**: 30 per-device buckets

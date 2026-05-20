@@ -8,6 +8,7 @@ from .ml_core import (
     FeatureExtractor, AnomalyDetector, get_all_recent_flows,
     get_detector, get_device_model_configs, ensure_schema, log,
     AVAILABLE_MODEL_TYPES, save_model_training_metadata,
+    save_model_registry_entry,
     get_global_training_config, get_effective_training_config,
     get_device_flows, get_latest_flow_timestamp, get_latest_trained_at,
     batch_get_latest_flow_timestamps, batch_get_latest_trained_at,
@@ -85,9 +86,10 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
             detector.fit(X, **fit_kwargs)
             detector.save_model(detector.model, device_id=int(device_id))
             trained += 1
+            trained_at = datetime.now(timezone.utc).isoformat()
 
             log.info("training_complete_for_device",
-                      trained_at=datetime.now(timezone.utc).isoformat(),
+                      trained_at=trained_at,
                       device_id=int(device_id), samples=samples,
                       features=len(FeatureExtractor.FEATURE_COLUMNS),
                       model_type=model_type, threshold=detector.threshold)
@@ -97,6 +99,12 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
                     device_id=int(device_id), model_type=model_type,
                     samples=samples, features_count=len(FeatureExtractor.FEATURE_COLUMNS),
                     contamination=adaptive_contamination, detector=detector,
+                    training_hours=hours,
+                )
+                await save_model_registry_entry(
+                    device_id=int(device_id), model_type=model_type,
+                    trained_at=trained_at, detector=detector,
+                    samples=samples, features_count=len(FeatureExtractor.FEATURE_COLUMNS),
                     training_hours=hours,
                 )
             except Exception as meta_exc:
@@ -281,6 +289,15 @@ async def train_model():
                             detector=detector,
                             training_hours=hours,
                         )
+                        await save_model_registry_entry(
+                            device_id=int(device_id),
+                            model_type=model_type,
+                            trained_at=trained_at,
+                            detector=detector,
+                            samples=samples,
+                            features_count=len(FeatureExtractor.FEATURE_COLUMNS),
+                            training_hours=hours,
+                        )
                     except Exception as meta_exc:
                         log.warning(
                             "training_metadata_save_failed",
@@ -336,6 +353,15 @@ async def train_model():
             features_count=len(FeatureExtractor.FEATURE_COLUMNS),
             contamination=contamination,
             detector=detector,
+            training_hours=hours,
+        )
+        await save_model_registry_entry(
+            device_id=None,
+            model_type=default_model_type,
+            trained_at=trained_at,
+            detector=detector,
+            samples=int(X.shape[0]),
+            features_count=len(FeatureExtractor.FEATURE_COLUMNS),
             training_hours=hours,
         )
     except Exception as meta_exc:

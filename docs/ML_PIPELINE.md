@@ -261,6 +261,7 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
      - Trenuje **wszystkie 4 modele** (IF, LOF, OCSVM, Autoencoder)
      - Zapisuje model + threshold + score_stats + `features_count` do `.joblib`
      - Zapisuje metryki do `model_metadata`
+     - Archiwizuje wersję modelu w `/data/models/archive/` i zapisuje `model_registry`
   4. Urządzenia z < 30 bucketów są pomijane (za mało danych)
 
 ### Ręczny (Train Now)
@@ -510,6 +511,24 @@ Tabele używane bezpośrednio przez ML pipeline:
 > **Uwaga schema:** Tabela `model_metadata` może zawierać kolumnę `version TEXT NOT NULL` jeśli została
 > utworzona przez starszą wersję kodu. Kolumna ta nie jest zarządzana przez bieżące migracje i jest
 > automatycznie wypełniana wartością `"1.0"` przy każdym zapisie metadanych treningu.
+
+### `model_registry` — wersje modeli do rollback/backtest
+
+Każdy udany trening zapisuje aktualny plik modelu oraz kopię wersjonowaną pod `/data/models/archive/{device|global}/{model_type}/`. Registry trzyma ścieżkę artefaktu, `sha256`, metryki treningowe i flagę aktywnego modelu. Retencja jest kontrolowana przez `MODEL_REGISTRY_RETENTION_DAYS` i domyślnie wynosi 14 dni.
+
+Do badań FP/FN można przeliczyć historyczne okno ruchu bez modyfikowania bieżącego `risk_score`:
+
+```bash
+./scripts/model-backtest.sh --device-id 10 --model-type isolation_forest --start "2026-05-19 19:20:00" --end "2026-05-19 19:40:00" --label attack_port_sweep
+```
+
+Wyniki trafiają do `artifacts/backtests/<run-id>/summary.json` oraz `scores.jsonl` i zawierają klasyfikację `TP`, `FP`, `FN` albo `TN`.
+
+Rollback do konkretnej wersji modelu polega na skopiowaniu archived `.joblib` na aktualną ścieżkę inference:
+
+```bash
+./scripts/model-activate.sh --model-registry-id 123
+```
 
 ### `global_training_config` — globalne domyślne parametry
 

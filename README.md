@@ -116,6 +116,8 @@ Backtest a historical traffic window against an archived model artifact:
 
 Model artifacts are versioned under `/data/models/archive/` and retained for 14 days by default (`MODEL_REGISTRY_RETENTION_DAYS`). Use `summary.json` from backtests to classify TP/FP/FN/TN for experiment windows.
 
+The device dashboard includes `Historical Model Replay` for graphing persisted per-model inference scores over 24h/48h/7d. Full archived-artifact recalculation is available through `scripts/model-backtest.sh`.
+
 Activate an archived model version for rollback:
 
 ```bash

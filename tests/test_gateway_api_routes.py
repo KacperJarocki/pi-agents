@@ -53,6 +53,18 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn("shutil.copy2", src)
         self.assertIn("model_registry", src)
 
+    def test_train_now_passes_effective_training_config_to_job(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "routers" / "training.py").read_text()
+
+        self.assertIn("training_config=training_config", src)
+        self.assertIn("TRAINING_HOURS", src)
+        self.assertIn("MIN_TRAINING_SAMPLES", src)
+        self.assertIn("FEATURE_BUCKET_MINUTES", src)
+        self.assertIn("MODEL_REGISTRY_RETENTION_DAYS", src)
+
 
 if __name__ == "__main__":
     unittest.main()

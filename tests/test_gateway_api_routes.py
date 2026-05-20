@@ -38,6 +38,7 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn('@router.get("/{device_id}/protocol-signals"', router_src)
         self.assertIn('@router.get("/{device_id}/model-versions"', router_src)
         self.assertIn('@router.post("/{device_id}/model-versions/{version_id}/activate"', router_src)
+        self.assertIn('@router.get("/{device_id}/model-replay"', router_src)
         self.assertIn('risk_delta', router_src)
         self.assertIn('correlation_bonus', router_src)
         self.assertIn('latest_device_history_points', router_src)
@@ -47,11 +48,16 @@ class TestGatewayApiRoutes(unittest.TestCase):
 
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "gateway-api" / "app" / "services" / "crud.py").read_text()
+        replay = (repo / "images" / "gateway-api" / "app" / "services" / "model_replay.py").read_text()
 
         self.assertIn("list_model_versions", src)
         self.assertIn("activate_model_version", src)
         self.assertIn("shutil.copy2", src)
         self.assertIn("model_registry", src)
+        self.assertIn("ModelReplayService", replay)
+        self.assertIn("traffic_flows", replay)
+        self.assertIn("joblib.load", replay)
+        self.assertIn("risk_score", replay)
 
     def test_train_now_passes_effective_training_config_to_job(self):
         from pathlib import Path

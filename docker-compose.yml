@@ -11,6 +11,7 @@ services:
       - GATEWAY_AGENT_URL=http://gateway-agent:7000
     volumes:
       - sqlite-data:/data
+      - model-data:/data/models
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s

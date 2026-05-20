@@ -8,6 +8,7 @@ from pathlib import Path
 from time import perf_counter, monotonic
 import os
 import json
+import shutil
 from ..models.schemas import Device, TrafficFlow, Anomaly, DeviceInferenceHistory, DeviceBehaviorAlert, ModelMetadata
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, AnomalyCreate, AnomalyResolveRequest
@@ -955,6 +956,14 @@ class AlertService:
 class DeviceModelConfigService:
     def __init__(self, db: "AsyncSession"):
         self.db = db
+        self.settings = get_settings()
+
+    def _current_model_path(self, device_id: int | None, model_type: str) -> str:
+        if model_type == "isolation_forest":
+            name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
+        else:
+            name = f"{model_type}_model_device_{device_id}.joblib" if device_id is not None else f"{model_type}_model.joblib"
+        return str(Path(self.settings.model_path) / name)
 
     async def get_config(self, device_id: int):
         result = await self.db.execute(
@@ -1059,3 +1068,83 @@ class DeviceModelConfigService:
             }
             for row in rows
         ]
+
+    async def list_model_versions(self, device_id: int, model_type: Optional[str] = None, limit: int = 50) -> list[dict]:
+        clauses = ["device_id = :did"]
+        params = {"did": device_id, "limit": limit}
+        if model_type:
+            clauses.append("model_type = :mt")
+            params["mt"] = model_type
+        sql = text(f"""
+            SELECT id, device_id, model_type, trained_at, model_path, current_path, active,
+                   samples, features, threshold, score_mean, score_std, score_p5, score_p50,
+                   score_p95, training_hours, artifact_sha256, created_at
+            FROM model_registry
+            WHERE {' AND '.join(clauses)}
+            ORDER BY active DESC, trained_at DESC, id DESC
+            LIMIT :limit
+        """)
+        try:
+            rows = (await self.db.execute(sql, params)).fetchall()
+        except Exception:
+            return []
+        return [
+            {
+                "id": int(row.id),
+                "device_id": int(row.device_id) if row.device_id is not None else None,
+                "model_type": row.model_type,
+                "trained_at": row.trained_at,
+                "model_path": row.model_path,
+                "current_path": row.current_path,
+                "active": bool(row.active),
+                "samples": row.samples,
+                "features": row.features,
+                "threshold": row.threshold,
+                "score_mean": row.score_mean,
+                "score_std": row.score_std,
+                "score_p5": row.score_p5,
+                "score_p50": row.score_p50,
+                "score_p95": row.score_p95,
+                "training_hours": row.training_hours,
+                "artifact_sha256": row.artifact_sha256,
+                "created_at": row.created_at,
+                "artifact_exists": bool(row.model_path and Path(row.model_path).exists()),
+            }
+            for row in rows
+        ]
+
+    async def activate_model_version(self, device_id: int, version_id: int) -> dict:
+        row = (await self.db.execute(
+            text("""
+                SELECT id, device_id, model_type, trained_at, model_path, current_path
+                FROM model_registry
+                WHERE id = :vid AND device_id = :did
+            """),
+            {"vid": version_id, "did": device_id},
+        )).first()
+        if row is None:
+            raise ValueError("model version not found")
+        source = Path(row.model_path)
+        if not source.exists():
+            raise FileNotFoundError(str(source))
+        target = Path(row.current_path or self._current_model_path(device_id, row.model_type))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        await self.db.execute(
+            text("UPDATE model_registry SET active = 0 WHERE device_id = :did AND model_type = :mt"),
+            {"did": device_id, "mt": row.model_type},
+        )
+        await self.db.execute(
+            text("UPDATE model_registry SET active = 1, current_path = :path WHERE id = :vid"),
+            {"path": str(target), "vid": version_id},
+        )
+        await self.db.commit()
+        return {
+            "id": int(row.id),
+            "device_id": int(row.device_id),
+            "model_type": row.model_type,
+            "trained_at": row.trained_at,
+            "source": str(source),
+            "target": str(target),
+            "active": True,
+        }

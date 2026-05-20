@@ -27,6 +27,19 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("risk-status", device_template)
         self.assertIn("risk-top-reason", device_template)
         self.assertIn("correlation_bonus", device_template)
+        self.assertIn("Model Versions", device_template)
+        self.assertIn("model-versions-body", device_template)
+        self.assertIn("loadModelVersions", device_template)
+        self.assertIn("activateModelVersion", device_template)
+
+    def test_dashboard_proxies_model_versions(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "dashboard" / "app" / "main.py").read_text()
+
+        self.assertIn('/api/devices/{device_id}/model-versions', src)
+        self.assertIn('/model-versions/{version_id}/activate', src)
 
 
 if __name__ == "__main__":

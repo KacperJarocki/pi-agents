@@ -233,6 +233,19 @@ async def get_device_model_scores(device_id: int, model_type: str = "isolation_f
     return await fetch_api(f"/devices/{device_id}/model-scores?model_type={model_type}&hours={hours}")
 
 
+@app.get("/api/devices/{device_id}/model-versions")
+async def get_device_model_versions(device_id: int, model_type: str | None = None, limit: int = 50):
+    qs = f"/devices/{device_id}/model-versions?limit={limit}"
+    if model_type:
+        qs += f"&model_type={model_type}"
+    return await fetch_api(qs)
+
+
+@app.post("/api/devices/{device_id}/model-versions/{version_id}/activate")
+async def activate_device_model_version(device_id: int, version_id: int):
+    return await call_api("POST", f"/devices/{device_id}/model-versions/{version_id}/activate")
+
+
 @app.post("/api/devices/{device_id}/block")
 async def block_device(device_id: int):
     return await call_api("POST", f"/devices/{device_id}/block")

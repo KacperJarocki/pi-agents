@@ -316,6 +316,42 @@ async def get_device_model_scores(
     return DeviceModelScoresResponse(device_id=device_id, hours=hours, model_type=model_type, data=data)
 
 
+@router.get("/{device_id}/model-versions")
+async def get_device_model_versions(
+    device_id: int,
+    model_type: Optional[str] = Query(None, pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$"),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    versions = await config_service.list_model_versions(device_id, model_type=model_type, limit=limit)
+    return {"device_id": device_id, "total": len(versions), "versions": versions}
+
+
+@router.post("/{device_id}/model-versions/{version_id}/activate")
+async def activate_device_model_version(
+    device_id: int,
+    version_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    try:
+        activated = await config_service.activate_model_version(device_id, version_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=f"Archived model artifact missing: {exc}")
+    return activated
+
+
 @router.put("/{device_id}/model-config", response_model=DeviceModelConfigResponse)
 async def set_device_model_config(
     device_id: int,

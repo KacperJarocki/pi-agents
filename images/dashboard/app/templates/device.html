@@ -209,6 +209,38 @@
             </div>
         </section>
 
+        <section class="grid grid-cols-1 gap-4">
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Model Versions</div>
+                            <div class="text-sm text-slate-400">Archived models retained for rollback/backtesting</div>
+                        </div>
+                        <button onclick="loadModelVersions()" class="btn btn-xs btn-outline">Refresh</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="table table-xs w-full">
+                            <thead>
+                                <tr class="text-slate-400">
+                                    <th>Model</th>
+                                    <th>Trained At</th>
+                                    <th>Samples</th>
+                                    <th>Threshold</th>
+                                    <th>Artifact</th>
+                                    <th>State</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="model-versions-body">
+                                <tr><td colspan="7" class="text-slate-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Training Configuration (Faza 3) -->
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
@@ -419,6 +451,54 @@
                     <td class="text-xs max-w-[120px] truncate">${fmtTs(m.timestamp)}</td>
                 </tr>`;
             }).join('');
+        }
+
+        async function loadModelVersions() {
+            const tbody = document.getElementById('model-versions-body');
+            if (!tbody) return;
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/model-versions?limit=50`);
+                const data = await res.json();
+                const versions = data.versions || [];
+                if (!versions.length) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-slate-500">No archived model versions yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = versions.map(v => {
+                    const active = Boolean(v.active);
+                    const exists = Boolean(v.artifact_exists);
+                    const sha = (v.artifact_sha256 || '').slice(0, 10);
+                    const action = active
+                        ? '<span class="badge badge-xs badge-info">active</span>'
+                        : `<button class="btn btn-xs btn-outline btn-warning" ${exists ? '' : 'disabled'} onclick="activateModelVersion(${v.id})">Activate</button>`;
+                    return `<tr class="${active ? 'bg-sky-500/10' : ''}">
+                        <td class="font-mono text-xs">${MODEL_LABELS[v.model_type] || v.model_type}</td>
+                        <td class="text-xs whitespace-nowrap">${fmtTs(v.trained_at)}</td>
+                        <td>${v.samples ?? '-'}</td>
+                        <td>${v.threshold == null ? '-' : Number(v.threshold).toFixed(4)}</td>
+                        <td class="font-mono text-[11px]">${exists ? sha : '<span class="text-error">missing</span>'}</td>
+                        <td>${active ? '<span class="badge badge-xs badge-info">current</span>' : '<span class="badge badge-xs badge-ghost">archived</span>'}</td>
+                        <td>${action}</td>
+                    </tr>`;
+                }).join('');
+            } catch(e) {
+                console.warn('model versions load failed', e);
+                tbody.innerHTML = '<tr><td colspan="7" class="text-error">Failed to load model versions</td></tr>';
+            }
+        }
+
+        async function activateModelVersion(versionId) {
+            if (!confirm('Activate this archived model for live inference?')) return;
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/model-versions/${versionId}/activate`, { method: 'POST' });
+                if (!res.ok) throw new Error(await res.text());
+                if (window.Alpine) Alpine.store('toast').show('Model version activated');
+                await loadModelVersions();
+                await loadModelConfig();
+            } catch(e) {
+                console.error('model version activate failed', e);
+                if (window.Alpine) Alpine.store('toast').show('Model activation failed', 'error');
+            }
         }
 
         async function loadMultiModelTimeline() {
@@ -1072,6 +1152,8 @@
         setInterval(loadModelConfig, 60_000);
         loadMlHealth();
         setInterval(loadMlHealth, 60_000);  // refresh every 60 s (training runs every 30 min)
+        loadModelVersions();
+        setInterval(loadModelVersions, 60_000);
         loadTrainingConfig();
         setInterval(loadTrainingConfig, 60_000);
         loadTrainingData();

@@ -122,6 +122,8 @@ Activate an archived model version for rollback:
 ./scripts/model-activate.sh --model-registry-id 123
 ```
 
+The device dashboard also exposes a `Model Versions` panel for listing archived versions and activating a selected artifact without using the CLI.
+
 ## Building Images
 
 Images are built automatically via GitHub Actions on push to `images/*`:

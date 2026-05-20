@@ -36,9 +36,22 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn('@router.get("/{device_id}/risk-contributors"', router_src)
         self.assertIn('@router.get("/{device_id}/behavior-baseline"', router_src)
         self.assertIn('@router.get("/{device_id}/protocol-signals"', router_src)
+        self.assertIn('@router.get("/{device_id}/model-versions"', router_src)
+        self.assertIn('@router.post("/{device_id}/model-versions/{version_id}/activate"', router_src)
         self.assertIn('risk_delta', router_src)
         self.assertIn('correlation_bonus', router_src)
         self.assertIn('latest_device_history_points', router_src)
+
+    def test_model_version_services_exist(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "services" / "crud.py").read_text()
+
+        self.assertIn("list_model_versions", src)
+        self.assertIn("activate_model_version", src)
+        self.assertIn("shutil.copy2", src)
+        self.assertIn("model_registry", src)
 
 
 if __name__ == "__main__":

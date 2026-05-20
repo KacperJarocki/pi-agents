@@ -49,6 +49,8 @@ Database tables managed here
 """
 
 import os
+import hashlib
+import shutil
 import structlog
 import aiosqlite
 import pandas as pd
@@ -56,6 +58,7 @@ import numpy as np
 import json
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import List, Dict, Optional
 
 structlog.configure(
@@ -191,6 +194,8 @@ class BaseDetector(ABC):
     def __init__(self, model_path: str):
         self.model_path = model_path
         self.model = None
+        self._last_saved_model_file: str | None = None
+        self._last_archived_model_file: str | None = None
         # Adaptive threshold — overwritten by load_model() / _compute_and_store_score_stats()
         self.threshold = float(os.getenv("ANOMALY_THRESHOLD", "-0.5"))
         # Score distribution from training data (set by _compute_and_store_score_stats)
@@ -247,6 +252,21 @@ class BaseDetector(ABC):
         log.info("model_loaded", path=model_file, device_id=device_id, model_type=self.MODEL_TYPE)
         return True
 
+    def load_model_file(self, model_file: str) -> bool:
+        """Load a specific model artifact path for offline backtesting/rollback."""
+        import joblib
+        if not os.path.exists(model_file):
+            return False
+        try:
+            raw = joblib.load(model_file)
+        except Exception as exc:
+            log.error("model_artifact_load_failed", path=model_file, model_type=self.MODEL_TYPE, error=str(exc))
+            return False
+        payload = raw if isinstance(raw, dict) and "model" in raw else {"model": raw}
+        self._apply_payload(payload)
+        log.info("model_artifact_loaded", path=model_file, model_type=self.MODEL_TYPE)
+        return True
+
     def _apply_payload(self, payload: dict) -> None:
         """Extract model, threshold and score_stats from a payload dict."""
         self.model = payload.get("model") if isinstance(payload, dict) else payload
@@ -287,15 +307,27 @@ class BaseDetector(ABC):
             "features_count": len(FeatureExtractor.FEATURE_COLUMNS),
         }
         joblib.dump(payload, model_file)
+        self._last_saved_model_file = model_file
+        self._last_archived_model_file = self._archive_model_file(model_file, device_id)
         self.model = model
         log.info(
             "model_saved",
             path=model_file,
+            archive_path=self._last_archived_model_file,
             device_id=device_id,
             model_type=self.MODEL_TYPE,
             threshold=round(self.threshold, 6),
             score_mean=round(self._score_stats.get("mean", 0.0), 6),
         )
+
+    def _archive_model_file(self, model_file: str, device_id: int | None = None) -> str:
+        trained_at = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        owner = f"device_{device_id}" if device_id is not None else "global"
+        archive_dir = Path(self.model_path) / "archive" / owner / self.MODEL_TYPE
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archived = archive_dir / f"{trained_at}.joblib"
+        shutil.copy2(model_file, archived)
+        return str(archived)
 
     # ── adaptive threshold + score normalisation ─────────────────────────────
 
@@ -776,6 +808,7 @@ async def ensure_schema():
         await _ensure_device_model_config_table(conn)
         await _ensure_device_model_scores_table(conn)
         await _ensure_model_metadata_table(conn)
+        await _ensure_model_registry_table(conn)
         await _ensure_training_config_tables(conn)
         await conn.commit()
         log.info("schema_ensured")
@@ -933,6 +966,49 @@ async def _ensure_model_metadata_table(conn: aiosqlite.Connection):
     # Index is created after migrations so device_id is guaranteed to exist.
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_model_metadata_device_type ON model_metadata(device_id, model_type, trained_at)"
+    )
+
+
+async def _ensure_model_registry_table(conn: aiosqlite.Connection):
+    """Track versioned model artifacts retained for rollback/backtesting."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS model_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER,
+            model_type TEXT NOT NULL,
+            trained_at TEXT NOT NULL,
+            model_path TEXT NOT NULL,
+            current_path TEXT,
+            active INTEGER DEFAULT 0,
+            samples INTEGER,
+            features INTEGER,
+            threshold REAL,
+            score_mean REAL,
+            score_std REAL,
+            score_p5 REAL,
+            score_p50 REAL,
+            score_p95 REAL,
+            training_hours INTEGER,
+            artifact_sha256 TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    migration_columns = [
+        ("current_path", "TEXT"),
+        ("active", "INTEGER DEFAULT 0"),
+        ("artifact_sha256", "TEXT"),
+        ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ]
+    for col_name, col_type in migration_columns:
+        try:
+            await conn.execute(f"ALTER TABLE model_registry ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_registry_device_type_time ON model_registry(device_id, model_type, trained_at)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_registry_active ON model_registry(device_id, model_type, active)"
     )
 
 
@@ -1203,6 +1279,141 @@ async def save_model_training_metadata(
             (device_id, model_type, device_id, model_type),
         )
         await conn.commit()
+    finally:
+        await conn.close()
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+async def save_model_registry_entry(
+    device_id: int | None,
+    model_type: str,
+    trained_at: str,
+    detector: BaseDetector,
+    samples: int,
+    features_count: int,
+    training_hours: int,
+) -> int | None:
+    """Persist a versioned model artifact pointer for rollback/backtesting."""
+    archived_path = getattr(detector, "_last_archived_model_file", None)
+    current_path = getattr(detector, "_last_saved_model_file", None)
+    if not archived_path or not os.path.exists(archived_path):
+        log.warning("model_registry_missing_archive", device_id=device_id, model_type=model_type)
+        return None
+
+    stats = getattr(detector, "_score_stats", {}) or {}
+    artifact_sha256 = _sha256_file(archived_path)
+    conn = await get_db_connection()
+    try:
+        await conn.execute(
+            "UPDATE model_registry SET active = 0 WHERE device_id IS ? AND model_type = ?",
+            (device_id, model_type),
+        )
+        cursor = await conn.execute(
+            """
+            INSERT INTO model_registry (
+                device_id, model_type, trained_at, model_path, current_path, active,
+                samples, features, threshold, score_mean, score_std, score_p5, score_p50,
+                score_p95, training_hours, artifact_sha256
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                device_id,
+                model_type,
+                trained_at,
+                archived_path,
+                current_path,
+                samples,
+                features_count,
+                round(detector.threshold, 6),
+                round(stats.get("mean", 0.0), 6),
+                round(stats.get("std", 0.0), 6),
+                round(stats.get("p5", 0.0), 6),
+                round(stats.get("p50", 0.0), 6),
+                round(stats.get("p95", 0.0), 6),
+                training_hours,
+                artifact_sha256,
+            ),
+        )
+        registry_id = cursor.lastrowid
+        await conn.commit()
+        log.info("model_version_saved", registry_id=registry_id, device_id=device_id,
+                 model_type=model_type, path=archived_path, sha256=artifact_sha256)
+        saved_id = int(registry_id) if registry_id is not None else None
+    finally:
+        await conn.close()
+    await prune_model_registry(retention_days=int(os.getenv("MODEL_REGISTRY_RETENTION_DAYS", "14")))
+    return saved_id
+
+
+async def prune_model_registry(retention_days: int = 14) -> None:
+    """Delete model artifact registry rows/files older than the retention window."""
+    conn = await get_db_connection()
+    try:
+        cursor = await conn.execute(
+            """
+            SELECT id, model_path FROM model_registry
+            WHERE active = 0 AND datetime(trained_at) < datetime('now', ?)
+            """,
+            (f"-{retention_days} days",),
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            path = row["model_path"]
+            try:
+                if path and os.path.exists(path):
+                    os.remove(path)
+            except OSError as exc:
+                log.warning("model_registry_prune_file_failed", path=path, error=str(exc))
+        await conn.execute(
+            """
+            DELETE FROM model_registry
+            WHERE active = 0 AND datetime(trained_at) < datetime('now', ?)
+            """,
+            (f"-{retention_days} days",),
+        )
+        await conn.commit()
+        if rows:
+            log.info("model_registry_pruned", deleted=len(rows), retention_days=retention_days)
+    finally:
+        await conn.close()
+
+
+async def list_model_registry_entries(
+    device_id: int | None = None,
+    model_type: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    conditions = []
+    params: list = []
+    if device_id is not None:
+        conditions.append("device_id = ?")
+        params.append(device_id)
+    if model_type is not None:
+        conditions.append("model_type = ?")
+        params.append(model_type)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(limit)
+    conn = await get_db_connection()
+    try:
+        cursor = await conn.execute(
+            f"""
+            SELECT id, device_id, model_type, trained_at, model_path, current_path, active,
+                   samples, features, threshold, score_mean, score_std, score_p5, score_p50,
+                   score_p95, training_hours, artifact_sha256
+            FROM model_registry {where}
+            ORDER BY trained_at DESC, id DESC LIMIT ?
+            """,
+            params,
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
     finally:
         await conn.close()
 

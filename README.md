@@ -108,15 +108,15 @@ Generate benign IoT-like baseline traffic from the tested device:
 
 Use `sensor`, `plug`, and `camera-idle` profiles to create normal traffic windows before comparing model reactions to attack traffic.
 
-Backtest a historical traffic window against an archived model artifact:
+Backtest a historical traffic window against a current or archived model artifact:
 
 ```bash
 ./scripts/model-backtest.sh --device-id 10 --model-type isolation_forest --start "2026-05-19 19:20:00" --end "2026-05-19 19:40:00" --label attack_port_sweep
 ```
 
-Model artifacts are versioned under `/data/models/archive/` and retained for 14 days by default (`MODEL_REGISTRY_RETENTION_DAYS`). Use `summary.json` from backtests to classify TP/FP/FN/TN for experiment windows.
+Model artifacts are versioned under `/data/models/archive/` and retained for 14 days by default (`MODEL_REGISTRY_RETENTION_DAYS`). Use `summary.json` from backtests to classify TP/FP/FN/TN for experiment windows. Add `--compare-all` to score the same historical window with the latest artifact for IF, LOF, OCSVM, and Autoencoder.
 
-The device dashboard includes `Historical Model Replay` for graphing persisted per-model inference scores over 24h/48h/7d. Full archived-artifact recalculation is available through `scripts/model-backtest.sh`.
+The device dashboard includes `Historical Model Replay` for offline artifact replay. The `Replay` button re-aggregates historical `traffic_flows` and scores them through the selected current model artifact, so the graph shows how that model would classify past buckets (`risk_score`, `anomaly_score`, `is_anomaly`). The `Model Versions` table also has `Replay` buttons for archived artifacts. This does not modify live device risk tables.
 
 Activate an archived model version for rollback:
 
@@ -152,7 +152,7 @@ Tags: `latest`, `sha-{git-sha}`
 | collector | 100m | 300m | 256Mi |
 | ml-trainer | 100m | 500m | 512Mi |
 | ml-inference | 100m | 300m | 512Mi |
-| gateway-api | 50m | 200m | 256Mi |
+| gateway-api | 200m | 1000m | 512Mi request / 1024Mi limit |
 | dashboard | 50m | 100m | 128Mi |
 
 ## Deployment

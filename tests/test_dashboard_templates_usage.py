@@ -40,6 +40,11 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("risk_score", device_template)
         self.assertIn("--compare-all", device_template)
         self.assertIn("model-replay", device_template)
+        self.assertIn("replayModelVersion", device_template)
+        self.assertIn("modelRegistryId", device_template)
+        self.assertIn("redrawHistoricalModelReplay", device_template)
+        self.assertIn("_lastModelReplay", device_template)
+        self.assertIn("animation: false", device_template)
         self.assertIn("model-backtest.sh", device_template)
 
     def test_dashboard_proxies_model_versions(self):

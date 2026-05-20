@@ -34,6 +34,12 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("Historical Model Replay", device_template)
         self.assertIn("model-replay-chart", device_template)
         self.assertIn("loadHistoricalModelReplay", device_template)
+        self.assertIn("All models", device_template)
+        self.assertIn("replay-score-metric", device_template)
+        self.assertIn("anomaly_score", device_template)
+        self.assertIn("risk_score", device_template)
+        self.assertIn("--compare-all", device_template)
+        self.assertIn("model-replay", device_template)
         self.assertIn("model-backtest.sh", device_template)
 
     def test_dashboard_proxies_model_versions(self):
@@ -44,6 +50,7 @@ class TestDashboardTemplateUsage(unittest.TestCase):
 
         self.assertIn('/api/devices/{device_id}/model-versions', src)
         self.assertIn('/model-versions/{version_id}/activate', src)
+        self.assertIn('/api/devices/{device_id}/model-replay', src)
 
 
 if __name__ == "__main__":

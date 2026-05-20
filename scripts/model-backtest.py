@@ -117,13 +117,51 @@ def classify(label: str, detected: bool) -> str:
     return "TN"
 
 
+MODEL_TYPES = ["isolation_forest", "lof", "ocsvm", "autoencoder"]
+
+
+def score_window(args: argparse.Namespace, model_type: str, model_file: str, model_info: dict | None) -> dict:
+    flows = load_flows(args.database_path, args.device_id, args.start, args.end)
+    extractor = FeatureExtractor(bucket_minutes=args.bucket_minutes)
+    features = extractor.extract_features(flows) if not flows.empty else pd.DataFrame()
+    if not features.empty:
+        features = features[features["device_id"] == args.device_id]
+
+    detector = get_detector(model_type, model_path=args.model_root)
+    if not detector.load_model_file(str(model_file)):
+        raise SystemExit(f"failed to load model artifact: {model_file}")
+    scores = detector.score(features)
+    detected = any(bool(row.get("is_anomaly")) for row in scores)
+    first_detection = next((row.get("bucket_start") for row in scores if row.get("is_anomaly")), None)
+    classification = classify(args.label, detected)
+    return {
+        "requested_model_type": args.model_type,
+        "effective_model_type": model_type,
+        "model_type": model_type,
+        "model_file": str(model_file),
+        "model_registry_id": model_info.get("id") if model_info else None,
+        "model_trained_at": model_info.get("trained_at") if model_info else None,
+        "model_artifact_sha256": model_info.get("artifact_sha256") if model_info else None,
+        "model_registry": model_info,
+        "flow_count": int(len(flows)),
+        "bucket_count": int(len(features)),
+        "detected": detected,
+        "classification": classification,
+        "first_detection_bucket": first_detection.isoformat(sep=" ") if first_detection is not None else None,
+        "anomaly_buckets": sum(1 for row in scores if row.get("is_anomaly")),
+        "peak_anomaly_score": max((float(row.get("anomaly_score") or 0.0) for row in scores), default=0.0),
+        "min_anomaly_score": min((float(row.get("anomaly_score") or 0.0) for row in scores), default=0.0),
+        "scores": scores,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Score historical flow windows with a current or archived model artifact.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--device-id", type=int, required=True)
-    parser.add_argument("--model-type", default="isolation_forest", choices=["isolation_forest", "lof", "ocsvm", "autoencoder"])
+    parser.add_argument("--model-type", choices=MODEL_TYPES, help="model type; inferred from --model-registry-id when omitted")
     parser.add_argument("--start", required=True, help="window start timestamp")
     parser.add_argument("--end", required=True, help="window end timestamp")
     parser.add_argument("--label", default="unknown", help="ground-truth label: benign or attack_port_sweep")
@@ -131,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-root", default=os.getenv("MODEL_PATH", "/data/models"))
     parser.add_argument("--model-file", help="explicit .joblib artifact path")
     parser.add_argument("--model-registry-id", type=int, help="model_registry id to load")
+    parser.add_argument("--compare-all", action="store_true", help="score the same window with latest registry artifact for all model types")
     parser.add_argument("--bucket-minutes", type=int, default=int(os.getenv("FEATURE_BUCKET_MINUTES", "5")))
     parser.add_argument("--run-id", help="stable output run id")
     parser.add_argument("--out-dir", default="artifacts/backtests")
@@ -143,52 +182,46 @@ async def main(argv: list[str] | None = None) -> int:
     run_dir = Path(args.out_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    model_info = None
-    model_file = args.model_file
-    if args.model_registry_id:
-        model_info = load_registry_model(args.database_path, args.model_registry_id)
-        model_file = model_info["model_path"]
-    elif not model_file:
-        model_info = latest_registry_model(args.database_path, args.device_id, args.model_type)
-        model_file = model_info["model_path"]
+    runs = []
+    if args.compare_all:
+        for model_type in MODEL_TYPES:
+            model_info = latest_registry_model(args.database_path, args.device_id, model_type)
+            runs.append(score_window(args, model_type, model_info["model_path"], model_info))
+    else:
+        model_info = None
+        model_file = args.model_file
+        model_type = args.model_type
+        if args.model_registry_id:
+            model_info = load_registry_model(args.database_path, args.model_registry_id)
+            model_file = model_info["model_path"]
+            model_type = model_info["model_type"]
+        elif not model_file:
+            model_type = model_type or "isolation_forest"
+            model_info = latest_registry_model(args.database_path, args.device_id, model_type)
+            model_file = model_info["model_path"]
+        if not model_type:
+            raise SystemExit("--model-type is required when using --model-file without --model-registry-id")
+        runs.append(score_window(args, model_type, str(model_file), model_info))
 
-    flows = load_flows(args.database_path, args.device_id, args.start, args.end)
-    extractor = FeatureExtractor(bucket_minutes=args.bucket_minutes)
-    features = extractor.extract_features(flows) if not flows.empty else pd.DataFrame()
-    if not features.empty:
-        features = features[features["device_id"] == args.device_id]
-
-    detector = get_detector(args.model_type, model_path=args.model_root)
-    if not detector.load_model_file(str(model_file)):
-        raise SystemExit(f"failed to load model artifact: {model_file}")
-    scores = detector.score(features)
-    detected = any(bool(row.get("is_anomaly")) for row in scores)
-    first_detection = next((row.get("bucket_start") for row in scores if row.get("is_anomaly")), None)
-    classification = classify(args.label, detected)
-
-    with (run_dir / "scores.jsonl").open("w", encoding="utf-8") as handle:
-        for row in scores:
-            payload = dict(row)
-            if payload.get("bucket_start") is not None:
-                payload["bucket_start"] = payload["bucket_start"].isoformat(sep=" ")
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    for run in runs:
+        suffix = run["model_type"] if args.compare_all else "scores"
+        output_name = f"scores-{suffix}.jsonl" if args.compare_all else "scores.jsonl"
+        with (run_dir / output_name).open("w", encoding="utf-8") as handle:
+            for row in run.pop("scores"):
+                payload = dict(row)
+                if payload.get("bucket_start") is not None:
+                    payload["bucket_start"] = payload["bucket_start"].isoformat(sep=" ")
+                handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
     summary = {
         "run_id": run_id,
         "created_at": utc_now(),
         "device_id": args.device_id,
-        "model_type": args.model_type,
-        "model_file": str(model_file),
-        "model_registry": model_info,
         "window_start": sqlite_ts(args.start),
         "window_end": sqlite_ts(args.end),
         "label": args.label,
-        "flow_count": int(len(flows)),
-        "bucket_count": int(len(features)),
-        "detected": detected,
-        "classification": classification,
-        "first_detection_bucket": first_detection.isoformat(sep=" ") if first_detection is not None else None,
-        "anomaly_buckets": sum(1 for row in scores if row.get("is_anomaly")),
+        "compare_all": args.compare_all,
+        "results": runs,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))

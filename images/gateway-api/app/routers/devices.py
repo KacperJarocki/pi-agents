@@ -4,6 +4,7 @@ from typing import Optional
 from ..core.database import get_db
 from ..core.cache import cache
 from ..services.crud import DeviceService, TrafficService, AnomalyService, InferenceHistoryService, BehaviorAlertService, DeviceModelConfigService
+from ..services.model_replay import ModelReplayService
 from ..services.gateway_control import GatewayAgentClient
 from ..models.schemas_pydantic import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
@@ -314,6 +315,24 @@ async def get_device_model_scores(
         lambda: config_service.get_model_score_history(device_id, model_type, hours),
     )
     return DeviceModelScoresResponse(device_id=device_id, hours=hours, model_type=model_type, data=data)
+
+
+@router.get("/{device_id}/model-replay")
+async def replay_device_model(
+    device_id: int,
+    model_type: str = Query("isolation_forest", pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$"),
+    hours: int = Query(24, ge=1, le=168),
+    model_registry_id: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    try:
+        return await ModelReplayService(db).replay(device_id, model_type, hours, model_registry_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.get("/{device_id}/model-versions")

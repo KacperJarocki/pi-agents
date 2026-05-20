@@ -31,6 +31,10 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("model-versions-body", device_template)
         self.assertIn("loadModelVersions", device_template)
         self.assertIn("activateModelVersion", device_template)
+        self.assertIn("Historical Model Replay", device_template)
+        self.assertIn("model-replay-chart", device_template)
+        self.assertIn("loadHistoricalModelReplay", device_template)
+        self.assertIn("model-backtest.sh", device_template)
 
     def test_dashboard_proxies_model_versions(self):
         from pathlib import Path

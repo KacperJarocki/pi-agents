@@ -386,6 +386,7 @@ def _validate_resource(value: str, kind: str) -> None:
 def _build_job_manifest(
     device_id: int,
     model_type: str,
+    training_config: dict | None = None,
     cpu_request: str = _DEFAULT_CPU_REQUEST,
     cpu_limit: str = _DEFAULT_CPU_LIMIT,
     mem_request: str = _DEFAULT_MEM_REQUEST,
@@ -393,6 +394,14 @@ def _build_job_manifest(
 ) -> dict:
     """Build a K8s batch/v1 Job dict for a single-device training run."""
     name = _sanitize_job_name(device_id, model_type)
+    training_config = training_config or {}
+    training_env = [
+        {"name": "TRAINING_HOURS", "value": str(training_config.get("training_hours", 24))},
+        {"name": "MIN_TRAINING_SAMPLES", "value": str(training_config.get("min_training_samples", 20))},
+        {"name": "FEATURE_BUCKET_MINUTES", "value": str(training_config.get("feature_bucket_minutes", 2))},
+        {"name": "N_ESTIMATORS", "value": str(training_config.get("n_estimators", 200))},
+        {"name": "MODEL_REGISTRY_RETENTION_DAYS", "value": "14"},
+    ]
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -438,6 +447,7 @@ def _build_job_manifest(
                                 {"name": "MODEL_TYPE", "value": model_type},
                                 {"name": "PER_DEVICE_MODELS", "value": "true"},
                                 {"name": "LOG_LEVEL", "value": "info"},
+                                *training_env,
                             ],
                             "volumeMounts": [
                                 {"name": "sqlite-data", "mountPath": "/data"},
@@ -524,6 +534,8 @@ async def train_now(
     if row is None:
         raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
 
+    training_config = await get_device_effective_config(device_id, db)
+
     job_name = _sanitize_job_name(device_id, model_type)
     batch_api = _get_k8s_batch_api()
 
@@ -540,6 +552,7 @@ async def train_now(
 
     manifest = _build_job_manifest(
         device_id, model_type,
+        training_config=training_config,
         cpu_request=eff_cpu_request,
         cpu_limit=eff_cpu_limit,
         mem_request=eff_mem_request,
@@ -560,6 +573,12 @@ async def train_now(
         "resources": {
             "requests": {"cpu": eff_cpu_request, "memory": eff_mem_request},
             "limits": {"cpu": eff_cpu_limit, "memory": eff_mem_limit},
+        },
+        "training_config": {
+            "training_hours": training_config.get("training_hours"),
+            "min_training_samples": training_config.get("min_training_samples"),
+            "feature_bucket_minutes": training_config.get("feature_bucket_minutes"),
+            "n_estimators": training_config.get("n_estimators"),
         },
         "status": "created",
     }

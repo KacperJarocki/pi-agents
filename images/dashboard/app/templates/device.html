@@ -101,7 +101,7 @@
                     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                         <div>
                             <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Historical Model Replay</div>
-                            <div class="text-lg text-white">Persisted model scores over historical buckets</div>
+                            <div class="text-lg text-white">Offline artifact replay over historical buckets</div>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             <select id="replay-model-select" class="select select-xs select-bordered bg-slate-800 text-white">
@@ -111,7 +111,7 @@
                                 <option value="ocsvm">One-Class SVM</option>
                                 <option value="autoencoder">Autoencoder</option>
                             </select>
-                            <select id="replay-score-metric" class="select select-xs select-bordered bg-slate-800 text-white">
+                            <select id="replay-score-metric" class="select select-xs select-bordered bg-slate-800 text-white" onchange="redrawHistoricalModelReplay()">
                                 <option value="risk_score">Risk score</option>
                                 <option value="anomaly_score">Anomaly score</option>
                             </select>
@@ -129,6 +129,7 @@
                     <div id="model-replay-summary" class="mt-3 text-xs text-slate-400">
                         Re-scores historical traffic flows with the selected current model artifact. No live risk tables are modified.
                     </div>
+                    <div id="model-replay-source" class="mt-1 text-[11px] text-slate-500"></div>
                     <div class="mt-2 text-[11px] text-slate-500 font-mono overflow-x-auto">
                         CLI: ./scripts/model-backtest.sh --device-id {{ device_id }} --compare-all --start "YYYY-MM-DD HH:MM:SS" --end "YYYY-MM-DD HH:MM:SS" --label attack_port_sweep
                     </div>
@@ -428,6 +429,7 @@
         let riskTimelineChart = null;
         let modelReplayChart = null;
         let deviceAlertChart = null;
+        let _lastModelReplay = null;
 
         function fmtTs(value) {
             if (!value) return 'N/A';
@@ -465,6 +467,7 @@
                 });
                 if (res.ok) {
                     _activeModel = modelType;
+                    await loadMultiModelTimeline();
                     if (window.Alpine) Alpine.store('toast').show(`Active model changed to ${MODEL_LABELS[modelType] || modelType}`);
                 } else {
                     console.error('model-config update failed', await res.text());
@@ -510,9 +513,10 @@
                     const active = Boolean(v.active);
                     const exists = Boolean(v.artifact_exists);
                     const sha = (v.artifact_sha256 || '').slice(0, 10);
+                    const replay = `<button class="btn btn-xs btn-outline btn-info" ${exists ? '' : 'disabled'} onclick="replayModelVersion(${v.id}, '${v.model_type}')">Replay</button>`;
                     const action = active
-                        ? '<span class="badge badge-xs badge-info">active</span>'
-                        : `<button class="btn btn-xs btn-outline btn-warning" ${exists ? '' : 'disabled'} onclick="activateModelVersion(${v.id})">Activate</button>`;
+                        ? `<div class="flex flex-wrap gap-1"><span class="badge badge-xs badge-info">active</span>${replay}</div>`
+                        : `<div class="flex flex-wrap gap-1"><button class="btn btn-xs btn-outline btn-warning" ${exists ? '' : 'disabled'} onclick="activateModelVersion(${v.id})">Activate</button>${replay}</div>`;
                     return `<tr class="${active ? 'bg-sky-500/10' : ''}">
                         <td class="font-mono text-xs">${MODEL_LABELS[v.model_type] || v.model_type}</td>
                         <td class="text-xs whitespace-nowrap">${fmtTs(v.trained_at)}</td>
@@ -545,7 +549,7 @@
 
         async function loadMultiModelTimeline() {
             const results = await Promise.all(MODEL_TYPES.map(mt =>
-                fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=24`).then(r => r.json()).catch(() => ({data: []}))
+                fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=24`, {cache: 'no-store'}).then(r => r.json()).catch(() => ({data: []}))
             ));
             const datasets = MODEL_TYPES.map((mt, i) => {
                 const data = (results[i].data || []).map(p => ({x: new Date(p.timestamp).getTime(), y: Number(p.risk_score || 0)}));
@@ -564,16 +568,46 @@
                 };
             }).filter(ds => ds.data.length > 0);
 
-            if (!datasets.length) return;
-
             const ctx = document.getElementById('risk-timeline-chart');
             if (riskTimelineChart) riskTimelineChart.destroy();
+            if (!datasets.length) {
+                riskTimelineChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { type: 'linear', ticks: { color: '#64748b' }, grid: { color: 'rgba(56,189,248,0.06)' } },
+                            y: { min: 0, max: 100, ticks: { color: '#64748b', stepSize: 25 }, grid: { color: 'rgba(56,189,248,0.06)' } },
+                        },
+                    },
+                    plugins: [{
+                        id: 'emptyTimeline',
+                        afterDraw(chart) {
+                            const ctx2 = chart.ctx;
+                            ctx2.save();
+                            ctx2.fillStyle = '#64748b';
+                            ctx2.font = '12px sans-serif';
+                            ctx2.textAlign = 'center';
+                            ctx2.fillText('No model score history yet', chart.width / 2, chart.height / 2);
+                            ctx2.restore();
+                        }
+                    }]
+                });
+                return;
+            }
             riskTimelineChart = new Chart(ctx, {
                 type: 'line',
                 data: { datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false,
+                    parsing: false,
+                    normalized: true,
                     interaction: { mode: 'nearest', intersect: false },
                     plugins: {
                         legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
@@ -619,67 +653,97 @@
             });
         }
 
-        async function loadHistoricalModelReplay() {
-            const modelType = document.getElementById('replay-model-select')?.value || _activeModel || 'isolation_forest';
+        function renderHistoricalModelReplay(replay, options = {}) {
+            const modelType = options.modelType || replay.model_type || document.getElementById('replay-model-select')?.value || _activeModel || 'isolation_forest';
             const scoreMetric = document.getElementById('replay-score-metric')?.value || 'risk_score';
             const hours = document.getElementById('replay-hours')?.value || '24';
             const summary = document.getElementById('model-replay-summary');
-            try {
-                const selectedModels = modelType === 'all' ? MODEL_TYPES : [modelType];
-                const results = await Promise.all(selectedModels.map(mt =>
-                    fetch(`/api/devices/${DEVICE_ID}/model-replay?model_type=${mt}&hours=${hours}`)
-                        .then(r => r.json())
-                        .catch(() => ({data: []}))
-                ));
-                const datasets = selectedModels.map((mt, i) => {
-                    const points = (results[i].data || []).map(p => ({
-                        x: new Date(p.timestamp).getTime(),
-                        y: Number(p[scoreMetric] || 0),
-                        is_anomaly: Boolean(p.is_anomaly),
-                    })).filter(p => Number.isFinite(p.x));
-                    return {
-                        label: `${MODEL_LABELS[mt] || mt} ${scoreMetric}`,
-                        data: points,
-                        borderColor: MODEL_COLORS[mt] || 'rgba(56,189,248,0.9)',
-                        backgroundColor: modelType === 'all' ? 'transparent' : 'rgba(56,189,248,0.08)',
-                        fill: modelType !== 'all',
-                        tension: 0.25,
-                        pointRadius: points.map(p => p.is_anomaly ? 3 : 0),
-                        pointBackgroundColor: points.map(p => p.is_anomaly ? 'rgba(239,68,68,0.9)' : 'transparent'),
-                        borderWidth: mt === _activeModel ? 2.5 : 1.4,
-                        borderDash: mt === _activeModel ? [] : [4, 3],
-                    };
-                }).filter(ds => ds.data.length > 0);
-                const ctx = document.getElementById('model-replay-chart');
-                if (modelReplayChart) modelReplayChart.destroy();
-                modelReplayChart = new Chart(ctx, {
-                    type: 'line',
-                    data: { datasets },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
-                        scales: {
-                            x: {
-                                type: 'linear',
-                                ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => new Date(v).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) },
-                                grid: { color: 'rgba(56,189,248,0.06)' },
-                            },
-                            y: scoreMetric === 'risk_score'
-                                ? { min: 0, max: 100, ticks: { color: '#64748b', stepSize: 25 }, grid: { color: 'rgba(56,189,248,0.06)' } }
-                                : { ticks: { color: '#64748b' }, grid: { color: 'rgba(56,189,248,0.06)' } },
-                        }
+            const source = document.getElementById('model-replay-source');
+            const results = replay.results || [replay];
+            const selectedModels = results.map(result => result.model_type || modelType);
+            const datasets = selectedModels.map((mt, i) => {
+                const points = (results[i].data || []).map(p => ({
+                    x: new Date(p.timestamp).getTime(),
+                    y: Number(p[scoreMetric] || 0),
+                    is_anomaly: Boolean(p.is_anomaly),
+                })).filter(p => Number.isFinite(p.x));
+                return {
+                    label: `${MODEL_LABELS[mt] || mt} ${scoreMetric}`,
+                    data: points,
+                    borderColor: MODEL_COLORS[mt] || 'rgba(56,189,248,0.9)',
+                    backgroundColor: modelType === 'all' ? 'transparent' : 'rgba(56,189,248,0.08)',
+                    fill: modelType !== 'all',
+                    tension: 0.25,
+                    pointRadius: points.map(p => p.is_anomaly ? 3 : 0),
+                    pointBackgroundColor: points.map(p => p.is_anomaly ? 'rgba(239,68,68,0.9)' : 'transparent'),
+                    borderWidth: mt === _activeModel ? 2.5 : 1.4,
+                    borderDash: mt === _activeModel ? [] : [4, 3],
+                };
+            }).filter(ds => ds.data.length > 0);
+            const ctx = document.getElementById('model-replay-chart');
+            if (modelReplayChart) modelReplayChart.destroy();
+            modelReplayChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    parsing: false,
+                    normalized: true,
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => new Date(v).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) },
+                            grid: { color: 'rgba(56,189,248,0.06)' },
+                        },
+                        y: scoreMetric === 'risk_score'
+                            ? { min: 0, max: 100, ticks: { color: '#64748b', stepSize: 25 }, grid: { color: 'rgba(56,189,248,0.06)' } }
+                            : { ticks: { color: '#64748b' }, grid: { color: 'rgba(56,189,248,0.06)' } },
                     }
-                });
-                const totalBuckets = datasets.reduce((sum, ds) => sum + ds.data.length, 0);
-                const anomalyCount = datasets.reduce((sum, ds) => sum + ds.data.filter(p => p.is_anomaly).length, 0);
-                const peak = datasets.reduce((max, ds) => Math.max(max, ...ds.data.map(p => p.y)), 0);
-                const label = modelType === 'all' ? 'All models' : (MODEL_LABELS[modelType] || modelType);
-                summary.textContent = `${label}: ${totalBuckets} scored buckets, ${anomalyCount} anomaly buckets, peak ${scoreMetric} ${peak.toFixed(4)} over ${hours}h.`;
+                }
+            });
+            const totalBuckets = datasets.reduce((sum, ds) => sum + ds.data.length, 0);
+            const anomalyCount = datasets.reduce((sum, ds) => sum + ds.data.filter(p => p.is_anomaly).length, 0);
+            const peak = datasets.reduce((max, ds) => Math.max(max, ...ds.data.map(p => p.y)), 0);
+            const label = modelType === 'all' ? 'All models' : (MODEL_LABELS[modelType] || modelType);
+            summary.textContent = `${label}: ${totalBuckets} scored buckets, ${anomalyCount} anomaly buckets, peak ${scoreMetric} ${peak.toFixed(4)} over ${hours}h.`;
+            if (source) {
+                const replaySource = options.modelRegistryId ? `archived model_registry_id=${options.modelRegistryId}` : 'current model artifact';
+                source.textContent = `Replay source: ${replaySource}. Flow rows: ${replay.flow_count ?? 0}. Feature buckets: ${replay.bucket_count ?? 0}.`;
+            }
+        }
+
+        function redrawHistoricalModelReplay() {
+            if (_lastModelReplay) renderHistoricalModelReplay(_lastModelReplay.replay, _lastModelReplay.options);
+        }
+
+        async function loadHistoricalModelReplay(options = {}) {
+            const modelType = options.modelType || document.getElementById('replay-model-select')?.value || _activeModel || 'isolation_forest';
+            const hours = document.getElementById('replay-hours')?.value || '24';
+            const summary = document.getElementById('model-replay-summary');
+            const source = document.getElementById('model-replay-source');
+            if (summary) summary.textContent = 'Replaying historical traffic through model artifact...';
+            if (source) source.textContent = '';
+            try {
+                const query = new URLSearchParams({model_type: modelType, hours});
+                if (options.modelRegistryId) query.set('model_registry_id', String(options.modelRegistryId));
+                const response = await fetch(`/api/devices/${DEVICE_ID}/model-replay?${query.toString()}`);
+                if (!response.ok) throw new Error(await response.text());
+                const replay = await response.json();
+                _lastModelReplay = { replay, options: {...options, modelType} };
+                renderHistoricalModelReplay(replay, _lastModelReplay.options);
             } catch(e) {
                 console.warn('historical model replay failed', e);
                 if (summary) summary.textContent = 'Historical replay failed';
             }
+        }
+
+        function replayModelVersion(versionId, modelType) {
+            const select = document.getElementById('replay-model-select');
+            if (select) select.value = modelType;
+            loadHistoricalModelReplay({modelRegistryId: versionId, modelType});
         }
 
         let _deviceBlocked = false;
@@ -907,7 +971,7 @@
             if (heavy) {
                 renderBars('traffic-chart', 'traffic-labels', 'traffic-meta', 'traffic-chart-frame', traffic.data || [], 'total_traffic_mb', null, value => `${Number(value || 0).toFixed(2)} MB`);
 
-                loadMultiModelTimeline();
+                await loadMultiModelTimeline();
 
                 const alertRows = behaviorAlerts.alerts || [];
                 const anomalyRows2 = anomalies.anomalies || [];

@@ -15,6 +15,7 @@ FEATURE_COLUMNS = [
     "dns_queries", "avg_bytes_per_packet", "packet_rate", "connection_duration_avg",
     "protocol_entropy", "dst_ip_entropy", "dns_to_total_ratio", "iat_std",
 ]
+_ARTIFACT_CACHE: dict[str, tuple[float, tuple[object, float, dict, int]]] = {}
 
 
 def _risk_from_score(score: float, threshold: float) -> float:
@@ -78,13 +79,20 @@ def _current_model_path(model_root: str, device_id: int, model_type: str) -> str
 
 
 def _load_artifact(path: str) -> tuple[object, float, dict, int]:
+    mtime = os.path.getmtime(path)
+    cached = _ARTIFACT_CACHE.get(path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+
     raw = joblib.load(path)
     payload = raw if isinstance(raw, dict) and "model" in raw else {"model": raw}
     model = payload["model"]
     threshold = float(payload.get("threshold", os.getenv("ANOMALY_THRESHOLD", "-0.5")))
     score_stats = payload.get("score_stats", {}) or {}
     features_count = int(payload.get("features_count") or _infer_features_count(model) or len(FEATURE_COLUMNS))
-    return model, threshold, score_stats, features_count
+    loaded = (model, threshold, score_stats, features_count)
+    _ARTIFACT_CACHE[path] = (mtime, loaded)
+    return loaded
 
 
 def _infer_features_count(model: object) -> int | None:
@@ -136,9 +144,32 @@ class ModelReplayService:
         self.bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", "5"))
 
     async def replay(self, device_id: int, model_type: str, hours: int, model_registry_id: int | None = None) -> dict:
-        artifact = await self._artifact(device_id, model_type, model_registry_id)
         flows = await self._flows(device_id, hours)
         features = _extract_features(flows, self.bucket_minutes)
+        if model_type == "all" and model_registry_id is None:
+            results = []
+            for mt in MODEL_TYPES:
+                artifact = await self._artifact(device_id, mt, None)
+                try:
+                    results.append(self._score_artifact(device_id, hours, flows, features, artifact))
+                except FileNotFoundError:
+                    continue
+            return {
+                "device_id": device_id,
+                "model_type": "all",
+                "hours": hours,
+                "bucket_minutes": self.bucket_minutes,
+                "flow_count": int(len(flows)),
+                "bucket_count": int(len(features)),
+                "results": results,
+            }
+
+        artifact = await self._artifact(device_id, model_type, model_registry_id)
+        return self._score_artifact(device_id, hours, flows, features, artifact)
+
+    def _score_artifact(self, device_id: int, hours: int, flows: pd.DataFrame, features: pd.DataFrame, artifact: dict) -> dict:
+        if not Path(artifact["model_path"]).exists():
+            raise FileNotFoundError(artifact["model_path"])
         model, threshold, score_stats, features_count = _load_artifact(artifact["model_path"])
 
         rows = []

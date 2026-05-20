@@ -320,7 +320,7 @@ async def get_device_model_scores(
 @router.get("/{device_id}/model-replay")
 async def replay_device_model(
     device_id: int,
-    model_type: str = Query("isolation_forest", pattern=r"^(isolation_forest|lof|ocsvm|autoencoder)$"),
+    model_type: str = Query("isolation_forest", pattern=r"^(all|isolation_forest|lof|ocsvm|autoencoder)$"),
     hours: int = Query(24, ge=1, le=168),
     model_registry_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),

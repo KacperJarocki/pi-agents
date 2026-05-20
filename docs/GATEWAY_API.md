@@ -62,6 +62,9 @@ Jest jedynym komponentem, do którego dashboard kieruje żądania — działa ja
 | `GET` | `/api/v1/devices/{id}/model-config` | Konfiguracja modelu ML per-device |
 | `PUT` | `/api/v1/devices/{id}/model-config` | Aktualizacja konfiguracji modelu |
 | `GET` | `/api/v1/devices/{id}/model-scores` | Historyczne wyniki modeli |
+| `GET` | `/api/v1/devices/{id}/model-replay` | Offline replay artifactu modelu na historycznych flow |
+| `GET` | `/api/v1/devices/{id}/model-versions` | Lista archiwalnych wersji modeli |
+| `POST` | `/api/v1/devices/{id}/model-versions/{version_id}/activate` | Aktywacja archiwalnego artifactu |
 | `POST` | `/api/v1/devices/{id}/block` | Blokowanie urządzenia |
 | `DELETE` | `/api/v1/devices/{id}/block` | Odblokowanie urządzenia |
 | `PUT` | `/api/v1/devices/{id}/risk-score` | Manualne nadpisanie risk score |
@@ -169,6 +172,17 @@ Gdy kilka żądań jednocześnie pyta o ten sam klucz cache:
 3. Wszystkie otrzymują ten sam wynik
 
 To chroni bazę SQLite przed spike'ami zapytań.
+
+### Model Replay
+
+`GET /api/v1/devices/{id}/model-replay` służy do ręcznego sprawdzania FP/FN na historii:
+
+- `model_type=isolation_forest|lof|ocsvm|autoencoder` replayuje aktualny artifact danego typu z `/data/models`.
+- `model_type=all` replayuje aktualne artifacty wszystkich czterech modeli w jednym requestcie; API czyta `traffic_flows` i liczy feature buckets tylko raz, a potem przepuszcza te same buckety przez każdy model.
+- `model_registry_id=<id>` replayuje konkretną archiwalną wersję z `model_registry` zamiast aktualnego pliku.
+- `hours=24|48|168` określa okno historyczne.
+
+Endpoint zwraca punkty z `anomaly_score`, `normalized_score`, `risk_score`, `is_anomaly`, thresholdami i feature snapshotem. Nie zapisuje wyników do `device_model_scores`, `inference_history` ani `devices.risk_score`; to czysty offline replay do diagnostyki.
 
 ---
 

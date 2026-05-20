@@ -55,6 +55,9 @@ Przeglądarka   →   Dashboard (port 8080)   →   Gateway API (port 8080)
 | `/api/devices/{id}/protocol-signals` | GET | `/api/v1/devices/{id}/protocol-signals` |
 | `/api/devices/{id}/model-config` | GET/PUT | `/api/v1/devices/{id}/model-config` |
 | `/api/devices/{id}/model-scores` | GET | `/api/v1/devices/{id}/model-scores` |
+| `/api/devices/{id}/model-replay` | GET | `/api/v1/devices/{id}/model-replay` |
+| `/api/devices/{id}/model-versions` | GET | `/api/v1/devices/{id}/model-versions` |
+| `/api/devices/{id}/model-versions/{version_id}/activate` | POST | `/api/v1/devices/{id}/model-versions/{version_id}/activate` |
 | `/api/devices/{id}/block` | POST/DELETE | `/api/v1/devices/{id}/block` |
 | `/api/blocked` | GET | `/api/v1/gateway/wifi/blocked` |
 | `/api/alerts` | GET | `/api/v1/alerts` |
@@ -133,6 +136,8 @@ Szczegółowy widok pojedynczego urządzenia z **15+ sekcjami**:
 | Protocol Signals | Sygnały DNS/ICMP | 5s |
 | Behavior Baseline | Bazowe statystyki zachowania | 5s |
 | Multi-Model Timeline | Porównanie wyników różnych modeli (Chart.js) | 5s |
+| Historical Model Replay | Offline replay aktualnego albo archiwalnego artifactu modelu na historycznych `traffic_flows` | ręczne |
+| Model Versions | Lista artifactów z registry, rollback i replay archiwalnej wersji | ręczne |
 | ML Health | Status modelu, konfiguracja, metryki | 60s |
 | Model Config | Konfiguracja modelu per-device | 60s |
 | Training Config | Parametry treningu per-device | 60s |
@@ -145,6 +150,9 @@ Ważne shape danych dla testów UI:
 
 - `GET /api/devices/{id}/protocol-signals` powinno zwracać `signals[]` z rekordami `{ label, value, note }`.
 - `GET /api/metrics/ml-status` powinno zwracać `training_metrics[]` dla każdego urządzenia, jeśli test ma weryfikować tabelę `ML Model Health`.
+- `Historical Model Replay` nie czyta zapisanych `device_model_scores`; wywołuje `/model-replay`, który ładuje `.joblib`, agreguje historyczne `traffic_flows` do bucketów i liczy `risk_score`/`is_anomaly` od nowa.
+- Tryb `All models` używa jednego requestu `model_type=all`, żeby gateway-api czytał flow i liczył feature buckets tylko raz dla czterech modeli.
+- `Risk Score Timeline` pokazuje live/persisted inference history. `Historical Model Replay` pokazuje offline scoring artifactu; te wykresy mogą się różnić, bo live risk zawiera też behavior/protocol/correlation, a replay pokazuje wynik modelu dla historycznych bucketów.
 
 ### 3. Gateway Settings (`/gateway`)
 

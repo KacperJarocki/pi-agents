@@ -56,7 +56,7 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   │     dns_queries, avg_bytes/pkt, packet_rate, conn_duration,     │
   │     protocol_entropy, dst_ip_entropy, dns_to_total_ratio,       │
   │     iat_std)                                                     │
-  │  AnomalyDetector.fit() per device (min 30 buckets)              │
+  │  AnomalyDetector.fit() per device (min 100 buckets)             │
   │  joblib.dump() → /data/models/..._device_{id}.joblib            │
   │  INSERT model_metadata                                          │
   │                                                                 │

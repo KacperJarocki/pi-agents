@@ -107,7 +107,7 @@ Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla
 
 Bucket = jedno 5-minutowe okno czasowe. Jeśli urządzenie jest aktywne 24h, to masz **288 bucketów na dobę** (24 × 60 / 5 = 288).
 
-Trening wymaga minimum **30 bucketów** per device (domyślnie). To oznacza ~150 minut aktywności urządzenia.
+Trening wymaga minimum **100 bucketów** per device (domyślnie). Przy 5-min bucketach to około 8h20 aktywności urządzenia.
 
 ### Backward compatibility
 
@@ -128,7 +128,7 @@ Wyobraź sobie grę w "20 pytań". Model losowo zadaje pytania typu "czy bytes >
 
 **Parametry:**
 - `n_estimators` (domyślnie 200) — ile drzew pytań. Więcej = dokładniej ale wolniej.
-- `contamination` (domyślnie 0.05) — jaki % danych uznajemy za anomalie podczas treningu.
+- `contamination` (domyślnie 0.01 jako global cap; per-device training adaptuje w dół) — jaki % danych uznajemy za anomalie podczas treningu.
 
 **Kiedy jest dobry:** Ogólny detektor, dobrze radzi sobie z wieloma typami anomalii.
 **Kiedy jest słaby:** Może nie wyłapać subtelnych zmian w zachowaniu.
@@ -140,7 +140,7 @@ Każdy punkt danych ma "sąsiadów" (inne buckety o podobnych wartościach). LOF
 
 **Parametry:**
 - `n_neighbors` (auto, 5–20) — ile sąsiadów brać pod uwagę. Skaluje się z rozmiarem danych.
-- `contamination` (domyślnie 0.05)
+- `contamination` (domyślnie 0.01 jako global cap; per-device training adaptuje w dół)
 
 **Kiedy jest dobry:** Wykrywa anomalie lokalne (punkty, które są normalne globalnie ale dziwne w swojej okolicy).
 **Kiedy jest słaby:** Wolniejszy na dużych zbiorach, wrażliwy na wymiarowość.
@@ -151,7 +151,7 @@ Każdy punkt danych ma "sąsiadów" (inne buckety o podobnych wartościach). LOF
 Rysuje "granicę" (hiperpowierzchnię) wokół normalnych danych w przestrzeni wielowymiarowej. Wszystko poza granicą = anomalia.
 
 **Parametry:**
-- `nu` (domyślnie 0.05) — odpowiednik contamination. Górna granica frakcji outlierów.
+- `nu` (domyślnie 0.01 jako global cap; per-device training adaptuje w dół) — odpowiednik contamination. Górna granica frakcji outlierów.
 
 **Kiedy jest dobry:** Bardzo precyzyjna granica dla dobrze zdefiniowanych normalnych wzorców.
 **Kiedy jest słaby:** Wolny na dużych zbiorach (O(n²)), wrażliwy na skalę danych.
@@ -165,7 +165,7 @@ Architektura: `n → hidden → max(4, hidden//2) → hidden → n` gdzie `hidde
 
 **Parametry:**
 - `max_iter` (domyślnie 500) — ile kroków treningu.
-- `contamination` (domyślnie 0.05) — do ustawienia threshold.
+- `contamination` (domyślnie 0.01 jako global cap; per-device training adaptuje w dół) — do ustawienia threshold.
 
 **Kiedy jest dobry:** Wyłapuje złożone, nieliniowe wzorce anomalii.
 **Kiedy jest słaby:** Potrzebuje więcej danych, dłuższy trening, "czarna skrzynka" (trudno wyjaśnić dlaczego).
@@ -262,7 +262,7 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
      - Zapisuje model + threshold + score_stats + `features_count` do `.joblib`
      - Zapisuje metryki do `model_metadata`
      - Archiwizuje wersję modelu w `/data/models/archive/` i zapisuje `model_registry`
-  4. Urządzenia z < 30 bucketów są pomijane (za mało danych)
+  4. Urządzenia z < 100 bucketów są pomijane (za mało danych dla stabilnego baseline)
 
 ### Ręczny (Train Now)
 
@@ -278,11 +278,12 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 W trybie per-device, `contamination` nie jest stałe — jest obliczane adaptacyjnie:
 
 ```
-adaptive_contamination = max(0.03, min(0.1, 5.0 / samples))
+adaptive_contamination = max(0.005, min(configured_contamination, 0.02, 1.0 / samples))
 ```
 
-- Mało danych (< 60 bucketów) → contamination = 0.1 (10%) — bardziej agresywne wykrywanie
-- Dużo danych (500 bucketów) → contamination = 0.03 (3%) — konserwatywne
+- Mało danych (~100 bucketów) → contamination około 0.01 (1%) — nadal ostrożnie dla clean baseline
+- Dużo danych (500+ bucketów) → contamination około 0.005 (0.5%) — konserwatywne, mniej false positives
+- `configured_contamination` z global/device config działa jako górny cap; niższy override dodatkowo zmniejsza czułość.
 
 Możesz nadpisać tę wartość per device (patrz [Konfiguracja per device](#konfiguracja-per-device)).
 
@@ -331,10 +332,10 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 
 | Parametr | Domyślnie | Zakres | Co robi | Kiedy zmienić |
 |----------|-----------|--------|---------|---------------|
-| `contamination` | 0.05 (5%) | 0.01–0.20 | Jaki % danych treningowych uznajemy za anomalie. Wyższe = więcej anomalii wykrywanych, ale więcej false positives. | Za dużo false positives? Obniż do 0.02–0.03. Za mało wykryć? Podnieś do 0.08–0.10. |
+| `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.005–0.01 i użyj 5-min bucketów. Za mało wykryć? Podnieś do 0.02–0.05. |
 | `n_estimators` | 200 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = dokładniej ale wolniejszy trening. | Na RPi z mało CPU zostaw 100–200. Na mocniejszej maszynie 300–500. |
 | `training_hours` | **168** | 6–336 | Ile godzin wstecz patrzeć po dane do treningu. 168h = 7 dni, łapie weekly patterns. | Nowe urządzenie? 48h. Stabilne środowisko z weekly patterns? 168h (domyślnie). |
-| `min_training_samples` | **30** | 10–200 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 10 (ale model będzie słabszy). Chcesz dokładność? 50+. |
+| `min_training_samples` | **100** | 10–10000 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 30 (ale model będzie słabszy). Chcesz mniej FP na baseline? 100+. |
 | `feature_bucket_minutes` | 5 | 1–10 | Szerokość okna czasowego bucketa w minutach. Krótszy = drobniejsza granulacja. | 1–2 min = drobne anomalie, więcej szumu. 5–10 min = stabilniejsze, mniej false positives. |
 
 ### Per-device overrides
@@ -342,8 +343,8 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 Każde urządzenie może mieć **własne** wartości parametrów. Jeśli nie ustawisz override, używa globalnych defaults.
 
 Kiedy warto nadpisać per device:
-- **Kamera IP** — generuje stały, ciężki ruch → wyższy `contamination` (0.08) bo normalne spajki są częstsze
-- **Czujnik temperatury** — bardzo regularny ruch → niższy `contamination` (0.02), każde odchylenie jest istotne
+- **Kamera IP** — generuje stały, ciężki ruch → zostaw 5-min buckety i `contamination` 0.005–0.01, bo normalne spajki nie powinny same tworzyć FP
+- **Czujnik temperatury** — bardzo regularny ruch → `contamination` 0.005, każde odchylenie jest istotne
 - **Telefon** — bardzo zmienny ruch → dłuższy `training_hours` (48–168h) żeby złapać pełny pattern
 
 ---
@@ -374,7 +375,7 @@ Dashboard → POST /api/devices/{id}/train?model_type=isolation_forest
 
 ### Kiedy NIE trenować
 
-- Masz < 30 bucketów danych (sprawdź w "Training Data" view)
+- Masz < 100 bucketów danych (sprawdź w "Training Data" view)
 - Właśnie trenowałeś (poczekaj aż inference podchwyci nowy model, ~60s)
 - Jest aktywna anomalia — nowe dane mogą "zatruć" model (model nauczy się że anomalia to norma)
 
@@ -409,13 +410,13 @@ Paginowana tabela surowych pakietów. 50 na stronę. Kolumny: timestamp, src_ip,
 
 **`global_training_config`** — jeden wiersz, globalne defaults:
 ```
-contamination=0.05, n_estimators=200, training_hours=168,
-min_training_samples=30, feature_bucket_minutes=5
+contamination=0.01, n_estimators=200, training_hours=168,
+min_training_samples=100, feature_bucket_minutes=5
 ```
 
 **`device_training_config`** — per device overrides (puste = użyj global):
 ```
-device_id=3, contamination=0.08, training_hours=48
+device_id=3, contamination=0.005, training_hours=168
 (reszta pól NULL = użyj global)
 ```
 
@@ -456,7 +457,7 @@ Każdy model po treningu oblicza **swój threshold** z danych treningowych:
 threshold = percentile(training_scores, contamination * 100)
 ```
 
-Przykład: contamination=0.05, 200 training scores → threshold = 10ty najniższy score (5ty percentyl).
+Przykład: contamination=0.005, 200 training scores → threshold = najniższy score (~0.5 percentyla), czyli bardzo konserwatywna granica dla clean baseline.
 
 ### Rozwiązanie: Score Normalization (z-score)
 
@@ -562,7 +563,7 @@ Dashboard używa endpointu `GET /api/v1/devices/{id}/model-replay`. Tryb `model_
 
 | Kolumna | Typ | Default |
 |---------|-----|---------|
-| contamination | REAL | 0.05 |
+| contamination | REAL | 0.01 |
 | n_estimators | INTEGER | 200 |
 | training_hours | INTEGER | **168** |
 | min_training_samples | INTEGER | **30** |
@@ -627,17 +628,18 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 
 ### "Model nie trenuje dla mojego urządzenia"
 
-1. **Sprawdź ilość danych:** Otwórz device → Training Data. Potrzebujesz minimum 30 bucketów.
+1. **Sprawdź ilość danych:** Otwórz device → Training Data. Potrzebujesz minimum 100 bucketów przy domyślnej konfiguracji.
 2. **Urządzenie jest podłączone?** Sprawdź connection badge. Jeśli "Not connected", collector nie zbiera danych.
 3. **Za krótki training_hours:** Jeśli urządzenie podłączyłeś niedawno, ustaw `training_hours` na wartość mniejszą niż czas od podłączenia.
 4. **Logi:** `kubectl logs -l app=ml-trainer -n iot-security --tail=50` — szukaj `training_not_enough_samples_for_device`.
 
 ### "Za dużo false positives (ciągle alerty na normalnych urządzeniach)"
 
-1. **Obniż contamination:** Z 0.05 na 0.02–0.03. Mniej anomalii = mniej false positives.
-2. **Wydłuż training_hours:** Z 24h na 48–168h. Model zobaczy więcej wariantów normalnego zachowania.
-3. **Zmień model:** Isolation Forest jest bardziej konserwatywny niż LOF. Spróbuj IF zamiast LOF.
-4. **Sprawdź behavior alerts:** Może alert `traffic_pattern_drift` jest zbyt agresywny — to heurystyka, nie ML.
+1. **Obniż contamination:** Ustaw global/device `contamination=0.005–0.01`. Mniej anomalii = mniej false positives.
+2. **Użyj 5-min bucketów:** `FEATURE_BUCKET_MINUTES=5` jest stabilniejsze niż 1–2 min i mniej reaguje na pojedyncze bursty.
+3. **Wydłuż training_hours:** 168h łapie więcej wariantów normalnego zachowania; jeśli masz dopiero 36h danych, model użyje dostępnego podzbioru.
+4. **Zmień model:** Isolation Forest jest zwykle bardziej konserwatywny niż LOF/OCSVM. Spróbuj IF jako aktywnego modelu.
+5. **Sprawdź behavior alerts:** Może alert `traffic_pattern_drift` jest zbyt agresywny — to heurystyka, nie ML.
 
 ### "Risk score nie rośnie mimo anomalii"
 

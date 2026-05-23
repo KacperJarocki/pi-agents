@@ -75,7 +75,7 @@ k8s/
 | collector | Deployment | Always | Traffic capture via tcpdump/tshark |
 | gateway-agent | Deployment | Always | WiFi AP + DHCP + NAT control |
 | gateway-api | Deployment | Always | REST API + WebSocket alerts |
-| ml-trainer | CronJob | Every 30 min | Train all 4 models per device (168h window, min 30 buckets) |
+| ml-trainer | CronJob | Every 30 min | Train all 4 models per device (168h window, min 100 buckets, conservative baseline contamination) |
 | ml-inference | Deployment | Always | Batch anomaly inference |
 | dashboard | Deployment | Always | Web UI |
 

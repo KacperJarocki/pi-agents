@@ -43,11 +43,17 @@ spec:
                 - name: MODEL_PATH
                   value: "/data/models"
                 - name: TRAINING_HOURS
-                  value: "24"
+                  value: "168"
                 - name: MIN_TRAINING_SAMPLES
-                  value: "20"
+                  value: "100"
                 - name: FEATURE_BUCKET_MINUTES
-                  value: "2"
+                  value: "5"
+                - name: ADAPTIVE_CONTAMINATION_MIN
+                  value: "0.005"
+                - name: ADAPTIVE_CONTAMINATION_MAX
+                  value: "0.02"
+                - name: ADAPTIVE_CONTAMINATION_TARGET_BUCKETS
+                  value: "1.0"
                 - name: PER_DEVICE_MODELS
                   value: "true"
                 - name: MODEL_REGISTRY_RETENTION_DAYS

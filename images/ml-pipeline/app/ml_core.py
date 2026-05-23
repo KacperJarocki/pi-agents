@@ -1020,7 +1020,7 @@ async def _ensure_model_registry_table(conn: aiosqlite.Connection):
 DEFAULT_TRAINING_CONFIG = {
     "training_hours": 168,
     "min_training_samples": 100,
-    "contamination": 0.05,
+    "contamination": 0.01,
     "n_estimators": 200,
     "feature_bucket_minutes": 5,
     "per_device_models": True,
@@ -1039,7 +1039,7 @@ async def _ensure_training_config_tables(conn: aiosqlite.Connection):
             id INTEGER PRIMARY KEY CHECK (id = 1),
             training_hours INTEGER NOT NULL DEFAULT 168,
             min_training_samples INTEGER NOT NULL DEFAULT 100,
-            contamination REAL NOT NULL DEFAULT 0.05,
+            contamination REAL NOT NULL DEFAULT 0.01,
             n_estimators INTEGER NOT NULL DEFAULT 200,
             feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,
             per_device_models INTEGER NOT NULL DEFAULT 1,

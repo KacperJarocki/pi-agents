@@ -16,6 +16,19 @@ from .ml_core import (
 )
 
 
+ADAPTIVE_CONTAMINATION_MIN = float(os.getenv("ADAPTIVE_CONTAMINATION_MIN", "0.005"))
+ADAPTIVE_CONTAMINATION_MAX = float(os.getenv("ADAPTIVE_CONTAMINATION_MAX", "0.02"))
+ADAPTIVE_CONTAMINATION_TARGET_BUCKETS = float(os.getenv("ADAPTIVE_CONTAMINATION_TARGET_BUCKETS", "1.0"))
+
+
+def _adaptive_contamination(samples: int, configured_contamination: float | None = None) -> float:
+    """Pick a conservative expected anomaly rate for mostly-benign baselines."""
+    configured = float(configured_contamination) if configured_contamination is not None else ADAPTIVE_CONTAMINATION_MAX
+    cap = min(configured, ADAPTIVE_CONTAMINATION_MAX)
+    by_sample_count = ADAPTIVE_CONTAMINATION_TARGET_BUCKETS / max(samples, 1)
+    return max(ADAPTIVE_CONTAMINATION_MIN, min(cap, by_sample_count))
+
+
 def _parse_training_timestamp(value: str | None) -> datetime | None:
     """Normalize SQLite/ISO timestamps before comparing training freshness."""
     if not value:
@@ -42,8 +55,8 @@ def _should_skip_training(latest_flow: str | None, latest_trained: str | None) -
 
 
 async def _train_single_device(device_id: int, model_types: list[str], hours: int,
-                                min_samples: int, n_estimators: int,
-                                bucket_minutes: int) -> int:
+                                 min_samples: int, n_estimators: int,
+                                 bucket_minutes: int, contamination: float | None = None) -> int:
     """Train model(s) for a single device. Used by Train Now Jobs.
 
     Returns the number of model types successfully trained.
@@ -66,7 +79,7 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
         return 0
 
     X = device_features[FeatureExtractor.FEATURE_COLUMNS].values
-    adaptive_contamination = max(0.02, min(0.05, 3.0 / samples))
+    adaptive_contamination = _adaptive_contamination(samples, contamination)
     trained = 0
 
     for model_type in model_types:
@@ -136,10 +149,11 @@ async def train_model():
         min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(dev_cfg.get("min_training_samples", 30))))
         n_estimators = int(os.getenv("N_ESTIMATORS", str(dev_cfg.get("n_estimators", 200))))
         bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(dev_cfg.get("feature_bucket_minutes", 5))))
+        contamination = float(os.getenv("CONTAMINATION", str(dev_cfg.get("contamination", 0.01))))
 
         log.info("train_now_start", device_id=device_id, model_types=model_types, hours=hours)
         trained = await _train_single_device(device_id, model_types, hours,
-                                               min_samples, n_estimators, bucket_minutes)
+                                               min_samples, n_estimators, bucket_minutes, contamination)
         log.info("train_now_complete", device_id=device_id, trained_models=trained)
         return trained
 
@@ -223,6 +237,7 @@ async def train_model():
                 dev_cfg = {}
             dev_min_samples = dev_cfg.get("min_training_samples", min_samples)
             dev_n_estimators = dev_cfg.get("n_estimators", global_n_estimators)
+            dev_contamination = dev_cfg.get("contamination", contamination)
 
             if samples < dev_min_samples:
                 log.warning(
@@ -234,7 +249,7 @@ async def train_model():
                 continue
 
             X = group[FeatureExtractor.FEATURE_COLUMNS].values
-            adaptive_contamination = max(0.02, min(0.05, 3.0 / samples))
+            adaptive_contamination = _adaptive_contamination(samples, dev_contamination)
             device_trained = False
 
             # Train ALL model types per device

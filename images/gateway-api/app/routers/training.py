@@ -39,9 +39,9 @@ router = APIRouter(prefix="/ml", tags=["training"])
 
 # Default values matching ml_core.DEFAULT_TRAINING_CONFIG
 _DEFAULTS = {
-    "training_hours": 48,
-    "min_training_samples": 10,
-    "contamination": 0.05,
+    "training_hours": 168,
+    "min_training_samples": 100,
+    "contamination": 0.01,
     "n_estimators": 200,
     "feature_bucket_minutes": 5,
     "per_device_models": True,
@@ -53,9 +53,9 @@ async def _ensure_tables(db: AsyncSession):
     await db.execute(text("""
         CREATE TABLE IF NOT EXISTS global_training_config (
             id INTEGER PRIMARY KEY CHECK (id = 1),
-            training_hours INTEGER NOT NULL DEFAULT 48,
-            min_training_samples INTEGER NOT NULL DEFAULT 10,
-            contamination REAL NOT NULL DEFAULT 0.05,
+            training_hours INTEGER NOT NULL DEFAULT 168,
+            min_training_samples INTEGER NOT NULL DEFAULT 100,
+            contamination REAL NOT NULL DEFAULT 0.01,
             n_estimators INTEGER NOT NULL DEFAULT 200,
             feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,
             per_device_models INTEGER NOT NULL DEFAULT 1,
@@ -396,10 +396,14 @@ def _build_job_manifest(
     name = _sanitize_job_name(device_id, model_type)
     training_config = training_config or {}
     training_env = [
-        {"name": "TRAINING_HOURS", "value": str(training_config.get("training_hours", 24))},
-        {"name": "MIN_TRAINING_SAMPLES", "value": str(training_config.get("min_training_samples", 20))},
-        {"name": "FEATURE_BUCKET_MINUTES", "value": str(training_config.get("feature_bucket_minutes", 2))},
+        {"name": "TRAINING_HOURS", "value": str(training_config.get("training_hours", 168))},
+        {"name": "MIN_TRAINING_SAMPLES", "value": str(training_config.get("min_training_samples", 100))},
+        {"name": "FEATURE_BUCKET_MINUTES", "value": str(training_config.get("feature_bucket_minutes", 5))},
         {"name": "N_ESTIMATORS", "value": str(training_config.get("n_estimators", 200))},
+        {"name": "CONTAMINATION", "value": str(training_config.get("contamination", 0.01))},
+        {"name": "ADAPTIVE_CONTAMINATION_MIN", "value": "0.005"},
+        {"name": "ADAPTIVE_CONTAMINATION_MAX", "value": "0.02"},
+        {"name": "ADAPTIVE_CONTAMINATION_TARGET_BUCKETS", "value": "1.0"},
         {"name": "MODEL_REGISTRY_RETENTION_DAYS", "value": "14"},
     ]
     return {

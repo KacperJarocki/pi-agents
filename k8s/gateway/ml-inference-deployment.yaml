@@ -49,7 +49,7 @@ spec:
             - name: BEHAVIOR_BASELINE_HOURS
               value: "168"
             - name: FEATURE_BUCKET_MINUTES
-              value: "2"
+              value: "5"
             - name: PER_DEVICE_MODELS
               value: "true"
           volumeMounts:

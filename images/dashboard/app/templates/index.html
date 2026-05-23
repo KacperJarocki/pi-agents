@@ -69,7 +69,7 @@
                 <h2 class="card-title text-sm">Alert Timeline</h2>
                 <span class="text-xs text-gray-400">last 24 h</span>
             </div>
-            <div class="p-4" style="height:220px">
+            <div class="p-4" style="height:300px">
                 <canvas id="alert-timeline-chart"></canvas>
             </div>
         </div>
@@ -121,6 +121,33 @@
 
 {% block scripts %}
 <script>
+    function parseApiTs(value) {
+        if (!value) return null;
+        if (typeof value === 'number') return new Date(value);
+        const raw = String(value).trim();
+        const hasTz = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+        const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+        return new Date(hasTz ? normalized : `${normalized}Z`);
+    }
+
+    function fmtDateTime(value) {
+        const ts = parseApiTs(value);
+        if (!ts || Number.isNaN(ts.getTime())) return 'N/A';
+        return ts.toLocaleString([], {
+            year: 'numeric', month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+        });
+    }
+
+    function fmtAxisDateTime(value) {
+        const ts = parseApiTs(value);
+        if (!ts || Number.isNaN(ts.getTime())) return '';
+        return [
+            ts.toLocaleDateString([], {month: 'short', day: '2-digit'}),
+            ts.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+        ];
+    }
+
     /* ── Metrics ── */
     async function loadMetrics() {
         try {
@@ -161,7 +188,8 @@
             const anomaly = [];   // ML models (isolation_forest)
             const behavior = [];  // heuristic behavior alerts
             alerts.forEach(a => {
-                const ts = new Date(a.timestamp);
+                const ts = parseApiTs(a.timestamp);
+                if (!ts || Number.isNaN(ts.getTime())) return;
                 const score = Number(a.score || 0);
                 const point = {x: ts.getTime(), y: score};
                 if (a.source === 'isolation_forest') anomaly.push(point);
@@ -199,9 +227,9 @@
                         legend: { labels: { color: '#9ca3af', font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
+                                title: items => items.length ? fmtDateTime(items[0].parsed.x) : '',
                                 label: function(ctx) {
-                                    const t = new Date(ctx.raw.x).toLocaleTimeString();
-                                    return `${ctx.dataset.label} @ ${t} — score ${ctx.raw.y.toFixed(2)}`;
+                                    return `${ctx.dataset.label} — score ${ctx.raw.y.toFixed(2)}`;
                                 }
                             }
                         }
@@ -212,7 +240,7 @@
                             ticks: {
                                 color: '#6b7280',
                                 maxTicksLimit: 12,
-                                callback: function(v) { return new Date(v).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+                                callback: function(v) { return fmtAxisDateTime(v); }
                             },
                             grid: { color: 'rgba(255,255,255,0.05)' },
                         },

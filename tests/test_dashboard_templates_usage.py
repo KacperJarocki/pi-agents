@@ -46,6 +46,12 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("_lastModelReplay", device_template)
         self.assertIn("animation: false", device_template)
         self.assertIn("model-backtest.sh", device_template)
+        self.assertIn("parseApiTs", device_template)
+        self.assertIn("fmtAxisDateTime", device_template)
+        self.assertIn("fmtDateTime", device_template)
+        self.assertIn("height:360px", device_template)
+        self.assertIn("tooltip", device_template)
+        self.assertIn("parseApiTs", (repo / "images" / "dashboard" / "app" / "templates" / "index.html").read_text())
 
     def test_dashboard_proxies_model_versions(self):
         from pathlib import Path

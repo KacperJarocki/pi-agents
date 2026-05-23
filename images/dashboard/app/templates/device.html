@@ -168,7 +168,7 @@
                         </div>
                         <div class="text-xs text-slate-400">Retention: 7 days</div>
                     </div>
-                    <div class="panel rounded-xl p-3" style="height:260px">
+                    <div class="panel rounded-xl p-3" style="height:360px">
                         <canvas id="risk-timeline-chart"></canvas>
                     </div>
                 </div>
@@ -431,9 +431,36 @@
         let deviceAlertChart = null;
         let _lastModelReplay = null;
 
+        function parseApiTs(value) {
+            if (!value) return null;
+            if (typeof value === 'number') return new Date(value);
+            const raw = String(value).trim();
+            const hasTz = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+            const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+            return new Date(hasTz ? normalized : `${normalized}Z`);
+        }
+
+        function fmtDateTime(value) {
+            const ts = parseApiTs(value);
+            if (!ts || Number.isNaN(ts.getTime())) return 'N/A';
+            return ts.toLocaleString([], {
+                year: 'numeric', month: 'short', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+            });
+        }
+
+        function fmtAxisDateTime(value) {
+            const ts = parseApiTs(value);
+            if (!ts || Number.isNaN(ts.getTime())) return '';
+            return [
+                ts.toLocaleDateString([], {month: 'short', day: '2-digit'}),
+                ts.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+            ];
+        }
+
         function fmtTs(value) {
             if (!value) return 'N/A';
-            return new Date(value).toLocaleString();
+            return fmtDateTime(value);
         }
 
         const MODEL_TYPES = ['isolation_forest', 'lof', 'ocsvm', 'autoencoder'];
@@ -552,7 +579,7 @@
                 fetch(`/api/devices/${DEVICE_ID}/model-scores?model_type=${mt}&hours=24`, {cache: 'no-store'}).then(r => r.json()).catch(() => ({data: []}))
             ));
             const datasets = MODEL_TYPES.map((mt, i) => {
-                const data = (results[i].data || []).map(p => ({x: new Date(p.timestamp).getTime(), y: Number(p.risk_score || 0)}));
+                const data = (results[i].data || []).map(p => ({x: parseApiTs(p.timestamp)?.getTime(), y: Number(p.risk_score || 0)})).filter(p => Number.isFinite(p.x));
                 const isActive = mt === _activeModel;
                 return {
                     label: MODEL_LABELS[mt],
@@ -580,7 +607,7 @@
                         animation: false,
                         plugins: { legend: { display: false } },
                         scales: {
-                            x: { type: 'linear', ticks: { color: '#64748b' }, grid: { color: 'rgba(56,189,248,0.06)' } },
+                            x: { type: 'linear', ticks: { color: '#64748b', callback: v => fmtAxisDateTime(v) }, grid: { color: 'rgba(56,189,248,0.06)' } },
                             y: { min: 0, max: 100, ticks: { color: '#64748b', stepSize: 25 }, grid: { color: 'rgba(56,189,248,0.06)' } },
                         },
                     },
@@ -611,13 +638,19 @@
                     interaction: { mode: 'nearest', intersect: false },
                     plugins: {
                         legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                title: items => items.length ? fmtDateTime(items[0].parsed.x) : '',
+                                label: item => `${item.dataset.label}: ${Number(item.parsed.y || 0).toFixed(2)} risk`,
+                            }
+                        },
                     },
                     scales: {
                         x: {
                             type: 'linear',
                             ticks: {
                                 color: '#64748b', maxTicksLimit: 8,
-                                callback: v => new Date(v).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+                                callback: v => fmtAxisDateTime(v),
                             },
                             grid: { color: 'rgba(56,189,248,0.06)' },
                         },
@@ -663,7 +696,7 @@
             const selectedModels = results.map(result => result.model_type || modelType);
             const datasets = selectedModels.map((mt, i) => {
                 const points = (results[i].data || []).map(p => ({
-                    x: new Date(p.timestamp).getTime(),
+                    x: parseApiTs(p.timestamp)?.getTime(),
                     y: Number(p[scoreMetric] || 0),
                     is_anomaly: Boolean(p.is_anomaly),
                 })).filter(p => Number.isFinite(p.x));
@@ -691,11 +724,19 @@
                     animation: false,
                     parsing: false,
                     normalized: true,
-                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                title: items => items.length ? fmtDateTime(items[0].parsed.x) : '',
+                                label: item => `${item.dataset.label}: ${Number(item.parsed.y || 0).toFixed(4)}`,
+                            }
+                        },
+                    },
                     scales: {
                         x: {
                             type: 'linear',
-                            ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => new Date(v).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) },
+                            ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => fmtAxisDateTime(v) },
                             grid: { color: 'rgba(56,189,248,0.06)' },
                         },
                         y: scoreMetric === 'risk_score'
@@ -798,8 +839,9 @@
 
         function fmtShortTs(value) {
             if (!value) return '';
-            const ts = new Date(value);
-            return ts.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            const ts = parseApiTs(value);
+            if (!ts || Number.isNaN(ts.getTime())) return '';
+            return ts.toLocaleString([], {month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit'});
         }
 
         function renderKeyValues(targetId, rows, emptyText='No data') {
@@ -975,8 +1017,8 @@
 
                 const alertRows = behaviorAlerts.alerts || [];
                 const anomalyRows2 = anomalies.anomalies || [];
-                const devAnomaly = anomalyRows2.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), type: a.anomaly_type}));
-                const devBehavior = alertRows.map(a => ({x: new Date(a.timestamp).getTime(), y: Number(a.score||0), type: a.alert_type}));
+                const devAnomaly = anomalyRows2.map(a => ({x: parseApiTs(a.timestamp)?.getTime(), y: Number(a.score||0), type: a.anomaly_type})).filter(p => Number.isFinite(p.x));
+                const devBehavior = alertRows.map(a => ({x: parseApiTs(a.timestamp)?.getTime(), y: Number(a.score||0), type: a.alert_type})).filter(p => Number.isFinite(p.x));
 
                 const actx = document.getElementById('device-alert-timeline-chart');
                 if (deviceAlertChart) deviceAlertChart.destroy();
@@ -996,7 +1038,7 @@
                             tooltip: {
                                 callbacks: {
                                     label: ctx2 => {
-                                        const t = new Date(ctx2.raw.x).toLocaleString();
+                                        const t = fmtDateTime(ctx2.raw.x);
                                         return `${ctx2.raw.type || ctx2.dataset.label} @ ${t} — score ${ctx2.raw.y.toFixed(2)}`;
                                     }
                                 }
@@ -1005,7 +1047,7 @@
                         scales: {
                             x: {
                                 type: 'linear',
-                                ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => new Date(v).toLocaleDateString([], {month:'short',day:'numeric'}) },
+                                ticks: { color: '#64748b', maxTicksLimit: 8, callback: v => fmtAxisDateTime(v) },
                                 grid: { color: 'rgba(56,189,248,0.06)' },
                             },
                             y: {

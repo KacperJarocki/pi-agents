@@ -106,6 +106,12 @@ Sweep all currently active devices known by the gateway API:
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
 ```
 
+Run the full research protocol in one command: benign baseline, negative, borderline, positive, slow, and aggressive phases with shared markers for later dashboard analysis:
+
+```bash
+./scripts/research-traffic-runner.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --randomize --seed 42
+```
+
 Generate benign IoT-like baseline traffic from the tested device:
 
 ```bash

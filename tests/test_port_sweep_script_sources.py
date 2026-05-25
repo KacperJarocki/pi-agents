@@ -31,6 +31,25 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("port-sweep.py", src)
         self.assertIn("$@", src)
 
+    def test_research_runner_orchestrates_protocol(self):
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "scripts" / "research-traffic-runner.py").read_text()
+        wrapper = (repo / "scripts" / "research-traffic-runner.sh").read_text()
+
+        self.assertIn("DEFAULT_PHASES", src)
+        self.assertIn('"normal"', src)
+        self.assertIn('"negative"', src)
+        self.assertIn('"borderline"', src)
+        self.assertIn('"positive"', src)
+        self.assertIn('"slow"', src)
+        self.assertIn('"aggressive"', src)
+        self.assertIn("iot-device-emulator.py", src)
+        self.assertIn("port-sweep.py", src)
+        self.assertIn("markers.jsonl", src)
+        self.assertIn("manifest.json", src)
+        self.assertIn("summary.json", src)
+        self.assertIn("research-traffic-runner.py", wrapper)
+
 
 if __name__ == "__main__":
     unittest.main()

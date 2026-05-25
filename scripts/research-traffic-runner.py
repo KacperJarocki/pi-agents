@@ -164,22 +164,58 @@ def run_phase(command: list[str], dry_run: bool) -> int:
     return subprocess.run(command).returncode
 
 
-def print_phase_summary(phase_records: list[dict[str, object]]) -> None:
+def short_time(value: object) -> str:
+    text = str(value)
+    parts = text.split()
+    if len(parts) >= 2:
+        return parts[1]
+    return text
+
+
+def timeline_bar(duration: float, max_duration: float, width: int = 24) -> str:
+    if max_duration <= 0:
+        filled = width
+    else:
+        filled = max(1, int(round(width * duration / max_duration)))
+    return "#" * min(width, filled) + "." * max(0, width - filled)
+
+
+def print_phase_summary(phase_records: list[dict[str, object]], run_dir: Path, exit_code: int, interrupted: bool) -> None:
     if not phase_records:
         return
-    print("\n[research-runner] phase time summary", flush=True)
-    print("phase       start                         end                           duration  rc", flush=True)
-    print("----------  ----------------------------  ----------------------------  --------  --", flush=True)
+    passed = sum(1 for record in phase_records if int(record["returncode"]) == 0)
+    total = len(phase_records)
+    pass_rate = passed / max(total, 1) * 100.0
+    total_duration = sum(float(record["duration_seconds"]) for record in phase_records)
+    max_duration = max(float(record["duration_seconds"]) for record in phase_records)
+    status = "interrupted" if interrupted else "failed" if exit_code else "complete"
+
+    print("\n     /\\      Research run summary", flush=True)
+    print("    /  \\     port-sweep experiment windows", flush=True)
+    print("   /____\\", flush=True)
+    print("", flush=True)
+    print(f"  status.................: {status}", flush=True)
+    print(f"  checks.................: {pass_rate:6.2f}%  {passed} out of {total} phases passed", flush=True)
+    print(f"  duration...............: {fmt_duration(total_duration)}", flush=True)
+    print(f"  summary................: {run_dir / 'summary.json'}", flush=True)
+    print(f"  markers................: {run_dir / 'markers.jsonl'}", flush=True)
+    print("", flush=True)
+    print("  PHASE       RESULT  START     END       DURATION  WINDOW", flush=True)
+    print("  ----------  ------  --------  --------  --------  ------------------------", flush=True)
     for record in phase_records:
+        result = "OK" if int(record["returncode"]) == 0 else "FAIL"
+        duration = float(record["duration_seconds"])
         print(
-            f"{str(record['phase']):<10}  "
-            f"{str(record['started_at_local']):<28}  "
-            f"{str(record['ended_at_local']):<28}  "
+            f"  {str(record['phase']):<10}  "
+            f"{result:<6}  "
+            f"{short_time(record['started_at_local']):<8}  "
+            f"{short_time(record['ended_at_local']):<8}  "
             f"{str(record['duration_human']):<8}  "
-            f"{record['returncode']}",
+            f"{timeline_bar(duration, max_duration)}",
             flush=True,
         )
-    print(flush=True)
+    print("", flush=True)
+    print("  Use START/END as the exact dashboard windows for FP/FN and reaction-time notes.", flush=True)
 
 
 def sleep_gap(seconds: float, markers_path: Path, after_phase: str, dry_run: bool) -> None:
@@ -297,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     append_jsonl(markers_path, {"ts": summary["ended_at"], "local_time": summary["ended_at_local"], "event": "research_run_end", "run_id": args.run_id, "exit_code": exit_code, "interrupted": interrupted})
     write_json(run_dir / "summary.json", summary)
-    print_phase_summary(phase_records)
+    print_phase_summary(phase_records, run_dir, exit_code, interrupted)
     print(f"[research-runner] complete summary={run_dir / 'summary.json'}", flush=True)
     return exit_code
 

@@ -113,7 +113,7 @@ artifacts/research-runs/<run-id>/
 
 Child phase outputs go to `artifacts/port-sweep/<run-id>-01-negative/`, `artifacts/port-sweep/<run-id>-02-borderline/`, etc. If the optional `normal` phase is included, its child output goes to `artifacts/iot-emulator/<run-id>-01-normal/`.
 
-The runner also prints a final phase table with local start/end times, duration, and return code. The same fields are saved in `summary.json` as `started_at_local`, `ended_at_local`, `duration_seconds`, and `duration_human`.
+The runner also prints a final k6-like terminal summary with pass rate, local start/end times, duration, and a compact timeline bar per phase. The same fields are saved in `summary.json` as `started_at_local`, `ended_at_local`, `duration_seconds`, and `duration_human`.
 
 Use `run.json`, `markers.jsonl`, and `summary.json` timestamps as the ground-truth experiment window when reading the dashboard. If the run is stopped with `Ctrl+C`, `summary.json` is still written with `interrupted: true`.
 

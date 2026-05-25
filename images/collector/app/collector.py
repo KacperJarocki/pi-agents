@@ -8,12 +8,9 @@ from typing import Dict, Optional
 from collections import defaultdict
 from pathlib import Path
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-)
+from .logging_config import configure_logging
+
+configure_logging()
 
 log = structlog.get_logger()
 

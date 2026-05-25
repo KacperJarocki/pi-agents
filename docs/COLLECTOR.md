@@ -13,8 +13,9 @@
 5. [Buforowanie i zapis do bazy](#buforowanie-i-zapis-do-bazy)
 6. [Akumulacja extra_data](#akumulacja-extra_data)
 7. [Tabele w bazie danych](#tabele-w-bazie-danych)
-8. [Konfiguracja](#konfiguracja)
-9. [Wdrożenie K8s](#wdrożenie-k8s)
+8. [Logi i Grafana](#logi-i-grafana)
+9. [Konfiguracja](#konfiguracja)
+10. [Wdrożenie K8s](#wdrożenie-k8s)
 
 ---
 
@@ -230,6 +231,31 @@ Każdy rekord = jeden sparsowany pakiet z tshark.
 
 - **INSERT**: `get_or_create_device()` — tworzy rekord jeśli nie istnieje (po `mac_address`)
 - **UPDATE**: `last_seen`, `ip_address`, `hostname`, `is_active=1`, `extra_data` (zagregowane statystyki)
+
+---
+
+## Logi i Grafana
+
+Collector loguje na stdout jako jednowierszowy JSON, żeby Loki/Grafana mogły parsować pola bez regexów. Każdy wpis zawiera stabilne pola:
+
+| Pole | Opis |
+|------|------|
+| `timestamp` | ISO timestamp w UTC |
+| `level` | `info`, `warning`, `error` |
+| `event` | Nazwa zdarzenia, np. `tcpdump_finished`, `flush_completed` |
+| `service` | Stała wartość `collector` |
+| `component` | Domyślnie `traffic-collector`, nadpisywalne przez `COLLECTOR_COMPONENT` |
+| `interface` | Interfejs capture, np. `wlan0` |
+
+Przykładowe zapytania Loki:
+
+```logql
+{app="collector"} | json | event="flush_completed"
+{app="collector"} | json | level="error"
+{app="collector"} | json | event="tcpdump_finished" | line_format "cycle={{.cycle}} packets={{.packet_count}} rc={{.returncode}}"
+```
+
+Logi pipeline capture (`tcpdump_finished`, `pcap_file_stats`, `tshark_finished`, `pcap_processed`, `flush_started`) mają pola numeryczne takie jak `cycle`, `duration_ms`, `flow_count`, `buffer_size`, dzięki czemu można budować panele bez parsowania tekstu komunikatu.
 
 ---
 

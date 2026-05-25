@@ -66,7 +66,7 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   │  4. INFERENCE (co 60s, Deployment loop)                         │
   │                                                                 │
   │  SELECT traffic_flows (24h recent + 168h baseline)              │
-  │  FeatureExtractor → latest bucket per device                    │
+  │  FeatureExtractor → latest closed bucket per device             │
   │  AnomalyDetector.score() → ensemble majority vote (≥2/4)        │
   │  ensemble_ml_risk: weighted avg (IF40% LOF30% OCSVM20% AE10%)   │
   │  _build_behavior_alerts() → 9 heurystyk                         │

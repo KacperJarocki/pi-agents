@@ -135,6 +135,28 @@ class TestFeatureExtractor(unittest.TestCase):
         result = self.extractor.extract_features(flows)
         for col in FeatureExtractor.FEATURE_COLUMNS:
             self.assertIn(col, result.columns, f"Missing column: {col}")
+
+
+class TestClosedBucketFiltering(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _setup_ml_path()
+        from app.inference import _closed_features
+        cls._closed_features = staticmethod(_closed_features)
+
+    def test_open_bucket_is_not_scored(self):
+        now = pd.Timestamp.now("UTC").tz_localize(None)
+        features = pd.DataFrame([
+            {"device_id": 1, "bucket_start": now - pd.Timedelta(minutes=10)},
+            {"device_id": 1, "bucket_start": now - pd.Timedelta(minutes=1)},
+        ])
+
+        result = self._closed_features(features, bucket_minutes=5)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["bucket_start"], features.iloc[0]["bucket_start"])
+
+
 # ──────────────────────────────────────────────────────────────
 # Risk scoring pure functions
 # ──────────────────────────────────────────────────────────────

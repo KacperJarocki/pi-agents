@@ -469,7 +469,7 @@ class IsolationForestDetector(BaseDetector):
     def fit(self, X: np.ndarray, **kwargs):
         from sklearn.ensemble import IsolationForest
         contamination = kwargs.get("contamination", 0.05)
-        n_estimators = kwargs.get("n_estimators", 200)
+        n_estimators = kwargs.get("n_estimators", 500)
         warm_start = kwargs.get("warm_start", False)
 
         # warm_start=True reuses existing estimators and adds new trees on top,
@@ -1021,7 +1021,7 @@ DEFAULT_TRAINING_CONFIG = {
     "training_hours": 168,
     "min_training_samples": 100,
     "contamination": 0.01,
-    "n_estimators": 200,
+    "n_estimators": 500,
     "feature_bucket_minutes": 5,
     "per_device_models": True,
 }
@@ -1040,7 +1040,7 @@ async def _ensure_training_config_tables(conn: aiosqlite.Connection):
             training_hours INTEGER NOT NULL DEFAULT 168,
             min_training_samples INTEGER NOT NULL DEFAULT 100,
             contamination REAL NOT NULL DEFAULT 0.01,
-            n_estimators INTEGER NOT NULL DEFAULT 200,
+            n_estimators INTEGER NOT NULL DEFAULT 500,
             feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,
             per_device_models INTEGER NOT NULL DEFAULT 1,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

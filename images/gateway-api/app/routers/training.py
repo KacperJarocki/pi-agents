@@ -42,7 +42,7 @@ _DEFAULTS = {
     "training_hours": 168,
     "min_training_samples": 100,
     "contamination": 0.01,
-    "n_estimators": 200,
+    "n_estimators": 500,
     "feature_bucket_minutes": 5,
     "per_device_models": True,
 }
@@ -56,7 +56,7 @@ async def _ensure_tables(db: AsyncSession):
             training_hours INTEGER NOT NULL DEFAULT 168,
             min_training_samples INTEGER NOT NULL DEFAULT 100,
             contamination REAL NOT NULL DEFAULT 0.01,
-            n_estimators INTEGER NOT NULL DEFAULT 200,
+            n_estimators INTEGER NOT NULL DEFAULT 500,
             feature_bucket_minutes INTEGER NOT NULL DEFAULT 5,
             per_device_models INTEGER NOT NULL DEFAULT 1,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -399,7 +399,7 @@ def _build_job_manifest(
         {"name": "TRAINING_HOURS", "value": str(training_config.get("training_hours", 168))},
         {"name": "MIN_TRAINING_SAMPLES", "value": str(training_config.get("min_training_samples", 100))},
         {"name": "FEATURE_BUCKET_MINUTES", "value": str(training_config.get("feature_bucket_minutes", 5))},
-        {"name": "N_ESTIMATORS", "value": str(training_config.get("n_estimators", 200))},
+        {"name": "N_ESTIMATORS", "value": str(training_config.get("n_estimators", 500))},
         {"name": "CONTAMINATION", "value": str(training_config.get("contamination", 0.01))},
         {"name": "ADAPTIVE_CONTAMINATION_MIN", "value": "0.005"},
         {"name": "ADAPTIVE_CONTAMINATION_MAX", "value": "0.02"},

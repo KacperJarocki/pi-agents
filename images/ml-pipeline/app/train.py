@@ -147,7 +147,7 @@ async def train_model():
 
         hours = int(os.getenv("TRAINING_HOURS", str(dev_cfg.get("training_hours", 168))))
         min_samples = int(os.getenv("MIN_TRAINING_SAMPLES", str(dev_cfg.get("min_training_samples", 30))))
-        n_estimators = int(os.getenv("N_ESTIMATORS", str(dev_cfg.get("n_estimators", 200))))
+        n_estimators = int(os.getenv("N_ESTIMATORS", str(dev_cfg.get("n_estimators", 500))))
         bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(dev_cfg.get("feature_bucket_minutes", 5))))
         contamination = float(os.getenv("CONTAMINATION", str(dev_cfg.get("contamination", 0.01))))
 
@@ -170,7 +170,7 @@ async def train_model():
     contamination = float(os.getenv("CONTAMINATION", str(global_cfg.get("contamination", 0.05))))
     per_device_models = os.getenv("PER_DEVICE_MODELS", "true").lower() == "true"
     default_model_type = os.getenv("MODEL_TYPE", "isolation_forest")
-    global_n_estimators = int(os.getenv("N_ESTIMATORS", str(global_cfg.get("n_estimators", 200))))
+    global_n_estimators = int(os.getenv("N_ESTIMATORS", str(global_cfg.get("n_estimators", 500))))
     global_bucket_minutes = int(os.getenv("FEATURE_BUCKET_MINUTES", str(global_cfg.get("feature_bucket_minutes", 5))))
 
     # Ensure schema (creates device_model_config + model_metadata tables if missing)

@@ -81,7 +81,7 @@ python3 research.py --discover-subnet 192.168.100.0/24 --randomize --seed 42
 python3 research.py --no-discover --target 192.168.100.1 --randomize --seed 42
 
 # Short smoke run for checking the protocol wiring
-python3 research.py --phases negative,positive --gap 10s --dry-run
+python3 research.py --phases negative,positive --sweep-duration 30s --gap 10s --dry-run
 
 # Custom ports
 ./scripts/port-sweep.sh --target 192.168.100.1 --ports 22,23,80,443,3389,5900,6379,27017
@@ -112,6 +112,8 @@ artifacts/research-runs/<run-id>/
 ```
 
 Child phase outputs go to `artifacts/port-sweep/<run-id>-01-negative/`, `artifacts/port-sweep/<run-id>-02-borderline/`, etc. If the optional `normal` phase is included, its child output goes to `artifacts/iot-emulator/<run-id>-01-normal/`.
+
+The runner also prints a final phase table with local start/end times, duration, and return code. The same fields are saved in `summary.json` as `started_at_local`, `ended_at_local`, `duration_seconds`, and `duration_human`.
 
 Use `run.json`, `markers.jsonl`, and `summary.json` timestamps as the ground-truth experiment window when reading the dashboard. If the run is stopped with `Ctrl+C`, `summary.json` is still written with `interrupted: true`.
 

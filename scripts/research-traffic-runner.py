@@ -29,6 +29,23 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def fmt_local(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def fmt_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {sec:02d}s"
+    return f"{minutes}m {sec:02d}s"
+
+
 def request_stop(_signum: int, _frame: object) -> None:
     global STOP_REQUESTED
     STOP_REQUESTED = True
@@ -89,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--phases", type=split_csv, default=DEFAULT_PHASES, help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed")
     parser.add_argument("--normal-profile", choices=["sensor", "plug", "camera-idle"], default="sensor", help="benign emulator profile for the normal phase")
     parser.add_argument("--normal-duration", type=parse_duration, default=parse_duration("10m"), help="duration for the normal baseline phase")
+    parser.add_argument("--sweep-duration", type=parse_duration, help="override duration for every port-sweep phase")
     parser.add_argument("--gap", type=parse_duration, default=parse_duration("60s"), help="quiet gap between phases")
     parser.add_argument("--seed", type=int, help="base random seed; each phase gets seed+phase_index")
     parser.add_argument("--randomize", action="store_true", help="randomize port-sweep probe order")
@@ -132,6 +150,8 @@ def phase_command(args: argparse.Namespace, repo_root: Path, run_dir: Path, phas
         "--out-dir", str(Path(args.child_out_root) / "port-sweep"),
         *seed_args,
     ]
+    if args.sweep_duration is not None:
+        command.extend(["--duration", str(args.sweep_duration)])
     if args.randomize:
         command.append("--randomize")
     return command
@@ -144,17 +164,39 @@ def run_phase(command: list[str], dry_run: bool) -> int:
     return subprocess.run(command).returncode
 
 
+def print_phase_summary(phase_records: list[dict[str, object]]) -> None:
+    if not phase_records:
+        return
+    print("\n[research-runner] phase time summary", flush=True)
+    print("phase       start                         end                           duration  rc", flush=True)
+    print("----------  ----------------------------  ----------------------------  --------  --", flush=True)
+    for record in phase_records:
+        print(
+            f"{str(record['phase']):<10}  "
+            f"{str(record['started_at_local']):<28}  "
+            f"{str(record['ended_at_local']):<28}  "
+            f"{str(record['duration_human']):<8}  "
+            f"{record['returncode']}",
+            flush=True,
+        )
+    print(flush=True)
+
+
 def sleep_gap(seconds: float, markers_path: Path, after_phase: str, dry_run: bool) -> None:
     if seconds <= 0:
         return
-    append_jsonl(markers_path, {"ts": utc_now(), "event": "gap_start", "after_phase": after_phase, "duration_seconds": seconds})
+    gap_started = local_now()
+    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(gap_started), "event": "gap_start", "after_phase": after_phase, "duration_seconds": seconds})
     if dry_run:
-        print(f"[research-runner] gap after {after_phase}: {seconds}s")
+        print(f"[research-runner] gap after {after_phase}: {fmt_duration(seconds)}", flush=True)
         return
+    print(f"[research-runner] gap_start after={after_phase} duration={fmt_duration(seconds)} at={fmt_local(gap_started)}", flush=True)
     end_at = time.monotonic() + seconds
     while not STOP_REQUESTED and time.monotonic() < end_at:
         time.sleep(min(1.0, max(0.0, end_at - time.monotonic())))
-    append_jsonl(markers_path, {"ts": utc_now(), "event": "gap_end", "after_phase": after_phase})
+    gap_ended = local_now()
+    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(gap_ended), "event": "gap_end", "after_phase": after_phase})
+    print(f"[research-runner] gap_end after={after_phase} at={fmt_local(gap_ended)}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -184,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         "phases": args.phases,
         "normal_profile": args.normal_profile,
         "normal_duration_seconds": args.normal_duration,
+        "sweep_duration_seconds": args.sweep_duration,
         "gap_seconds": args.gap,
         "target": args.target,
         "targets_file": args.targets_file,
@@ -203,9 +246,11 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir.mkdir(parents=True, exist_ok=True)
     write_json(run_dir / "manifest.json", manifest)
-    append_jsonl(markers_path, {"ts": utc_now(), "event": "research_run_start", "run_id": args.run_id})
-    print(f"[research-runner] run_id={args.run_id} phases={','.join(args.phases)}")
-    print(f"[research-runner] output={run_dir}")
+    run_started_local = local_now()
+    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(run_started_local), "event": "research_run_start", "run_id": args.run_id})
+    print(f"[research-runner] run_id={args.run_id} phases={','.join(args.phases)}", flush=True)
+    print(f"[research-runner] output={run_dir}", flush=True)
+    print(f"[research-runner] started_at={fmt_local(run_started_local)}", flush=True)
 
     exit_code = 0
     interrupted = False
@@ -216,13 +261,18 @@ def main(argv: list[str] | None = None) -> int:
             interrupted = True
             break
         started_at = utc_now()
-        append_jsonl(markers_path, {"ts": started_at, "event": "phase_start", "phase": phase, "command": command})
-        print(f"[research-runner] phase_start {phase}")
+        started_local = local_now()
+        started_monotonic = time.monotonic()
+        append_jsonl(markers_path, {"ts": started_at, "local_time": fmt_local(started_local), "event": "phase_start", "phase": phase, "command": command})
+        print(f"\n[research-runner] phase_start phase={phase} at={fmt_local(started_local)}", flush=True)
         rc = run_phase(command, args.dry_run)
         ended_at = utc_now()
-        append_jsonl(markers_path, {"ts": ended_at, "event": "phase_end", "phase": phase, "returncode": rc})
-        phase_records.append({"phase": phase, "started_at": started_at, "ended_at": ended_at, "returncode": rc, "command": command})
-        print(f"[research-runner] phase_end {phase} rc={rc}")
+        ended_local = local_now()
+        duration_seconds = time.monotonic() - started_monotonic
+        duration_human = fmt_duration(duration_seconds)
+        append_jsonl(markers_path, {"ts": ended_at, "local_time": fmt_local(ended_local), "event": "phase_end", "phase": phase, "returncode": rc, "duration_seconds": round(duration_seconds, 3), "duration_human": duration_human})
+        phase_records.append({"phase": phase, "started_at": started_at, "ended_at": ended_at, "started_at_local": fmt_local(started_local), "ended_at_local": fmt_local(ended_local), "duration_seconds": round(duration_seconds, 3), "duration_human": duration_human, "returncode": rc, "command": command})
+        print(f"[research-runner] phase_end phase={phase} at={fmt_local(ended_local)} duration={duration_human} rc={rc}", flush=True)
         if rc != 0:
             exit_code = rc
             break
@@ -233,9 +283,11 @@ def main(argv: list[str] | None = None) -> int:
         interrupted = True
         exit_code = 130
 
+    run_ended_local = local_now()
     summary: dict[str, object] = {
         "run_id": args.run_id,
         "ended_at": utc_now(),
+        "ended_at_local": fmt_local(run_ended_local),
         "interrupted": interrupted,
         "exit_code": exit_code,
         "phase_count": len(phase_records),
@@ -243,9 +295,10 @@ def main(argv: list[str] | None = None) -> int:
         "markers": str(markers_path),
         "dashboard_note": manifest["dashboard_note"],
     }
-    append_jsonl(markers_path, {"ts": summary["ended_at"], "event": "research_run_end", "run_id": args.run_id, "exit_code": exit_code, "interrupted": interrupted})
+    append_jsonl(markers_path, {"ts": summary["ended_at"], "local_time": summary["ended_at_local"], "event": "research_run_end", "run_id": args.run_id, "exit_code": exit_code, "interrupted": interrupted})
     write_json(run_dir / "summary.json", summary)
-    print(f"[research-runner] complete summary={run_dir / 'summary.json'}")
+    print_phase_summary(phase_records)
+    print(f"[research-runner] complete summary={run_dir / 'summary.json'}", flush=True)
     return exit_code
 
 

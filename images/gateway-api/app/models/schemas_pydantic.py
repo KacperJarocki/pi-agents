@@ -387,7 +387,7 @@ class TrainingConfigResponse(BaseModel):
     training_hours: int = 168
     min_training_samples: int = 100
     contamination: float = 0.01
-    n_estimators: int = 200
+    n_estimators: int = 500
     feature_bucket_minutes: int = 5
     per_device_models: bool = True
     updated_at: Optional[str] = None

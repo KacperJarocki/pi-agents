@@ -127,7 +127,7 @@ System trenuje **4 różne modele** per urządzenie. Każdy patrzy na dane z inn
 Wyobraź sobie grę w "20 pytań". Model losowo zadaje pytania typu "czy bytes > 1000?", "czy unique_ports < 5?". **Normalny** ruch potrzebuje wielu pytań żeby się odróżnić od reszty (bo jest "w tłumie"). **Anomalny** ruch wyróżnia się szybko — potrzeba mało pytań żeby go "wyizolować".
 
 **Parametry:**
-- `n_estimators` (domyślnie 200) — ile drzew pytań. Więcej = dokładniej ale wolniej.
+- `n_estimators` (domyślnie 500) — ile drzew pytań. Więcej = stabilniej i dokładniej, ale wolniej.
 - `contamination` (domyślnie 0.01 jako global cap; per-device training adaptuje w dół) — jaki % danych uznajemy za anomalie podczas treningu.
 
 **Kiedy jest dobry:** Ogólny detektor, dobrze radzi sobie z wieloma typami anomalii.
@@ -337,7 +337,7 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 | Parametr | Domyślnie | Zakres | Co robi | Kiedy zmienić |
 |----------|-----------|--------|---------|---------------|
 | `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.005–0.01 i użyj 5-min bucketów. Za mało wykryć? Podnieś do 0.02–0.05. |
-| `n_estimators` | 200 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = dokładniej ale wolniejszy trening. | Na RPi z mało CPU zostaw 100–200. Na mocniejszej maszynie 300–500. |
+| `n_estimators` | 500 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = stabilniej i dokładniej, ale wolniejszy trening. | Na RPi z mało CPU obniż do 100–200. Na mocniejszej maszynie zostaw 300–500. |
 | `training_hours` | **168** | 6–336 | Ile godzin wstecz patrzeć po dane do treningu. 168h = 7 dni, łapie weekly patterns. | Nowe urządzenie? 48h. Stabilne środowisko z weekly patterns? 168h (domyślnie). |
 | `min_training_samples` | **100** | 10–10000 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 30 (ale model będzie słabszy). Chcesz mniej FP na baseline? 100+. |
 | `feature_bucket_minutes` | 5 | 1–10 | Szerokość okna czasowego bucketa w minutach. Krótszy = drobniejsza granulacja. | 1–2 min = drobne anomalie, więcej szumu. 5–10 min = stabilniejsze, mniej false positives. |
@@ -414,7 +414,7 @@ Paginowana tabela surowych pakietów. 50 na stronę. Kolumny: timestamp, src_ip,
 
 **`global_training_config`** — jeden wiersz, globalne defaults:
 ```
-contamination=0.01, n_estimators=200, training_hours=168,
+contamination=0.01, n_estimators=500, training_hours=168,
 min_training_samples=100, feature_bucket_minutes=5
 ```
 
@@ -568,7 +568,7 @@ Dashboard używa endpointu `GET /api/v1/devices/{id}/model-replay`. Tryb `model_
 | Kolumna | Typ | Default |
 |---------|-----|---------|
 | contamination | REAL | 0.01 |
-| n_estimators | INTEGER | 200 |
+| n_estimators | INTEGER | 500 |
 | training_hours | INTEGER | **168** |
 | min_training_samples | INTEGER | **30** |
 | feature_bucket_minutes | INTEGER | 5 |

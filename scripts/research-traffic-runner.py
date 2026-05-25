@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Run the full traffic research protocol with one command.
+"""Run the port-sweep traffic research protocol with one command.
 
-The runner orchestrates the existing benign IoT emulator and port-sweep
-generator, writing one experiment manifest with phase timestamps that can be
-matched against dashboard model scores and alerts later.
+By default this runs only port-sweep profiles. The optional ``normal`` phase is
+available when the benign IoT emulator should be part of the same experiment.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from pathlib import Path
 STOP_REQUESTED = False
 
 
-DEFAULT_PHASES = ["normal", "negative", "borderline", "positive", "slow", "aggressive"]
+DEFAULT_PHASES = ["negative", "borderline", "positive", "slow", "aggressive"]
 PORT_SWEEP_PHASES = {"negative", "borderline", "positive", "slow", "aggressive"}
 
 
@@ -78,14 +77,14 @@ def append_jsonl(path: Path, payload: dict[str, object]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the full IoT traffic research protocol with one command.",
+        description="Run the port-sweep traffic research protocol with one command.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--target", default="192.168.100.1", help="single target for port-sweep phases")
     parser.add_argument("--targets-file", help="optional target file passed to port-sweep phases")
     parser.add_argument("--targets-api", help="optional gateway API devices URL passed to port-sweep phases")
     parser.add_argument("--api-active-only", action="store_true", help="pass active_only=true to --targets-api")
-    parser.add_argument("--phases", type=split_csv, default=DEFAULT_PHASES, help="comma-separated phases: normal,negative,borderline,positive,slow,aggressive")
+    parser.add_argument("--phases", type=split_csv, default=DEFAULT_PHASES, help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed")
     parser.add_argument("--normal-profile", choices=["sensor", "plug", "camera-idle"], default="sensor", help="benign emulator profile for the normal phase")
     parser.add_argument("--normal-duration", type=parse_duration, default=parse_duration("10m"), help="duration for the normal baseline phase")
     parser.add_argument("--gap", type=parse_duration, default=parse_duration("60s"), help="quiet gap between phases")
@@ -189,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "dry_run": args.dry_run,
         "commands": commands,
-        "dashboard_note": "Use markers.jsonl phase_start/phase_end timestamps to collect FP/FN, reaction time, model scores, and final TP/FP/FN/TN from the dashboard.",
+        "dashboard_note": "Use markers.jsonl phase_start/phase_end timestamps to collect FP/FN, reaction time, model scores, and final TP/FP/FN/TN from the dashboard. Run benign IoT traffic separately unless the normal phase is explicitly included.",
     }
 
     if args.dry_run:

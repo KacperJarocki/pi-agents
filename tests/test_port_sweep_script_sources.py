@@ -35,8 +35,10 @@ class TestPortSweepScriptSources(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "scripts" / "research-traffic-runner.py").read_text()
         wrapper = (repo / "scripts" / "research-traffic-runner.sh").read_text()
+        shortcut = (repo / "research.py").read_text()
 
         self.assertIn("DEFAULT_PHASES", src)
+        self.assertIn('DEFAULT_PHASES = ["negative", "borderline", "positive", "slow", "aggressive"]', src)
         self.assertIn('"normal"', src)
         self.assertIn('"negative"', src)
         self.assertIn('"borderline"', src)
@@ -49,6 +51,8 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("manifest.json", src)
         self.assertIn("summary.json", src)
         self.assertIn("research-traffic-runner.py", wrapper)
+        self.assertIn("research-traffic-runner.py", shortcut)
+        self.assertIn("runpy.run_path", shortcut)
 
 
 if __name__ == "__main__":

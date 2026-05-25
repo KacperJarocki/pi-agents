@@ -278,11 +278,11 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 W trybie per-device, `contamination` nie jest stałe — jest obliczane adaptacyjnie:
 
 ```
-adaptive_contamination = max(0.005, min(configured_contamination, 0.02, 1.0 / samples))
+adaptive_contamination = max(0.01, min(configured_contamination, 0.03, 3.0 / samples))
 ```
 
-- Mało danych (~100 bucketów) → contamination około 0.01 (1%) — nadal ostrożnie dla clean baseline
-- Dużo danych (500+ bucketów) → contamination około 0.005 (0.5%) — konserwatywne, mniej false positives
+- Mało danych (~100 bucketów) → contamination około 0.03 (3%) — wyższa czułość dla near-miss ataków
+- Dużo danych (500+ bucketów) → contamination około 0.01 (1%) — nadal umiarkowanie konserwatywne
 - `configured_contamination` z global/device config działa jako górny cap; niższy override dodatkowo zmniejsza czułość.
 
 Możesz nadpisać tę wartość per device (patrz [Konfiguracja per device](#konfiguracja-per-device)).
@@ -336,7 +336,7 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 
 | Parametr | Domyślnie | Zakres | Co robi | Kiedy zmienić |
 |----------|-----------|--------|---------|---------------|
-| `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.005–0.01 i użyj 5-min bucketów. Za mało wykryć? Podnieś do 0.02–0.05. |
+| `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.005–0.01 i użyj 5-min bucketów. Za mało wykryć? Zostaw adaptive target 3 bucketów albo podnieś cap do 0.03–0.05. |
 | `n_estimators` | 500 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = stabilniej i dokładniej, ale wolniejszy trening. | Na RPi z mało CPU obniż do 100–200. Na mocniejszej maszynie zostaw 300–500. |
 | `training_hours` | **168** | 6–336 | Ile godzin wstecz patrzeć po dane do treningu. 168h = 7 dni, łapie weekly patterns. | Nowe urządzenie? 48h. Stabilne środowisko z weekly patterns? 168h (domyślnie). |
 | `min_training_samples` | **100** | 10–10000 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 30 (ale model będzie słabszy). Chcesz mniej FP na baseline? 100+. |
@@ -461,7 +461,7 @@ Każdy model po treningu oblicza **swój threshold** z danych treningowych:
 threshold = percentile(training_scores, contamination * 100)
 ```
 
-Przykład: contamination=0.005, 200 training scores → threshold = najniższy score (~0.5 percentyla), czyli bardzo konserwatywna granica dla clean baseline.
+Przykład: contamination=0.01, 200 training scores → threshold = okolice 1. percentyla, czyli umiarkowanie konserwatywna granica dla clean baseline.
 
 ### Rozwiązanie: Score Normalization (z-score)
 

@@ -49,11 +49,11 @@ spec:
                 - name: FEATURE_BUCKET_MINUTES
                   value: "5"
                 - name: ADAPTIVE_CONTAMINATION_MIN
-                  value: "0.005"
+                  value: "0.01"
                 - name: ADAPTIVE_CONTAMINATION_MAX
-                  value: "0.02"
+                  value: "0.03"
                 - name: ADAPTIVE_CONTAMINATION_TARGET_BUCKETS
-                  value: "1.0"
+                  value: "3.0"
                 - name: N_ESTIMATORS
                   value: "500"
                 - name: PER_DEVICE_MODELS

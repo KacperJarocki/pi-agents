@@ -15,12 +15,17 @@ class TestCollectorMvpSources(unittest.TestCase):
 
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "collector" / "app" / "collector.py").read_text()
+        logging_src = (repo / "images" / "collector" / "app" / "logging_config.py").read_text()
 
         self.assertIn('"tcpdump_finished"', src)
         self.assertIn('"pcap_file_stats"', src)
         self.assertIn('"tshark_finished"', src)
         self.assertIn('"pcap_processed"', src)
         self.assertIn('"flush_started"', src)
+        self.assertIn('add_log_level', logging_src)
+        self.assertIn('service", "collector"', logging_src)
+        self.assertIn('JSONRenderer(sort_keys=True)', logging_src)
+        self.assertIn('PrintLoggerFactory(file=sys.stdout)', logging_src)
 
     def test_collector_uses_lease_based_device_resolution(self):
         from pathlib import Path

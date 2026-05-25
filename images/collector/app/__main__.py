@@ -5,12 +5,9 @@ import structlog
 from datetime import datetime
 from prometheus_client import start_http_server
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-)
+from .logging_config import configure_logging
+
+configure_logging()
 
 log = structlog.get_logger()
 

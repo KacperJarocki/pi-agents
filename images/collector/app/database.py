@@ -4,12 +4,9 @@ import json
 from datetime import datetime
 from typing import List, Dict, Optional
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ],
-)
+from .logging_config import configure_logging
+
+configure_logging()
 
 log = structlog.get_logger()
 

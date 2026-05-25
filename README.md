@@ -114,6 +114,8 @@ python3 research.py
 
 By default this discovers reachable hosts in the local `/24` subnet without using the API, then runs `negative`, `borderline`, `positive`, `slow`, and `aggressive` against those targets.
 
+At the end it prints a k6-like phase summary with local start/end times and durations, and saves the same data in `artifacts/research-runs/<run-id>/summary.json`.
+
 If API access is available, API-discovered targets are still supported:
 
 ```bash

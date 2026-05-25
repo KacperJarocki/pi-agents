@@ -54,6 +54,8 @@ spec:
                   value: "0.02"
                 - name: ADAPTIVE_CONTAMINATION_TARGET_BUCKETS
                   value: "1.0"
+                - name: N_ESTIMATORS
+                  value: "500"
                 - name: PER_DEVICE_MODELS
                   value: "true"
                 - name: MODEL_REGISTRY_RETENTION_DAYS

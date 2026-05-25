@@ -100,6 +100,12 @@ Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
 
 Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 10m` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; use `--seed 42` for reproducible randomized runs.
 
+Sweep all currently active devices known by the gateway API:
+
+```bash
+./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
+```
+
 Generate benign IoT-like baseline traffic from the tested device:
 
 ```bash

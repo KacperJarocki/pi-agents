@@ -48,6 +48,9 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 # Stronger stress case
 ./scripts/port-sweep.sh --target 192.168.100.1 --profile aggressive --repeat 2 --randomize
 
+# Sweep every active device known by the gateway API
+./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
+
 # Custom ports
 ./scripts/port-sweep.sh --target 192.168.100.1 --ports 22,23,80,443,3389,5900,6379,27017
 

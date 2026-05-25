@@ -18,6 +18,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.request import Request, urlopen
 
 
 PROFILES: dict[str, dict[str, object]] = {
@@ -127,11 +129,54 @@ def parse_ports(value: str | None, profile: str) -> list[int]:
     return unique_ports
 
 
+def _clean_targets(targets: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for target in targets:
+        value = target.strip()
+        if not value or value in {"0.0.0.0", "::"} or value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    return cleaned
+
+
+def _api_url_with_active_filter(url: str, active_only: bool) -> str:
+    if not active_only:
+        return url
+    parsed = urlparse(url)
+    query = urlencode({**dict(parse_qsl(parsed.query, keep_blank_values=True)), "active_only": "true"})
+    return urlunparse(parsed._replace(query=query))
+
+
+def load_targets_from_api(url: str, active_only: bool, timeout: float) -> list[str]:
+    request_url = _api_url_with_active_filter(url, active_only)
+    request = Request(request_url, headers={"Accept": "application/json", "User-Agent": "pi-agents-port-sweep/1.0"})
+    with urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    devices = payload.get("devices", payload) if isinstance(payload, dict) else payload
+    if not isinstance(devices, list):
+        raise SystemExit("targets API response must be a list or an object with a devices list")
+
+    targets: list[str] = []
+    for device in devices:
+        if not isinstance(device, dict):
+            continue
+        ip_address = str(device.get("ip_address") or "").strip()
+        if ip_address:
+            targets.append(ip_address)
+    return _clean_targets(targets)
+
+
 def load_targets(args: argparse.Namespace) -> list[str]:
     targets = [args.target]
     if args.targets_file:
         path = Path(args.targets_file)
         targets = [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
+    elif args.targets_api:
+        targets = load_targets_from_api(args.targets_api, args.api_active_only, args.api_timeout)
+    targets = _clean_targets(targets)
     if not targets:
         raise SystemExit("no targets provided")
     return targets
@@ -192,6 +237,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--target", default="192.168.100.1", help="target host/IP to probe")
     parser.add_argument("--targets-file", help="optional file with one target host/IP per line")
+    parser.add_argument("--targets-api", help="optional gateway API devices URL, e.g. http://localhost:8080/api/v1/devices")
+    parser.add_argument("--api-active-only", action="store_true", help="append active_only=true when using --targets-api")
+    parser.add_argument("--api-timeout", type=float, default=5.0, help="timeout for loading targets from --targets-api")
     parser.add_argument("--profile", choices=sorted(PROFILES), default="positive", help="traffic profile")
     parser.add_argument("--ports", help="comma-separated ports and/or groups: web,iot,admin,db,common")
     parser.add_argument("--rate", type=float, help="probes per second; defaults to profile rate")
@@ -217,8 +265,12 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--rate must be positive")
     if args.timeout <= 0:
         raise SystemExit("--timeout must be positive")
+    if args.api_timeout <= 0:
+        raise SystemExit("--api-timeout must be positive")
     if args.repeat <= 0:
         raise SystemExit("--repeat must be positive")
+    if args.targets_file and args.targets_api:
+        raise SystemExit("use either --targets-file or --targets-api, not both")
     if args.duration is not None and args.duration < 0:
         raise SystemExit("--duration cannot be negative")
     if args.jitter < 0:

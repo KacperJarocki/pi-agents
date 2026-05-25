@@ -16,6 +16,8 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("--duration", src)
         self.assertIn("--seed", src)
         self.assertIn("--targets-api", src)
+        self.assertIn("--discover-subnet", src)
+        self.assertIn("ThreadPoolExecutor", src)
         self.assertIn("active_only", src)
         self.assertIn("urlopen", src)
         self.assertIn("markers.jsonl", src)
@@ -53,6 +55,8 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("research-traffic-runner.py", wrapper)
         self.assertIn("research-traffic-runner.py", shortcut)
         self.assertIn("runpy.run_path", shortcut)
+        self.assertIn("--discover-subnet", src)
+        self.assertIn("--no-discover", src)
 
 
 if __name__ == "__main__":

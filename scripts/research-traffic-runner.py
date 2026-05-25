@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets-file", help="optional target file passed to port-sweep phases")
     parser.add_argument("--targets-api", help="optional gateway API devices URL passed to port-sweep phases")
     parser.add_argument("--api-active-only", action="store_true", help="pass active_only=true to --targets-api")
+    parser.add_argument("--discover-subnet", default="auto", help="discover port-sweep targets from a CIDR subnet, or 'auto' for local /24")
+    parser.add_argument("--no-discover", action="store_true", help="disable default discovery and use --target instead")
     parser.add_argument("--phases", type=split_csv, default=DEFAULT_PHASES, help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed")
     parser.add_argument("--normal-profile", choices=["sensor", "plug", "camera-idle"], default="sensor", help="benign emulator profile for the normal phase")
     parser.add_argument("--normal-duration", type=parse_duration, default=parse_duration("10m"), help="duration for the normal baseline phase")
@@ -111,13 +113,15 @@ def phase_command(args: argparse.Namespace, repo_root: Path, run_dir: Path, phas
             *seed_args,
         ]
 
-    target_args = ["--target", args.target]
+    target_args = ["--discover-subnet", args.discover_subnet]
     if args.targets_file:
         target_args = ["--targets-file", args.targets_file]
     elif args.targets_api:
         target_args = ["--targets-api", args.targets_api]
         if args.api_active_only:
             target_args.append("--api-active-only")
+    elif args.no_discover:
+        target_args = ["--target", args.target]
 
     command = [
         sys.executable,
@@ -157,8 +161,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
-    if args.targets_file and args.targets_api:
-        raise SystemExit("use either --targets-file or --targets-api, not both")
+    explicit_sources = sum(bool(value) for value in (args.targets_file, args.targets_api))
+    if explicit_sources > 1 or args.no_discover and explicit_sources:
+        raise SystemExit("use only one target source: --targets-file, --targets-api, or --no-discover with --target")
 
     repo_root = Path(__file__).resolve().parents[1]
     args.run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
@@ -183,6 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         "target": args.target,
         "targets_file": args.targets_file,
         "targets_api": args.targets_api,
+        "discover_subnet": None if args.no_discover else args.discover_subnet,
         "api_active_only": args.api_active_only,
         "randomize": args.randomize,
         "seed": args.seed,

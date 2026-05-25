@@ -106,16 +106,24 @@ Sweep all currently active devices known by the gateway API:
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
 ```
 
-Run the port-sweep research protocol in one command. Keep benign IoT traffic running separately in the background, then run:
+Run the port-sweep research protocol in one command. Keep benign IoT traffic running separately in the background, then run from the IoT Wi-Fi device:
 
 ```bash
 python3 research.py
 ```
 
-For API-discovered targets instead of the default single target:
+By default this discovers reachable hosts in the local `/24` subnet without using the API, then runs `negative`, `borderline`, `positive`, `slow`, and `aggressive` against those targets.
+
+If API access is available, API-discovered targets are still supported:
 
 ```bash
 python3 research.py --targets-api http://localhost:8080/api/v1/devices --api-active-only --randomize --seed 42
+```
+
+If subnet discovery is blocked by client isolation, target the gateway or provide a file manually:
+
+```bash
+python3 research.py --no-discover --target 192.168.100.1
 ```
 
 Generate benign IoT-like baseline traffic from the tested device:

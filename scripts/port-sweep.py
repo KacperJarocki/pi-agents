@@ -9,6 +9,7 @@ it only generates traffic and writes local experiment metadata.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import random
 import signal
@@ -16,6 +17,7 @@ import socket
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -68,6 +70,8 @@ PORT_GROUPS: dict[str, list[int]] = {
     "db": [1433, 3306, 5432, 6379, 9200, 11211, 27017],
     "common": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 993, 995],
 }
+
+DISCOVERY_PORTS = [22, 23, 53, 80, 443, 554, 1883, 2323, 8080, 8443]
 
 
 STOP_REQUESTED = False
@@ -141,6 +145,53 @@ def _clean_targets(targets: list[str]) -> list[str]:
     return cleaned
 
 
+def parse_discovery_ports(value: str | None) -> list[int]:
+    if not value:
+        return list(DISCOVERY_PORTS)
+    return parse_ports(value, "aggressive")
+
+
+def local_ipv4() -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+
+
+def discovery_network(value: str) -> tuple[ipaddress.IPv4Network, str | None]:
+    if value.strip().lower() == "auto":
+        ip_address = local_ipv4()
+        octets = ip_address.split(".")
+        return ipaddress.ip_network(f"{octets[0]}.{octets[1]}.{octets[2]}.0/24", strict=False), ip_address
+    return ipaddress.ip_network(value, strict=False), None
+
+
+def host_responds(host: str, ports: list[int], timeout: float) -> bool:
+    for port in ports:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except ConnectionRefusedError:
+            return True
+        except TimeoutError:
+            continue
+        except OSError:
+            continue
+    return False
+
+
+def discover_targets(subnet: str, ports: list[int], timeout: float, workers: int, exclude_self: bool) -> list[str]:
+    network, detected_self = discovery_network(subnet)
+    self_ip = detected_self if exclude_self else None
+    hosts = [str(host) for host in network.hosts() if str(host) != self_ip]
+    discovered: list[str] = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(host_responds, host, ports, timeout): host for host in hosts}
+        for future in as_completed(futures):
+            if future.result():
+                discovered.append(futures[future])
+    return sorted(discovered, key=lambda ip: tuple(int(part) for part in ip.split(".")))
+
+
 def _api_url_with_active_filter(url: str, active_only: bool) -> str:
     if not active_only:
         return url
@@ -176,6 +227,14 @@ def load_targets(args: argparse.Namespace) -> list[str]:
         targets = [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
     elif args.targets_api:
         targets = load_targets_from_api(args.targets_api, args.api_active_only, args.api_timeout)
+    elif args.discover_subnet:
+        targets = discover_targets(
+            args.discover_subnet,
+            parse_discovery_ports(args.discovery_ports),
+            args.discovery_timeout,
+            args.discovery_workers,
+            not args.discovery_include_self,
+        )
     targets = _clean_targets(targets)
     if not targets:
         raise SystemExit("no targets provided")
@@ -240,6 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets-api", help="optional gateway API devices URL, e.g. http://localhost:8080/api/v1/devices")
     parser.add_argument("--api-active-only", action="store_true", help="append active_only=true when using --targets-api")
     parser.add_argument("--api-timeout", type=float, default=5.0, help="timeout for loading targets from --targets-api")
+    parser.add_argument("--discover-subnet", help="discover targets from a CIDR subnet, or 'auto' for local /24")
+    parser.add_argument("--discovery-ports", help="comma-separated ports/groups used only to discover reachable hosts")
+    parser.add_argument("--discovery-timeout", type=float, default=0.2, help="TCP timeout per host/port during discovery")
+    parser.add_argument("--discovery-workers", type=int, default=64, help="parallel workers for subnet discovery")
+    parser.add_argument("--discovery-include-self", action="store_true", help="include this host when --discover-subnet=auto")
     parser.add_argument("--profile", choices=sorted(PROFILES), default="positive", help="traffic profile")
     parser.add_argument("--ports", help="comma-separated ports and/or groups: web,iot,admin,db,common")
     parser.add_argument("--rate", type=float, help="probes per second; defaults to profile rate")
@@ -267,10 +331,15 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--timeout must be positive")
     if args.api_timeout <= 0:
         raise SystemExit("--api-timeout must be positive")
+    if args.discovery_timeout <= 0:
+        raise SystemExit("--discovery-timeout must be positive")
+    if args.discovery_workers <= 0:
+        raise SystemExit("--discovery-workers must be positive")
     if args.repeat <= 0:
         raise SystemExit("--repeat must be positive")
-    if args.targets_file and args.targets_api:
-        raise SystemExit("use either --targets-file or --targets-api, not both")
+    target_source_count = sum(bool(value) for value in (args.targets_file, args.targets_api, args.discover_subnet))
+    if target_source_count > 1:
+        raise SystemExit("use only one of --targets-file, --targets-api, or --discover-subnet")
     if args.duration is not None and args.duration < 0:
         raise SystemExit("--duration cannot be negative")
     if args.jitter < 0:
@@ -305,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
         "profile_description": PROFILES[args.profile]["description"],
         "started_at": utc_now(),
         "targets": targets,
+        "target_source": "discovery" if args.discover_subnet else "api" if args.targets_api else "file" if args.targets_file else "single",
+        "discover_subnet": args.discover_subnet,
+        "discovery_ports": parse_discovery_ports(args.discovery_ports) if args.discover_subnet else None,
         "ports": ports,
         "target_count": len(targets),
         "port_count": len(ports),

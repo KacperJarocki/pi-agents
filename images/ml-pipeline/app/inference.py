@@ -21,6 +21,26 @@ import aiosqlite
 _feature_cache: dict[str, tuple[str, pd.DataFrame]] = {}  # cache_key → (hash, features_df)
 
 
+def _utcnow_naive() -> pd.Timestamp:
+    return pd.Timestamp.now("UTC").tz_localize(None)
+
+
+def _closed_bucket_cutoff(bucket_minutes: int) -> pd.Timestamp:
+    grace_seconds = int(os.getenv("INFERENCE_BUCKET_GRACE_SECONDS", "30"))
+    return _utcnow_naive() - pd.Timedelta(minutes=bucket_minutes) - pd.Timedelta(seconds=grace_seconds)
+
+
+def _closed_features(features: pd.DataFrame, bucket_minutes: int) -> pd.DataFrame:
+    """Return only buckets whose full time window has elapsed plus grace time."""
+    if features.empty or "bucket_start" not in features.columns:
+        return features
+    cutoff = _closed_bucket_cutoff(bucket_minutes)
+    bucket_starts = pd.to_datetime(features["bucket_start"], errors="coerce")
+    if getattr(bucket_starts.dt, "tz", None) is not None:
+        bucket_starts = bucket_starts.dt.tz_convert(None)
+    return features[bucket_starts <= cutoff]
+
+
 def _flows_hash(flows: pd.DataFrame) -> str:
     """Compute a lightweight hash of a flows DataFrame for cache invalidation."""
     if flows.empty:
@@ -42,7 +62,7 @@ def _bucket_is_stale(bucket_start, bucket_minutes: int) -> bool:
     if bucket_ts.tzinfo is not None:
         bucket_ts = bucket_ts.tz_convert(None)
     bucket_end = bucket_ts + pd.Timedelta(minutes=bucket_minutes)
-    return bucket_end < pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(minutes=stale_after_minutes)
+    return bucket_end < _utcnow_naive() - pd.Timedelta(minutes=stale_after_minutes)
 
 
 def _stale_device_result(device_id: int, bucket_start) -> dict:
@@ -501,7 +521,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     flows = all_flows[all_flows["timestamp"] >= cutoff]
 
     extractor = FeatureExtractor()
-    features = _cached_extract(extractor, flows, "inference:recent")
+    features = _closed_features(_cached_extract(extractor, flows, "inference:recent"), extractor.bucket_minutes)
     
     # Prepare baseline flows with bucket_start column (24h raw flows for beaconing detection)
     baseline_flows = all_flows
@@ -699,8 +719,9 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         }
 
         log.info(
-            "inference_device_score",
-            device_id=device_id,
+                "inference_device_score",
+                device_id=device_id,
+                bucket_start=str(bucket_start),
             score=float(score),
             norm_score=norm_score,
             norm_threshold=norm_threshold,

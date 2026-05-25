@@ -50,6 +50,8 @@ spec:
               value: "168"
             - name: FEATURE_BUCKET_MINUTES
               value: "5"
+            - name: INFERENCE_BUCKET_GRACE_SECONDS
+              value: "30"
             - name: PER_DEVICE_MODELS
               value: "true"
           volumeMounts:

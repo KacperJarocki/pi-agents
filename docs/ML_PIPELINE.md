@@ -257,7 +257,7 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 - **Co robi:**
   1. Pobiera traffic_flows z ostatnich `TRAINING_HOURS` (domyślnie **168h = 7 dni**, zmienione z 48h)
   2. Tworzy feature buckets (5-min okna)
-  3. Dla każdego urządzenia z >= `MIN_TRAINING_SAMPLES` (domyślnie **30**, zmienione z 10) bucketów:
+  3. Dla każdego urządzenia z >= `MIN_TRAINING_SAMPLES` (domyślnie **100**) bucketów:
      - Trenuje **wszystkie 4 modele** (IF, LOF, OCSVM, Autoencoder)
      - Zapisuje model + threshold + score_stats + `features_count` do `.joblib`
      - Zapisuje metryki do `model_metadata`
@@ -298,8 +298,8 @@ Inference działa jako ciągła pętla (Deployment, nie CronJob):
 1. **Co 60 sekund** (konfigurowalny `INFERENCE_INTERVAL`):
    - Pobiera traffic_flows z ostatnich 24h
    - Tworzy feature buckets
-   - Bierze **ostatni bucket** per device
-   - Jeśli ostatni bucket jest starszy niż `RISK_STALE_BUCKET_MINUTES` po końcu bucketa, zapisuje cooldown `risk_score=0` zamiast ponownie scorować stary atak
+   - Bierze **ostatni zamknięty bucket** per device, czyli taki, którego pełne okno już minęło plus `INFERENCE_BUCKET_GRACE_SECONDS`
+   - Jeśli ostatni zamknięty bucket jest starszy niż `RISK_STALE_BUCKET_MINUTES` po końcu bucketa, zapisuje cooldown `risk_score=0` zamiast ponownie scorować stary atak
    - Ładuje modele z dysku (cache na mtime, odczytuje `features_count` z payloadu lub `n_features_in_`)
    - Scoruje **wszystkie 4 modele** per device → **ensemble majority vote** (≥ 2/4 = anomalia)
    - Oblicza `ensemble_ml_risk` jako ważoną średnią (IF 40%, LOF 30%, OCSVM 20%, AE 10%)
@@ -321,6 +321,10 @@ Nie wymaga restartu poda. Opóźnienie = max 60 sekund (jeden cykl inference).
 ### Reset starego ryzyka
 
 Jeśli urządzenie wygeneruje atakowy bucket, a potem przestanie wysyłać ruch, najnowszym bucketem w 24h oknie nadal byłby ten atak. Bez resetu inference mogłoby wielokrotnie ustawiać wysoki `devices.risk_score`, mimo że od dawna nie ma nowych pakietów. `RISK_STALE_BUCKET_MINUTES` domyślnie wynosi `15`; po tym czasie od końca ostatniego bucketa inference zapisuje normalny punkt z `risk_score=0` i powodem `No fresh traffic observed`.
+
+### Zamknięte buckety
+
+Inference nie ocenia bucketa, który właśnie się rozpoczął. Najpierw czeka aż minie całe okno bucketa oraz krótki grace period (`INFERENCE_BUCKET_GRACE_SECONDS`, domyślnie 30s), żeby collector zdążył dopisać końcowe flow. Dzięki temu live inference i offline backtest patrzą na ten sam pełny bucket, a baza nie zapisuje fałszywej anomalii tylko dlatego, że bucket był jeszcze częściowy.
 
 ---
 

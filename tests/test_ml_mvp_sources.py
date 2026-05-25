@@ -34,13 +34,16 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn("latest_flow_ts <= latest_trained_ts", src)
         self.assertNotIn("latest_flow <= latest_trained", src)
 
-    def test_inference_uses_latest_bucket_per_device(self):
+    def test_inference_uses_latest_closed_bucket_per_device(self):
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
 
         self.assertIn("inference_model_missing_for_device", src)
+        self.assertIn("INFERENCE_BUCKET_GRACE_SECONDS", src)
+        self.assertIn("def _closed_features", src)
+        self.assertIn("_closed_features(_cached_extract", src)
         self.assertIn("tail(1)", src)
         self.assertIn("load_model(device_id=int(device_id))", src)
 
@@ -59,6 +62,7 @@ class TestMlMvpSources(unittest.TestCase):
         self.assertIn('ADAPTIVE_CONTAMINATION_MAX', trainer)
         self.assertIn('value: "5"', trainer)
         self.assertIn('FEATURE_BUCKET_MINUTES', inference)
+        self.assertIn('INFERENCE_BUCKET_GRACE_SECONDS', inference)
         self.assertIn('value: "5"', inference)
         self.assertIn('INFERENCE_INTERVAL', inference)
         self.assertIn('BEHAVIOR_BASELINE_HOURS', inference)

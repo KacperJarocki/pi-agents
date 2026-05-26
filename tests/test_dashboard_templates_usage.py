@@ -49,7 +49,9 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("parseApiTs", device_template)
         self.assertIn("fmtAxisDateTime", device_template)
         self.assertIn("fmtDateTime", device_template)
-        self.assertIn("height:360px", device_template)
+        self.assertIn("height:460px", device_template)
+        self.assertIn("model-scores?model_type=${mt}&hours=24", device_template)
+        self.assertIn("maxTicksLimit: 12", device_template)
         self.assertIn("tooltip", device_template)
         self.assertIn("parseApiTs", (repo / "images" / "dashboard" / "app" / "templates" / "index.html").read_text())
 

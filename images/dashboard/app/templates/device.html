@@ -137,6 +137,23 @@
             </div>
         </section>
 
+        <section>
+            <div class="card bg-neutral/60 border border-white/10">
+                <div class="card-body p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score Timeline</div>
+                            <div class="text-lg text-white">Risk score over time / 24h</div>
+                        </div>
+                        <div class="text-xs text-slate-400">Retention: 7 days</div>
+                    </div>
+                    <div class="panel rounded-xl p-3" style="height:460px">
+                        <canvas id="risk-timeline-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
@@ -156,20 +173,6 @@
                                 <tr><td colspan="5" class="text-slate-500">Loading...</td></tr>
                             </tbody>
                         </table>
-                    </div>
-                </div>
-            </div>
-            <div class="card bg-neutral/60 border border-white/10">
-                <div class="card-body p-4">
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Risk Score Timeline</div>
-                            <div class="text-lg text-white">Risk score over time / 24h</div>
-                        </div>
-                        <div class="text-xs text-slate-400">Retention: 7 days</div>
-                    </div>
-                    <div class="panel rounded-xl p-3" style="height:360px">
-                        <canvas id="risk-timeline-chart"></canvas>
                     </div>
                 </div>
             </div>
@@ -649,7 +652,7 @@
                         x: {
                             type: 'linear',
                             ticks: {
-                                color: '#64748b', maxTicksLimit: 8,
+                                color: '#64748b', maxTicksLimit: 12,
                                 callback: v => fmtAxisDateTime(v),
                             },
                             grid: { color: 'rgba(56,189,248,0.06)' },

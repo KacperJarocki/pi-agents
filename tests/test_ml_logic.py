@@ -4,10 +4,12 @@ Tests cover: FeatureExtractor, risk scoring helpers, behavior alert heuristics,
 and run_retention_cleanup — all with real data, no source-inspection.
 """
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -59,6 +61,40 @@ def _make_flows(
 # ──────────────────────────────────────────────────────────────
 # FeatureExtractor
 # ──────────────────────────────────────────────────────────────
+
+class TestTrainingThreshold(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _setup_ml_path()
+        import importlib
+        cls.train = importlib.import_module("app.train")
+
+    def test_isolation_forest_threshold_rate_is_more_sensitive_than_base(self):
+        base = self.train._adaptive_contamination(samples=300, configured_contamination=0.03)
+
+        tuned = self.train._model_threshold_rate("isolation_forest", base)
+
+        self.assertGreater(tuned, base)
+        self.assertLessEqual(tuned, self.train.ISOLATION_FOREST_THRESHOLD_MAX)
+
+    def test_other_models_keep_adaptive_threshold_rate(self):
+        base = self.train._adaptive_contamination(samples=300, configured_contamination=0.03)
+
+        for model_type in ("lof", "ocsvm", "autoencoder"):
+            self.assertEqual(self.train._model_threshold_rate(model_type, base), base)
+
+    def test_isolation_forest_threshold_rate_controls_saved_threshold(self):
+        from app.ml_core import IsolationForestDetector
+
+        rng = np.random.default_rng(42)
+        X = rng.normal(size=(80, 12))
+        detector = IsolationForestDetector(model_path=tempfile.mkdtemp())
+
+        detector.fit(X, contamination=0.01, threshold_contamination=0.05, n_estimators=20)
+
+        scores = detector.decision_scores(X)
+        self.assertAlmostEqual(detector.threshold, float(np.percentile(scores, 5)), places=8)
+
 
 class TestFeatureExtractor(unittest.TestCase):
     @classmethod

@@ -19,6 +19,8 @@ from .ml_core import (
 ADAPTIVE_CONTAMINATION_MIN = float(os.getenv("ADAPTIVE_CONTAMINATION_MIN", "0.01"))
 ADAPTIVE_CONTAMINATION_MAX = float(os.getenv("ADAPTIVE_CONTAMINATION_MAX", "0.03"))
 ADAPTIVE_CONTAMINATION_TARGET_BUCKETS = float(os.getenv("ADAPTIVE_CONTAMINATION_TARGET_BUCKETS", "3.0"))
+ISOLATION_FOREST_THRESHOLD_MULTIPLIER = float(os.getenv("ISOLATION_FOREST_THRESHOLD_MULTIPLIER", "2.0"))
+ISOLATION_FOREST_THRESHOLD_MAX = float(os.getenv("ISOLATION_FOREST_THRESHOLD_MAX", "0.06"))
 
 
 def _adaptive_contamination(samples: int, configured_contamination: float | None = None) -> float:
@@ -27,6 +29,13 @@ def _adaptive_contamination(samples: int, configured_contamination: float | None
     cap = min(configured, ADAPTIVE_CONTAMINATION_MAX)
     by_sample_count = ADAPTIVE_CONTAMINATION_TARGET_BUCKETS / max(samples, 1)
     return max(ADAPTIVE_CONTAMINATION_MIN, min(cap, by_sample_count))
+
+
+def _model_threshold_rate(model_type: str, base_contamination: float) -> float:
+    """Tune the anomaly threshold while keeping the model training baseline conservative."""
+    if model_type != "isolation_forest":
+        return base_contamination
+    return min(ISOLATION_FOREST_THRESHOLD_MAX, base_contamination * ISOLATION_FOREST_THRESHOLD_MULTIPLIER)
 
 
 def _parse_training_timestamp(value: str | None) -> datetime | None:
@@ -88,9 +97,11 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
             continue
         try:
             detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
+            threshold_rate = _model_threshold_rate(model_type, adaptive_contamination)
             fit_kwargs = {"contamination": adaptive_contamination}
             if model_type == "isolation_forest":
                 fit_kwargs["n_estimators"] = n_estimators
+                fit_kwargs["threshold_contamination"] = threshold_rate
             elif model_type == "lof":
                 fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
             elif model_type == "ocsvm":
@@ -111,7 +122,7 @@ async def _train_single_device(device_id: int, model_types: list[str], hours: in
                 await save_model_training_metadata(
                     device_id=int(device_id), model_type=model_type,
                     samples=samples, features_count=len(FeatureExtractor.FEATURE_COLUMNS),
-                    contamination=adaptive_contamination, detector=detector,
+                    contamination=threshold_rate, detector=detector,
                     training_hours=hours,
                 )
                 await save_model_registry_entry(
@@ -258,9 +269,11 @@ async def train_model():
                     detector = get_detector(model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
 
                     # Build kwargs based on model type, using per-device config
+                    threshold_rate = _model_threshold_rate(model_type, adaptive_contamination)
                     fit_kwargs = {"contamination": adaptive_contamination}
                     if model_type == "isolation_forest":
                         fit_kwargs["n_estimators"] = dev_n_estimators
+                        fit_kwargs["threshold_contamination"] = threshold_rate
                     elif model_type == "lof":
                         fit_kwargs["n_neighbors"] = min(20, max(5, samples // 5))
                     elif model_type == "ocsvm":
@@ -288,7 +301,7 @@ async def train_model():
                         score_std=stats.get("std"),
                         score_p5=stats.get("p5"),
                         score_p95=stats.get("p95"),
-                        estimated_anomaly_rate=adaptive_contamination,
+                        estimated_anomaly_rate=threshold_rate,
                     )
 
                     # Persist training metrics to model_metadata for observability.
@@ -300,7 +313,7 @@ async def train_model():
                             model_type=model_type,
                             samples=samples,
                             features_count=len(FeatureExtractor.FEATURE_COLUMNS),
-                            contamination=adaptive_contamination,
+                            contamination=threshold_rate,
                             detector=detector,
                             training_hours=hours,
                         )
@@ -346,7 +359,11 @@ async def train_model():
         return int(X.shape[0])
 
     detector = get_detector(default_model_type, model_path=os.getenv("MODEL_PATH", "/data/models"))
-    detector.fit(X, contamination=contamination, n_estimators=global_n_estimators)
+    threshold_rate = _model_threshold_rate(default_model_type, contamination)
+    fit_kwargs = {"contamination": contamination, "n_estimators": global_n_estimators}
+    if default_model_type == "isolation_forest":
+        fit_kwargs["threshold_contamination"] = threshold_rate
+    detector.fit(X, **fit_kwargs)
     detector.save_model(detector.model)
 
     trained_at = datetime.now(timezone.utc).isoformat()
@@ -366,7 +383,7 @@ async def train_model():
             model_type=default_model_type,
             samples=int(X.shape[0]),
             features_count=len(FeatureExtractor.FEATURE_COLUMNS),
-            contamination=contamination,
+            contamination=threshold_rate,
             detector=detector,
             training_hours=hours,
         )

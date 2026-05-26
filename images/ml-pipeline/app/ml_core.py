@@ -469,6 +469,7 @@ class IsolationForestDetector(BaseDetector):
     def fit(self, X: np.ndarray, **kwargs):
         from sklearn.ensemble import IsolationForest
         contamination = kwargs.get("contamination", 0.05)
+        threshold_contamination = kwargs.get("threshold_contamination", contamination)
         n_estimators = kwargs.get("n_estimators", 500)
         warm_start = kwargs.get("warm_start", False)
 
@@ -490,7 +491,7 @@ class IsolationForestDetector(BaseDetector):
         self.model = model
         # Adaptive threshold from training distribution
         training_scores = self.decision_scores(X)
-        self._compute_and_store_score_stats(training_scores, contamination)
+        self._compute_and_store_score_stats(training_scores, threshold_contamination)
         return model
 
     def decision_scores(self, X: np.ndarray) -> np.ndarray:

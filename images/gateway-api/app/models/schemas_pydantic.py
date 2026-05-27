@@ -350,6 +350,12 @@ class ModelScoreEntry(BaseModel):
     anomaly_score: float
     risk_score: float
     is_anomaly: bool
+    threshold: float = 0.0
+    norm_score: float = 0.0
+    norm_threshold: float = 0.0
+    score_margin: float = 0.0
+    would_alert: bool = False
+    decision_role: str = "shadow"
     timestamp: Optional[datetime] = None
     bucket_start: Optional[datetime] = None
 
@@ -360,6 +366,12 @@ class ModelScoreHistoryPoint(BaseModel):
     anomaly_score: float
     risk_score: float
     is_anomaly: bool
+    threshold: float = 0.0
+    norm_score: float = 0.0
+    norm_threshold: float = 0.0
+    score_margin: float = 0.0
+    would_alert: bool = False
+    decision_role: str = "shadow"
 
 
 class DeviceModelScoresResponse(BaseModel):

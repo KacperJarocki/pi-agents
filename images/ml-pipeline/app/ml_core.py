@@ -894,9 +894,27 @@ async def _ensure_device_model_scores_table(conn: aiosqlite.Connection):
             anomaly_score REAL NOT NULL,
             risk_score REAL NOT NULL,
             is_anomaly INTEGER DEFAULT 0,
+            threshold REAL,
+            norm_score REAL,
+            norm_threshold REAL,
+            score_margin REAL,
+            would_alert INTEGER DEFAULT 0,
+            decision_role TEXT DEFAULT 'shadow',
             UNIQUE(device_id, model_type, bucket_start)
         )
     """)
+    for col_name, col_type in [
+        ("threshold", "REAL"),
+        ("norm_score", "REAL"),
+        ("norm_threshold", "REAL"),
+        ("score_margin", "REAL"),
+        ("would_alert", "INTEGER DEFAULT 0"),
+        ("decision_role", "TEXT DEFAULT 'shadow'"),
+    ]:
+        try:
+            await conn.execute(f"ALTER TABLE device_model_scores ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_model_scores_device_type ON device_model_scores(device_id, model_type, timestamp)"
     )
@@ -1770,11 +1788,16 @@ async def batch_save_model_scores(scores: list[dict]):
             bucket_value = s["bucket_start"].isoformat(sep=" ") if s.get("bucket_start") is not None else None
             await conn.execute(
                 """
-                INSERT INTO device_model_scores (device_id, model_type, bucket_start, anomaly_score, risk_score, is_anomaly)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO device_model_scores (
+                    device_id, model_type, bucket_start, anomaly_score, risk_score, is_anomaly,
+                    threshold, norm_score, norm_threshold, score_margin, would_alert, decision_role
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id, model_type, bucket_start)
                 DO UPDATE SET anomaly_score=excluded.anomaly_score, risk_score=excluded.risk_score,
-                              is_anomaly=excluded.is_anomaly, timestamp=CURRENT_TIMESTAMP
+                              is_anomaly=excluded.is_anomaly, threshold=excluded.threshold,
+                              norm_score=excluded.norm_score, norm_threshold=excluded.norm_threshold,
+                              score_margin=excluded.score_margin, would_alert=excluded.would_alert,
+                              decision_role=excluded.decision_role, timestamp=CURRENT_TIMESTAMP
                 """,
                 (
                     s["device_id"],
@@ -1783,6 +1806,12 @@ async def batch_save_model_scores(scores: list[dict]):
                     float(s["anomaly_score"]),
                     float(s["risk_score"]),
                     1 if s["is_anomaly"] else 0,
+                    float(s.get("threshold", 0.0)),
+                    float(s.get("norm_score", s.get("anomaly_score", 0.0))),
+                    float(s.get("norm_threshold", s.get("threshold", 0.0))),
+                    float(s.get("score_margin", 0.0)),
+                    1 if s.get("would_alert", s.get("is_anomaly", False)) else 0,
+                    str(s.get("decision_role", "shadow")),
                 ),
             )
         # Retention: keep 7 days

@@ -1005,7 +1005,8 @@ class DeviceModelConfigService:
         """Return latest score per model_type from device_model_scores."""
         sql = text("""
             SELECT s.model_type, s.anomaly_score, s.risk_score, s.is_anomaly,
-                   s.timestamp, s.bucket_start
+                   s.threshold, s.norm_score, s.norm_threshold, s.score_margin,
+                   s.would_alert, s.decision_role, s.timestamp, s.bucket_start
             FROM device_model_scores s
             INNER JOIN (
                 SELECT model_type, MAX(timestamp) AS max_ts
@@ -1026,6 +1027,12 @@ class DeviceModelConfigService:
                 "anomaly_score": float(row.anomaly_score or 0),
                 "risk_score": float(row.risk_score or 0),
                 "is_anomaly": bool(row.is_anomaly),
+                "threshold": float(row.threshold or 0),
+                "norm_score": float(row.norm_score or 0),
+                "norm_threshold": float(row.norm_threshold or 0),
+                "score_margin": float(row.score_margin or 0),
+                "would_alert": bool(row.would_alert),
+                "decision_role": row.decision_role or "shadow",
                 "timestamp": row.timestamp,
                 "bucket_start": row.bucket_start,
             }
@@ -1040,7 +1047,8 @@ class DeviceModelConfigService:
         of the browser's local timezone.
         """
         sql = text("""
-            SELECT timestamp, bucket_start, anomaly_score, risk_score, is_anomaly
+            SELECT timestamp, bucket_start, anomaly_score, risk_score, is_anomaly,
+                   threshold, norm_score, norm_threshold, score_margin, would_alert, decision_role
             FROM device_model_scores
             WHERE device_id = :did AND model_type = :mt
               AND timestamp >= datetime('now', :since)
@@ -1065,9 +1073,61 @@ class DeviceModelConfigService:
                 "anomaly_score": float(row.anomaly_score or 0),
                 "risk_score": float(row.risk_score or 0),
                 "is_anomaly": bool(row.is_anomaly),
+                "threshold": float(row.threshold or 0),
+                "norm_score": float(row.norm_score or 0),
+                "norm_threshold": float(row.norm_threshold or 0),
+                "score_margin": float(row.score_margin or 0),
+                "would_alert": bool(row.would_alert),
+                "decision_role": row.decision_role or "shadow",
             }
             for row in rows
         ]
+
+    async def get_model_comparison(self, device_id: int, hours: int = 168) -> dict:
+        """Summarize primary/shadow model behavior for research comparison."""
+        sql = text("""
+            SELECT model_type,
+                   COUNT(*) AS bucket_count,
+                   SUM(CASE WHEN would_alert = 1 THEN 1 ELSE 0 END) AS would_alert_count,
+                   SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END) AS anomaly_count,
+                   AVG(risk_score) AS avg_risk_score,
+                   MAX(risk_score) AS max_risk_score,
+                   AVG(score_margin) AS avg_score_margin,
+                   MAX(score_margin) AS max_score_margin,
+                   MAX(timestamp) AS latest_timestamp
+            FROM device_model_scores
+            WHERE device_id = :did
+              AND timestamp >= datetime('now', :since)
+            GROUP BY model_type
+            ORDER BY would_alert_count ASC, avg_risk_score ASC
+        """)
+        result = await self.db.execute(sql, {"did": device_id, "since": f"-{hours} hours"})
+        rows = result.fetchall()
+        config = await self.get_config(device_id)
+        primary_model_type = config.get("model_type", "isolation_forest")
+        models = []
+        for row in rows:
+            bucket_count = int(row.bucket_count or 0)
+            would_alert_count = int(row.would_alert_count or 0)
+            models.append({
+                "model_type": row.model_type,
+                "decision_role": "primary" if row.model_type == primary_model_type else "shadow",
+                "bucket_count": bucket_count,
+                "would_alert_count": would_alert_count,
+                "anomaly_count": int(row.anomaly_count or 0),
+                "would_alert_rate": round(would_alert_count / max(bucket_count, 1), 6),
+                "avg_risk_score": float(row.avg_risk_score or 0),
+                "max_risk_score": float(row.max_risk_score or 0),
+                "avg_score_margin": float(row.avg_score_margin or 0),
+                "max_score_margin": float(row.max_score_margin or 0),
+                "latest_timestamp": row.latest_timestamp,
+            })
+        return {
+            "device_id": device_id,
+            "hours": hours,
+            "primary_model_type": primary_model_type,
+            "models": models,
+        }
 
     async def list_model_versions(self, device_id: int, model_type: Optional[str] = None, limit: int = 50) -> list[dict]:
         clauses = ["device_id = :did"]

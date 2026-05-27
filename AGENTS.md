@@ -174,12 +174,12 @@ kubectl apply -k k8s/gateway
 kubectl apply -k k8s/overlays/gateway-prod
 ```
 
-### ML ensemble
-4 models per device: IF (40%), LOF (30%), OCSVM (20%), Autoencoder (10%). Anomaly triggered by majority vote (≥2/4). Old 8-feature models are backward-compatible (`n_features_in_` used to infer feature count). Current feature set has **12 features** (added `protocol_entropy`, `dst_ip_entropy`, `dns_to_total_ratio`, `iat_std` on top of the original 8).
+### ML primary + shadow research
+4 models are trained per device: IF, LOF, OCSVM, Autoencoder. `device_model_config.model_type` selects the primary model that drives production `risk_score`, `device_inference_history`, and `anomalies`. The other models are shadow-scored into `device_model_scores` for research comparison only. Old 8/12-feature models are backward-compatible (`features_count` or `n_features_in_` used to infer feature count). Current feature set has **14 features** (original 8 + `protocol_entropy`, `dst_ip_entropy`, `dns_to_total_ratio`, `iat_std`, `dst_port_entropy`, `risky_port_ratio`).
 
 ### Risk score composition (0–100)
 ```
-ml_risk          (0–35)   weighted-avg decision score across 4 models
+ml_risk          (0–35)   primary model decision score
 behavior_risk    (0–35)   9 heuristic alert types, capped per type
 protocol_risk    (0–20)   DNS/ICMP protocol-level signals
 correlation_bonus (0–15)  ML + heuristics firing together

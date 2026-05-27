@@ -183,7 +183,7 @@ To chroni bazę SQLite przed spike'ami zapytań.
 - `model_registry_id=<id>` replayuje konkretną archiwalną wersję z `model_registry` zamiast aktualnego pliku.
 - `hours=24|48|168` określa okno historyczne.
 
-Endpoint zwraca punkty z `anomaly_score`, `normalized_score`, `risk_score`, `is_anomaly`, thresholdami i feature snapshotem. Nie zapisuje wyników do `device_model_scores`, `inference_history` ani `devices.risk_score`; to czysty offline replay do diagnostyki.
+Endpoint zwraca punkty z `anomaly_score`, `normalized_score`, `risk_score`, `is_anomaly`, thresholdami i feature snapshotem. Replay używa tego samego 14-feature zestawu co trening/inference, w tym `dst_port_entropy` i `risky_port_ratio`, a przy starszych artifactach ucina wejście do liczby cech zapisanej w modelu. Nie zapisuje wyników do `device_model_scores`, `inference_history` ani `devices.risk_score`; to czysty offline replay do diagnostyki.
 
 ### Model Comparison
 

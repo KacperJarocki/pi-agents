@@ -95,7 +95,7 @@ k8s/
 Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
 
 ```bash
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive
 ```
 
 Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 10m` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; use `--seed 42` for reproducible randomized runs.
@@ -122,10 +122,10 @@ If API access is available, API-discovered targets are still supported:
 python3 research.py --targets-api http://localhost:8080/api/v1/devices --api-active-only --randomize --seed 42
 ```
 
-If subnet discovery is blocked by client isolation, target the gateway or provide a file manually:
+If subnet discovery is blocked by client isolation, target the gateway AP or provide a file manually:
 
 ```bash
-python3 research.py --no-discover --target 192.168.100.1
+python3 research.py --no-discover --target 192.168.50.1
 ```
 
 Generate benign IoT-like baseline traffic from the tested device:
@@ -256,21 +256,21 @@ Services:
 
 ## ML Pipeline
 
-- **Algorithms**: Isolation Forest, LOF, OCSVM, Autoencoder (sklearn/keras) — wszystkie 4 trenowane per device
-- **Ensemble**: majority vote (≥2/4 modeli = anomalia), weighted-avg ml_risk (IF=40%, LOF=30%, OCSVM=20%, AE=10%)
-- **Features**: 12 per-device features per 5-min bucket (bytes_sent+received, packets, unique_destinations, unique_ports, dns_queries, avg_bytes/pkt, packet_rate, conn_duration_avg, protocol_entropy, dst_ip_entropy, dns_to_total_ratio, iat_std)
+- **Algorithms**: Isolation Forest, LOF, OCSVM, Autoencoder (sklearn/keras) — all 4 trained per device
+- **Primary + Shadow**: `device_model_config.model_type` selects the primary model that drives production `risk_score`/`anomalies`; other models are shadow-scored for research comparison only
+- **Features**: 14 per-device features per 5-min bucket (bytes_sent+received, packets, unique_destinations, unique_ports, dns_queries, avg_bytes/pkt, packet_rate, conn_duration_avg, protocol_entropy, dst_ip_entropy, dns_to_total_ratio, iat_std, dst_port_entropy, risky_port_ratio)
 - **Training**: CronJob every 30 minutes; on-demand via K8s Job
 - **Training window**: 168h (7 days) — catches weekly traffic patterns
 - **Model registry**: current model files are archived under `/data/models/archive/` for rollback/backtesting, default retention 14 days.
-- **Inference**: Batch every 5 minutes (configurable via `INFERENCE_INTERVAL`)
+- **Inference**: Batch every 60 seconds in K8s (configurable via `INFERENCE_INTERVAL`)
 - **Risk reset**: stale latest buckets reset active risk after `RISK_STALE_BUCKET_MINUTES` (default 15) instead of repeatedly scoring old attack traffic.
 - **Minimum training samples**: 30 per-device buckets
-- **Adaptive threshold**: contamination = max(0.03, min(0.1, 5.0 / samples))
-- **Backward compat**: old 8-feature models load correctly (features_count inferred from `n_features_in_`)
+- **Adaptive threshold**: contamination = max(0.005, min(configured_contamination, 0.01, 1.0 / samples))
+- **Backward compat**: old 8/12-feature models load correctly (features_count inferred from `features_count` or `n_features_in_`)
 
 ## Detection Layers
 
-- **ML ensemble**: 4 models (IF, LOF, OCSVM, Autoencoder) vote per device bucket; majority (≥2) triggers anomaly.
+- **ML primary model**: selected primary model scores the latest closed bucket and drives production anomaly/risk decisions; shadow models are persisted for comparison.
 - **Risk composition**: `ml_risk` (0–35) + `behavior_risk` (0–35) + `protocol_risk` (0–20) + `correlation_bonus` (0–15) = final 0–100.
 - **Heuristic alerts** (9 types): `destination_novelty` (≥4 new IPs), `dns_burst` (≥10 queries floor), `port_churn` (high ports AND new ports), `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, `dns_nxdomain_burst`, `icmp_sweep_suspected`, `icmp_echo_fanout`.
 - **Bytes direction**: collector splits `frame.len` into `bytes_sent` (outbound, src in LAN) and `bytes_received` (inbound, dst in LAN) — enables exfiltration vs. download distinction.

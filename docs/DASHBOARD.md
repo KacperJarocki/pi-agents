@@ -152,7 +152,7 @@ Ważne shape danych dla testów UI:
 - `GET /api/devices/{id}/protocol-signals` powinno zwracać `signals[]` z rekordami `{ label, value, note }`.
 - `GET /api/metrics/ml-status` powinno zwracać `training_metrics[]` dla każdego urządzenia, jeśli test ma weryfikować tabelę `ML Model Health`.
 - `GET /api/devices/{id}/model-comparison` zwraca agregat primary/shadow. Tabela `Model Comparison` pokazuje, który model jest primary i które shadow modele `would_alert`, ale shadow nie wpływa na alerty produkcyjne.
-- `Historical Model Replay` nie czyta zapisanych `device_model_scores`; wywołuje `/model-replay`, który ładuje `.joblib`, agreguje historyczne `traffic_flows` do bucketów i liczy `risk_score`/`is_anomaly` od nowa.
+- `Historical Model Replay` nie czyta zapisanych `device_model_scores`; wywołuje `/model-replay`, który ładuje `.joblib`, agreguje historyczne `traffic_flows` do 14-feature bucketów i liczy `risk_score`/`is_anomaly` od nowa.
 - Tryb `All models` używa jednego requestu `model_type=all`, żeby gateway-api czytał flow i liczył feature buckets tylko raz dla czterech modeli.
 - `Risk Score Timeline` pokazuje live/persisted inference history. `Historical Model Replay` pokazuje offline scoring artifactu; te wykresy mogą się różnić, bo live risk zawiera też behavior/protocol/correlation, a replay pokazuje wynik modelu dla historycznych bucketów.
 

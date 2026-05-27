@@ -157,7 +157,33 @@
         <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
-                    <div class="text-xs uppercase tracking-[0.25em] text-slate-400 mb-3">Model Comparison</div>
+                    <div class="flex flex-col gap-2 mb-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Primary / Shadow Research</div>
+                                <div class="text-sm text-slate-300">Only the primary model affects live risk. Shadow models are scored for research comparison.</div>
+                            </div>
+                            <span id="model-research-policy" class="badge badge-outline badge-info">primary_shadow</span>
+                        </div>
+                        <div id="model-research-summary" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                            <div class="rounded-lg border border-white/10 bg-slate-950/40 p-2">
+                                <div class="text-slate-500 uppercase tracking-wide">Primary</div>
+                                <div id="research-primary-model" class="font-mono text-sky-300">-</div>
+                            </div>
+                            <div class="rounded-lg border border-white/10 bg-slate-950/40 p-2">
+                                <div class="text-slate-500 uppercase tracking-wide">Shadow Models</div>
+                                <div id="research-shadow-count" class="font-mono text-violet-300">-</div>
+                            </div>
+                            <div class="rounded-lg border border-white/10 bg-slate-950/40 p-2">
+                                <div class="text-slate-500 uppercase tracking-wide">Shadow Alerts</div>
+                                <div id="research-shadow-alerts" class="font-mono text-amber-300">-</div>
+                            </div>
+                            <div class="rounded-lg border border-white/10 bg-slate-950/40 p-2">
+                                <div class="text-slate-500 uppercase tracking-wide">Window</div>
+                                <div class="font-mono text-slate-300">168h</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="overflow-x-auto">
                         <table class="table table-xs w-full">
                             <thead>
@@ -498,6 +524,7 @@
                 });
                 if (res.ok) {
                     _activeModel = modelType;
+                    await loadModelConfig();
                     await loadMultiModelTimeline();
                     if (window.Alpine) Alpine.store('toast').show(`Active model changed to ${MODEL_LABELS[modelType] || modelType}`);
                 } else {
@@ -511,11 +538,26 @@
                 const res = await fetch(`/api/devices/${DEVICE_ID}/model-comparison?hours=168`, {cache: 'no-store'});
                 if (!res.ok) throw new Error(await res.text());
                 const data = await res.json();
+                renderModelResearchSummary(data);
                 renderModelComparison(fallbackModels, data.models || []);
             } catch(e) {
                 console.warn('model-comparison load failed', e);
+                renderModelResearchSummary({primary_model_type: _activeModel, models: []});
                 renderModelComparison(fallbackModels, []);
             }
+        }
+
+        function renderModelResearchSummary(data) {
+            const models = data.models || [];
+            const primary = data.primary_model_type || _activeModel || 'isolation_forest';
+            const shadowModels = models.filter(m => (m.decision_role || '') === 'shadow');
+            const shadowAlerts = shadowModels.reduce((sum, m) => sum + Number(m.would_alert_count || 0), 0);
+            const primaryEl = document.getElementById('research-primary-model');
+            const shadowCountEl = document.getElementById('research-shadow-count');
+            const shadowAlertsEl = document.getElementById('research-shadow-alerts');
+            if (primaryEl) primaryEl.textContent = MODEL_LABELS[primary] || primary;
+            if (shadowCountEl) shadowCountEl.textContent = `${shadowModels.length} / ${Math.max(models.length - 1, 0)}`;
+            if (shadowAlertsEl) shadowAlertsEl.textContent = String(shadowAlerts);
         }
 
         function renderModelComparison(models, summaries = []) {

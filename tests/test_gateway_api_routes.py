@@ -64,6 +64,8 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn("traffic_flows", replay)
         self.assertIn("joblib.load", replay)
         self.assertIn("risk_score", replay)
+        self.assertIn("dst_port_entropy", replay)
+        self.assertIn("risky_port_ratio", replay)
 
     def test_model_scores_include_research_fields(self):
         from pathlib import Path

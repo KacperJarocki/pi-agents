@@ -14,6 +14,7 @@ FEATURE_COLUMNS = [
     "total_bytes", "packets", "unique_destinations", "unique_ports",
     "dns_queries", "avg_bytes_per_packet", "packet_rate", "connection_duration_avg",
     "protocol_entropy", "dst_ip_entropy", "dns_to_total_ratio", "iat_std",
+    "dst_port_entropy", "risky_port_ratio",
 ]
 _ARTIFACT_CACHE: dict[str, tuple[float, tuple[object, float, dict, int]]] = {}
 
@@ -44,6 +45,11 @@ def _extract_features(flows: pd.DataFrame, bucket_minutes: int) -> pd.DataFrame:
 
     rows = []
     with_bucket = flows.assign(bucket_start=flows["timestamp"].dt.floor(f"{bucket_minutes}min"))
+    risky_ports = {
+        20, 21, 22, 23, 25, 110, 135, 139, 143, 389, 445, 465, 587,
+        993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900,
+        5985, 5986, 6379, 9200, 11211, 27017,
+    }
     for (device_id, bucket_start), group in with_bucket.groupby(["device_id", "bucket_start"]):
         group = group.sort_values("timestamp")
         packets = len(group)
@@ -51,6 +57,8 @@ def _extract_features(flows: pd.DataFrame, bucket_minutes: int) -> pd.DataFrame:
         dns_queries = int(group["dns_query"].notna().sum())
         iats = group["timestamp"].diff().dropna().dt.total_seconds()
         time_span = (group["timestamp"].max() - group["timestamp"].min()).total_seconds()
+        dst_ports = group["dst_port"].dropna()
+        risky_port_hits = int(dst_ports.astype(int).isin(risky_ports).sum()) if not dst_ports.empty else 0
         rows.append({
             "device_id": int(device_id),
             "bucket_start": bucket_start,
@@ -66,6 +74,8 @@ def _extract_features(flows: pd.DataFrame, bucket_minutes: int) -> pd.DataFrame:
             "dst_ip_entropy": _entropy(group["dst_ip"].dropna()) if not group["dst_ip"].dropna().empty else 0.0,
             "dns_to_total_ratio": dns_queries / packets if packets else 0.0,
             "iat_std": float(iats.std()) if len(iats) > 1 else 0.0,
+            "dst_port_entropy": _entropy(dst_ports) if not dst_ports.empty else 0.0,
+            "risky_port_ratio": risky_port_hits / packets if packets else 0.0,
         })
     return pd.DataFrame(rows)
 

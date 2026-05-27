@@ -610,7 +610,7 @@
                 const data = await res.json();
                 const versions = data.versions || [];
                 if (!versions.length) {
-                    tbody.innerHTML = '<tr><td colspan="7" class="text-slate-500">No archived model versions yet</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" class="text-slate-500">No archived model versions yet</td></tr>';
                     return;
                 }
                 tbody.innerHTML = versions.map(v => {
@@ -635,7 +635,7 @@
                 }).join('');
             } catch(e) {
                 console.warn('model versions load failed', e);
-                tbody.innerHTML = '<tr><td colspan="7" class="text-error">Failed to load model versions</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-error">Failed to load model versions</td></tr>';
             }
         }
 

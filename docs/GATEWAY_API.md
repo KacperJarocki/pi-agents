@@ -159,6 +159,7 @@ Gateway-api używa własnego **async TTLCache** z:
 | `device-risk-history:*` | 5s | — |
 | `device-protocol-signals:*` | 5s | — |
 | `device-model-scores:*` | 5s | — |
+| `device-model-comparison:*` | 5s | Primary/shadow research summary |
 | `timeline:*`, `top-talking:*` | 5s | — |
 | `ml-status` | 5s | — |
 | `device-baseline:*` | 10s | Bazowa statystyka, zmienia się wolno |
@@ -183,6 +184,17 @@ To chroni bazę SQLite przed spike'ami zapytań.
 - `hours=24|48|168` określa okno historyczne.
 
 Endpoint zwraca punkty z `anomaly_score`, `normalized_score`, `risk_score`, `is_anomaly`, thresholdami i feature snapshotem. Nie zapisuje wyników do `device_model_scores`, `inference_history` ani `devices.risk_score`; to czysty offline replay do diagnostyki.
+
+### Model Comparison
+
+`GET /api/v1/devices/{id}/model-comparison?hours=168` zwraca live agregat badawczy dla primary/shadow scoringu:
+
+- `primary_model_type` — model wybrany w `device_model_config.model_type`, jedyny wpływający na produkcyjny risk/anomalies.
+- `models[].decision_role` — `primary` albo `shadow`.
+- `models[].would_alert_count` / `would_alert_rate` — ile razy dany model sam uznałby bucket za anomalię.
+- `models[].avg_score_margin` / `max_score_margin` — dystans względem progu; dodatni oznacza przekroczenie progu anomalii.
+
+Endpoint służy do porównywania modeli bez mieszania ich decyzji w ensemble.
 
 ---
 

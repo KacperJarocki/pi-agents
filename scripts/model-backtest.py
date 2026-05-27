@@ -313,7 +313,12 @@ async def main(argv: list[str] | None = None) -> int:
     for run in runs:
         suffix = run["model_type"] if args.compare_all else "scores"
         scenario = str(run.get("scenario", "manual")).replace("/", "-")
-        output_name = f"scores-{scenario}-{suffix}.jsonl" if args.compare_all or args.windows_file else "scores.jsonl"
+        if args.windows_file:
+            output_name = f"scores-{scenario}-{suffix}.jsonl"
+        elif args.compare_all:
+            output_name = f"scores-{suffix}.jsonl"
+        else:
+            output_name = "scores.jsonl"
         with (run_dir / output_name).open("w", encoding="utf-8") as handle:
             for row in run.pop("scores"):
                 payload = dict(row)

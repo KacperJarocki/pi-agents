@@ -7,7 +7,7 @@ By default, the main profiles run for a full inference bucket or longer. `positi
 ## One-Liner
 
 ```bash
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive
 ```
 
 For a complete port-sweep research run instead of manually launching each profile, keep benign IoT traffic running in the background and run:
@@ -26,7 +26,7 @@ Run it from the device being evaluated, not from the gateway host, so the collec
 |---------|---------|--------------------|
 | `negative` | Low-volume normal web-like probes for FP checks | No `port_churn` |
 | `borderline` | Five ports near the heuristic threshold | Boundary behavior |
-| `positive` | Sixteen diverse ports | `port_churn` likely |
+| `positive` | Broad diverse admin/db/IoT ports | `port_churn` likely + strong ML port-diversity signal |
 | `slow` | Positive port set spread over time | Bucket/reaction-time sensitivity |
 | `aggressive` | Broad high-rate sweep | Strong heuristic/ML response |
 
@@ -40,7 +40,7 @@ Target discovery options:
 |--------|----------|
 | `python3 research.py` | Auto-discover reachable hosts in the local `/24` without API access |
 | `python3 research.py --discover-subnet 192.168.100.0/24` | Explicit subnet discovery |
-| `python3 research.py --no-discover --target 192.168.100.1` | Single target fallback, useful when client isolation blocks device-to-device probes |
+| `python3 research.py --no-discover --target 192.168.50.1` | Single target fallback to the gateway AP IP, useful when client isolation blocks device-to-device probes |
 | `python3 research.py --targets-file targets.txt` | Predefined target list |
 | `python3 research.py --targets-api ...` | API-discovered targets when API is reachable |
 
@@ -51,22 +51,22 @@ Target discovery options:
 ./scripts/port-sweep.sh --profile positive --dry-run
 
 # Reproducible positive run with deterministic jitter/order
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --randomize --seed 42
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive --randomize --seed 42
 
 # False-positive baseline
-./scripts/port-sweep.sh --target 192.168.100.1 --profile negative
+./scripts/port-sweep.sh --target 192.168.50.1 --profile negative
 
 # Main positive test
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive
 
 # Ten-minute positive test
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 10m
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive --duration 10m
 
 # Slower sweep for reaction-time and bucket sensitivity checks
-./scripts/port-sweep.sh --target 192.168.100.1 --profile slow
+./scripts/port-sweep.sh --target 192.168.50.1 --profile slow
 
 # Stronger stress case
-./scripts/port-sweep.sh --target 192.168.100.1 --profile aggressive --repeat 2 --randomize
+./scripts/port-sweep.sh --target 192.168.50.1 --profile aggressive --repeat 2 --randomize
 
 # Sweep every active device known by the gateway API
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
@@ -78,16 +78,16 @@ python3 research.py
 python3 research.py --discover-subnet 192.168.100.0/24 --randomize --seed 42
 
 # Fallback when client isolation blocks device discovery
-python3 research.py --no-discover --target 192.168.100.1 --randomize --seed 42
+python3 research.py --no-discover --target 192.168.50.1 --randomize --seed 42
 
 # Short smoke run for checking the protocol wiring
 python3 research.py --phases negative,positive --sweep-duration 30s --gap 10s --dry-run
 
 # Custom ports
-./scripts/port-sweep.sh --target 192.168.100.1 --ports 22,23,80,443,3389,5900,6379,27017
+./scripts/port-sweep.sh --target 192.168.50.1 --ports 22,23,80,443,3389,5900,6379,27017
 
 # One-shot legacy behavior, useful only for quick smoke checks
-./scripts/port-sweep.sh --target 192.168.100.1 --profile positive --duration 0 --repeat 1
+./scripts/port-sweep.sh --target 192.168.50.1 --profile positive --duration 0 --repeat 1
 ```
 
 ## Output

@@ -86,7 +86,7 @@ Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla
    device_id=3, bucket_start=2026-04-20 14:00:00
    ```
 
-3. Dla każdego okna liczy **12 cech** (features):
+3. Dla każdego okna liczy **14 cech** (features):
 
 | Feature | Co liczy | Przykład normalny | Przykład anomalii |
 |---------|----------|-------------------|-------------------|
@@ -94,6 +94,8 @@ Surowe pakiety sieciowe (IP, port, rozmiar, DNS query) są **bezużyteczne** dla
 | `packets` | Liczba pakietów | 50 | 10,000 |
 | `unique_destinations` | Ile różnych IP docelowych | 3 | 150 |
 | `unique_ports` | Ile różnych portów | 2 (80, 443) | 50 |
+| `dst_port_entropy` | Różnorodność portów docelowych | niska | wysoka przy sweepie |
+| `risky_port_ratio` | Udział portów admin/db/IoT | niski | wysoki przy sweepie |
 | `dns_queries` | Ile zapytań DNS | 5 | 500 |
 | `avg_bytes_per_packet` | Średni rozmiar pakietu | 300 | 50 |
 | `packet_rate` | Pakiety na sekundę | 0.17 | 33.3 |
@@ -111,7 +113,7 @@ Trening wymaga minimum **100 bucketów** per device (domyślnie). Przy 5-min buc
 
 ### Backward compatibility
 
-Modele wytrenowane przed Fazą 9 mają tylko 8 features. System automatycznie wykrywa liczbę features z atrybutu `n_features_in_` modelu sklearn i używa odpowiedniej liczby kolumn. Stare modele działają dalej bez retrainingu — zostaną zastąpione 12-featurowymi po następnym cyklu treningowym.
+Modele wytrenowane przed Fazą 9 mają tylko 8 features, a modele sprzed dodania port-sweep features mają 12 features. System automatycznie wykrywa liczbę features z atrybutu `n_features_in_` modelu sklearn i używa odpowiedniej liczby kolumn. Stare modele działają dalej bez retrainingu — zostaną zastąpione 14-featurowymi po następnym cyklu treningowym.
 
 ---
 
@@ -159,7 +161,7 @@ Rysuje "granicę" (hiperpowierzchnię) wokół normalnych danych w przestrzeni w
 ### Autoencoder (sieć neuronowa)
 
 **Jak działa (prosta wersja):**
-Sieć neuronowa próbuje **skompresować** 12 features do mniejszej reprezentacji, a potem **odtworzyć** oryginał. Normalne dane — odtworzenie jest dobre (mały błąd). Anomalne dane — sieć ich nigdy nie widziała, więc odtworzenie jest kiepskie (duży błąd).
+Sieć neuronowa próbuje **skompresować** features do mniejszej reprezentacji, a potem **odtworzyć** oryginał. Normalne dane — odtworzenie jest dobre (mały błąd). Anomalne dane — sieć ich nigdy nie widziała, więc odtworzenie jest kiepskie (duży błąd).
 
 Architektura: `n → hidden → max(4, hidden//2) → hidden → n` gdzie `hidden = max(4, n//2)`.
 
@@ -506,7 +508,7 @@ Tabele używane bezpośrednio przez ML pipeline:
 | model_type | TEXT | isolation_forest / lof / ocsvm / autoencoder |
 | trained_at | TEXT | Kiedy trenowano (ISO timestamp) |
 | samples | INTEGER | Ile bucketów użyto |
-| features | INTEGER | Ile features (12, poprzednio 8) |
+| features | INTEGER | Ile features (14, poprzednio 12/8) |
 | contamination | REAL | Użyta wartość contamination |
 | threshold | REAL | Obliczony adaptive threshold |
 | score_mean/std/p5/p50/p95 | REAL | Rozkład scores z treningu |
@@ -668,12 +670,12 @@ Patrz `AGENTS.md` dla pełnych schematów: `devices`, `traffic_flows`, `anomalie
 2. **Sprawdź threshold:** ML Model Health → kolumna "Threshold". Jeśli threshold jest bardzo niski, model jest zbyt liberalny.
 3. **Correlation bonus:** Risk rośnie mocniej gdy ML + heurystyki razem flagują. Tylko ML = max 35%.
 
-### "X has 12 features, but model is expecting 8 features"
+### "X has 14 features, but model is expecting 12/8 features"
 
-Modele wytrenowane przed Fazą 9 mają 8 features. System automatycznie wykrywa właściwą liczbę przez `n_features_in_` (sklearn) lub `features_count` zapisane w payload joblib. Jeśli widzisz ten błąd:
+Starsze modele mają 8 albo 12 features. System automatycznie wykrywa właściwą liczbę przez `n_features_in_` (sklearn) lub `features_count` zapisane w payload joblib. Jeśli widzisz ten błąd:
 1. Sprawdź wersję kodu — musisz mieć commit `88350f6` lub nowszy.
 2. Jeśli model to LOF bez wrappera scaler (pre-Faza 7): `'LocalOutlierFactor' object is not subscriptable` — naprawione w `1650565`, wymaga aktualizacji poda.
-3. Długoterminowo: po retreningu modele zostaną zapisane z 12 features i problem zniknie.
+3. Długoterminowo: po retreningu modele zostaną zapisane z 14 features i problem zniknie.
 
 ### "Inference nie działa / pod restartuje się"
 

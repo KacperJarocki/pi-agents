@@ -59,6 +59,8 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("primary", device_template)
         self.assertIn("shadow", device_template)
         self.assertIn("score_margin", device_template)
+        self.assertIn("Raw thresholds use model-specific score scales", device_template)
+        self.assertIn("Norm Threshold", device_template)
         self.assertIn("maxTicksLimit: 12", device_template)
         self.assertIn("tooltip", device_template)
         self.assertIn("parseApiTs", (repo / "images" / "dashboard" / "app" / "templates" / "index.html").read_text())

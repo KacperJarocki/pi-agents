@@ -240,7 +240,10 @@
             <div class="card bg-neutral/60 border border-white/10">
                 <div class="card-body p-4">
                         <div class="flex items-center justify-between mb-3">
-                            <div class="text-xs uppercase tracking-[0.25em] text-slate-400">ML Model Health</div>
+                            <div>
+                                <div class="text-xs uppercase tracking-[0.25em] text-slate-400">ML Model Health</div>
+                                <div class="text-sm text-slate-400">Raw thresholds use model-specific score scales; normalized threshold is comparable across models.</div>
+                            </div>
                             <div class="flex flex-wrap items-center gap-2">
                                 <select id="train-model-select" class="select select-xs select-bordered bg-slate-800 text-white">
                                     <option value="isolation_forest">Isolation Forest</option>
@@ -263,7 +266,8 @@
                                 <tr class="text-slate-400">
                                     <th>Model Type</th>
                                     <th>Samples</th>
-                                    <th>Threshold</th>
+                                    <th>Raw Threshold</th>
+                                    <th>Norm Threshold</th>
                                     <th>Score Mean</th>
                                     <th>Score Std</th>
                                     <th>p5</th>
@@ -273,7 +277,7 @@
                                 </tr>
                             </thead>
                             <tbody id="ml-health-body">
-                                <tr><td colspan="9" class="text-slate-500">Loading...</td></tr>
+                                <tr><td colspan="10" class="text-slate-500">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -287,7 +291,7 @@
                     <div class="flex items-center justify-between mb-3">
                         <div>
                             <div class="text-xs uppercase tracking-[0.25em] text-slate-400">Model Versions</div>
-                            <div class="text-sm text-slate-400">Archived models retained for rollback/backtesting</div>
+                            <div class="text-sm text-slate-400">Archived models retained for rollback/backtesting. Threshold is raw and model-specific.</div>
                         </div>
                         <button onclick="loadModelVersions()" class="btn btn-xs btn-outline">Refresh</button>
                     </div>
@@ -298,14 +302,15 @@
                                     <th>Model</th>
                                     <th>Trained At</th>
                                     <th>Samples</th>
-                                    <th>Threshold</th>
+                                    <th>Raw Threshold</th>
+                                    <th>Norm Threshold</th>
                                     <th>Artifact</th>
                                     <th>State</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="model-versions-body">
-                                <tr><td colspan="7" class="text-slate-500">Loading...</td></tr>
+                                <tr><td colspan="8" class="text-slate-500">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -493,6 +498,15 @@
             return fmtDateTime(value);
         }
 
+        function normalizedThreshold(item) {
+            const threshold = Number(item?.threshold);
+            const mean = Number(item?.score_mean);
+            const std = Number(item?.score_std);
+            if (!Number.isFinite(threshold) || !Number.isFinite(mean) || !Number.isFinite(std)) return null;
+            if (Math.abs(std) < 1e-8) return null;
+            return (threshold - mean) / std;
+        }
+
         const MODEL_TYPES = ['isolation_forest', 'lof', 'ocsvm', 'autoencoder'];
         const MODEL_LABELS = {isolation_forest: 'Isolation Forest', lof: 'LOF', ocsvm: 'One-Class SVM', autoencoder: 'Autoencoder'};
         const MODEL_COLORS = {
@@ -603,6 +617,7 @@
                     const active = Boolean(v.active);
                     const exists = Boolean(v.artifact_exists);
                     const sha = (v.artifact_sha256 || '').slice(0, 10);
+                    const normThreshold = normalizedThreshold(v);
                     const replay = `<button class="btn btn-xs btn-outline btn-info" ${exists ? '' : 'disabled'} onclick="replayModelVersion(${v.id}, '${v.model_type}')">Replay</button>`;
                     const action = active
                         ? `<div class="flex flex-wrap gap-1"><span class="badge badge-xs badge-info">active</span>${replay}</div>`
@@ -612,6 +627,7 @@
                         <td class="text-xs whitespace-nowrap">${fmtTs(v.trained_at)}</td>
                         <td>${v.samples ?? '-'}</td>
                         <td>${v.threshold == null ? '-' : Number(v.threshold).toFixed(4)}</td>
+                        <td class="font-mono text-xs">${normThreshold == null ? '-' : normThreshold.toFixed(2)}</td>
                         <td class="font-mono text-[11px]">${exists ? sha : '<span class="text-error">missing</span>'}</td>
                         <td>${active ? '<span class="badge badge-xs badge-info">current</span>' : '<span class="badge badge-xs badge-ghost">archived</span>'}</td>
                         <td>${action}</td>
@@ -1172,28 +1188,30 @@
                 const metrics = entry && entry.training_metrics;
 
                 if (!metrics || metrics.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" class="text-slate-500">No training data yet</td></tr>';
-                    return;
-                }
+                tbody.innerHTML = '<tr><td colspan="10" class="text-slate-500">No training data yet</td></tr>';
+                return;
+            }
 
-                tbody.innerHTML = metrics.map(m => {
-                    const fmt = v => (v != null ? Number(v).toFixed(4) : '—');
-                    const pct = v => (v != null ? (Number(v) * 100).toFixed(1) + '%' : '—');
-                    const trainedAt = m.trained_at ? m.trained_at.replace('T', ' ').slice(0, 19) : '—';
-                    return `<tr class="text-slate-300">
-                        <td class="font-mono text-xs">${m.model_type}</td>
-                        <td>${m.samples ?? '—'}</td>
-                        <td class="font-mono text-xs">${fmt(m.threshold)}</td>
-                        <td class="font-mono text-xs">${fmt(m.score_mean)}</td>
-                        <td class="font-mono text-xs">${fmt(m.score_std)}</td>
-                        <td class="font-mono text-xs">${fmt(m.score_p5)}</td>
+            tbody.innerHTML = metrics.map(m => {
+                const fmt = v => (v != null ? Number(v).toFixed(4) : '—');
+                const pct = v => (v != null ? (Number(v) * 100).toFixed(1) + '%' : '—');
+                const trainedAt = m.trained_at ? m.trained_at.replace('T', ' ').slice(0, 19) : '—';
+                const normThreshold = normalizedThreshold(m);
+                return `<tr class="text-slate-300">
+                    <td class="font-mono text-xs">${m.model_type}</td>
+                    <td>${m.samples ?? '—'}</td>
+                    <td class="font-mono text-xs">${fmt(m.threshold)}</td>
+                    <td class="font-mono text-xs">${normThreshold == null ? '—' : normThreshold.toFixed(2)}</td>
+                    <td class="font-mono text-xs">${fmt(m.score_mean)}</td>
+                    <td class="font-mono text-xs">${fmt(m.score_std)}</td>
+                    <td class="font-mono text-xs">${fmt(m.score_p5)}</td>
                         <td class="font-mono text-xs">${fmt(m.score_p95)}</td>
                         <td>${pct(m.estimated_anomaly_rate)}</td>
                         <td class="text-xs text-slate-400">${trainedAt}</td>
                     </tr>`;
                 }).join('');
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-slate-500">Unavailable</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="text-slate-500">Unavailable</td></tr>';
             }
         }
 

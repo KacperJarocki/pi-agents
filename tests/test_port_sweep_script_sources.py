@@ -25,6 +25,9 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("probes.jsonl", src)
         self.assertIn("summary.json", src)
         self.assertIn("port_churn", src)
+        self.assertIn("192.168.50.1", src)
+        self.assertIn("ML port-diversity features", src)
+        self.assertIn("27017", src)
 
     def test_port_sweep_wrapper_exists(self):
         repo = Path(__file__).resolve().parents[1]
@@ -63,6 +66,7 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("runpy.run_path", shortcut)
         self.assertIn("--discover-subnet", src)
         self.assertIn("--no-discover", src)
+        self.assertIn("192.168.50.1", src)
 
 
 if __name__ == "__main__":

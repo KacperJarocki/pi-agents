@@ -52,10 +52,10 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   │                                                                 │
   │  SELECT traffic_flows WHERE timestamp >= now - 168h             │
   │  FeatureExtractor: 5-min buckets per device                     │
-  │    (12 features: bytes, packets, destinations, ports,           │
+  │    (14 features: bytes, packets, destinations, ports,           │
   │     dns_queries, avg_bytes/pkt, packet_rate, conn_duration,     │
   │     protocol_entropy, dst_ip_entropy, dns_to_total_ratio,       │
-  │     iat_std)                                                     │
+  │     iat_std, dst_port_entropy, risky_port_ratio)                 │
   │  AnomalyDetector.fit() per device (min 100 buckets)             │
   │  joblib.dump() → /data/models/..._device_{id}.joblib            │
   │  INSERT model_metadata                                          │
@@ -153,6 +153,8 @@ per device_id:
 | `dst_ip_entropy` | Shannon entropy dst IP | `dst_ip` |
 | `dns_to_total_ratio` | `dns_queries / total_packets` | `dns_query` |
 | `iat_std` | Odchylenie std między-pakietowe (s) | `timestamp` |
+| `dst_port_entropy` | Shannon entropy portów docelowych | `dst_port` |
+| `risky_port_ratio` | Udział połączeń do portów admin/db/IoT | `dst_port` |
 
 **Uwaga**: `connection_duration_avg` jest zawsze 0 w MVP, bo collector nie mierzy czasu trwania
 połączenia (każdy pakiet = osobny rekord z `duration_ms=0`).
@@ -162,7 +164,7 @@ wykrywa `features_count` z payloadu joblib lub z `model.n_features_in_` i używa
 
 ### Krok 3: feature buckets → scoring
 
-AnomalyDetector używa 12 features z bucketu do obliczenia anomaly score. Wszystkie 4 modele
+AnomalyDetector używa 14 features z bucketu do obliczenia anomaly score. Wszystkie 4 modele
 (IF, LOF, OCSVM, Autoencoder) scorują niezależnie. Model ustawiony w `device_model_config.model_type`
 jest primary i jako jedyny decyduje o produkcyjnym `is_anomaly` oraz ML risk. Pozostałe modele są
 shadow: zapisujemy ich `would_alert`, `risk_score`, `score_margin` i progi do `device_model_scores`,

@@ -40,11 +40,11 @@ PROFILES: dict[str, dict[str, object]] = {
         "description": "Near the port_churn threshold; useful for boundary checks.",
     },
     "positive": {
-        "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
-        "rate": 4.0,
+        "ports": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 465, 587, 993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017],
+        "rate": 6.0,
         "duration_seconds": 300.0,
         "label": "attack_port_sweep",
-        "description": "Expected to trigger port_churn: >=6 ports and >=5 new ports.",
+        "description": "Sustained diverse port sweep intended to trigger port_churn and ML port-diversity features.",
     },
     "slow": {
         "ports": [22, 23, 25, 80, 443, 8080, 8443, 3389, 5900, 6379, 27017, 5432, 3306, 1433, 9200, 11211],
@@ -294,7 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate controlled TCP port-sweep traffic for IoT anomaly research.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--target", default="192.168.100.1", help="target host/IP to probe")
+    parser.add_argument("--target", default="192.168.50.1", help="target host/IP to probe; defaults to the gateway AP IP")
     parser.add_argument("--targets-file", help="optional file with one target host/IP per line")
     parser.add_argument("--targets-api", help="optional gateway API devices URL, e.g. http://localhost:8080/api/v1/devices")
     parser.add_argument("--api-active-only", action="store_true", help="append active_only=true when using --targets-api")

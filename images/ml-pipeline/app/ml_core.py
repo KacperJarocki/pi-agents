@@ -97,6 +97,8 @@ class FeatureExtractor:
         'dst_ip_entropy',      # Shannon entropy of destination IP distribution
         'dns_to_total_ratio',  # dns_queries / packets (0-1; high = DNS tunneling)
         'iat_std',             # Std-dev of inter-arrival times (low = beaconing)
+        'dst_port_entropy',    # Shannon entropy of destination port distribution
+        'risky_port_ratio',    # probes to admin/db/IoT ports / packets (high = sweep-like)
     ]
 
     @staticmethod
@@ -144,6 +146,14 @@ class FeatureExtractor:
             protocol_entropy = self._shannon_entropy(device_flows['protocol']) if 'protocol' in device_flows.columns else 0.0
             dst_ip_entropy = self._shannon_entropy(device_flows['dst_ip'].dropna()) if not device_flows['dst_ip'].dropna().empty else 0.0
             dns_to_total_ratio = dns_queries / packets if packets > 0 else 0.0
+            dst_port_entropy = self._shannon_entropy(device_flows['dst_port'].dropna()) if not device_flows['dst_port'].dropna().empty else 0.0
+            risky_ports = {
+                20, 21, 22, 23, 25, 110, 135, 139, 143, 389, 445, 465, 587,
+                993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900,
+                5985, 5986, 6379, 9200, 11211, 27017,
+            }
+            risky_port_hits = int(device_flows['dst_port'].dropna().astype(int).isin(risky_ports).sum()) if 'dst_port' in device_flows.columns else 0
+            risky_port_ratio = risky_port_hits / packets if packets > 0 else 0.0
 
             features.append({
                 'device_id': device_id,
@@ -160,6 +170,8 @@ class FeatureExtractor:
                 'dst_ip_entropy': dst_ip_entropy,
                 'dns_to_total_ratio': dns_to_total_ratio,
                 'iat_std': iat_std,
+                'dst_port_entropy': dst_port_entropy,
+                'risky_port_ratio': risky_port_ratio,
             })
         
         return pd.DataFrame(features)

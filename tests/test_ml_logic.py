@@ -172,6 +172,19 @@ class TestFeatureExtractor(unittest.TestCase):
         for col in FeatureExtractor.FEATURE_COLUMNS:
             self.assertIn(col, result.columns, f"Missing column: {col}")
 
+    def test_port_sweep_features_capture_port_diversity(self):
+        flows = _make_flows(
+            n=12,
+            dst_ports=[22, 23, 25, 3389, 5900, 6379],
+            interval_seconds=5,
+        )
+
+        result = self.extractor.extract_features(flows)
+        row = result.iloc[0]
+
+        self.assertGreater(row["dst_port_entropy"], 1.0)
+        self.assertGreater(row["risky_port_ratio"], 0.9)
+
 
 class TestClosedBucketFiltering(unittest.TestCase):
     @classmethod

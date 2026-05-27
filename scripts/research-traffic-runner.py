@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run the port-sweep traffic research protocol with one command.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--target", default="192.168.100.1", help="single target for port-sweep phases")
+    parser.add_argument("--target", default="192.168.50.1", help="single target for port-sweep phases; defaults to the gateway AP IP")
     parser.add_argument("--targets-file", help="optional target file passed to port-sweep phases")
     parser.add_argument("--targets-api", help="optional gateway API devices URL passed to port-sweep phases")
     parser.add_argument("--api-active-only", action="store_true", help="pass active_only=true to --targets-api")

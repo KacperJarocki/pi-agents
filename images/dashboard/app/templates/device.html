@@ -163,9 +163,10 @@
                             <thead>
                                 <tr class="text-slate-400">
                                     <th>Model</th>
-                                    <th>Anomaly Score</th>
-                                    <th>Risk Score</th>
-                                    <th>Anomaly?</th>
+                                    <th>Role</th>
+                                    <th>Risk</th>
+                                    <th>Margin</th>
+                                    <th>Would Alert?</th>
                                     <th>Last Scored</th>
                                 </tr>
                             </thead>
@@ -483,7 +484,7 @@
                     const cfg = await res.json();
                     _activeModel = cfg.model_type || 'isolation_forest';
                     document.getElementById('model-select').value = _activeModel;
-                    renderModelComparison(cfg.available_models || []);
+                    await loadModelComparison(cfg.available_models || []);
                 }
             } catch(e) { console.warn('model-config load failed', e); }
         }
@@ -505,7 +506,19 @@
             } catch(e) { console.error('model-config update error', e); }
         }
 
-        function renderModelComparison(models) {
+        async function loadModelComparison(fallbackModels = []) {
+            try {
+                const res = await fetch(`/api/devices/${DEVICE_ID}/model-comparison?hours=168`, {cache: 'no-store'});
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderModelComparison(fallbackModels, data.models || []);
+            } catch(e) {
+                console.warn('model-comparison load failed', e);
+                renderModelComparison(fallbackModels, []);
+            }
+        }
+
+        function renderModelComparison(models, summaries = []) {
             const tbody = document.getElementById('model-comparison-body');
             if (!models.length) {
                 tbody.innerHTML = '<tr><td colspan="5" class="text-slate-500">No model scores yet</td></tr>';
@@ -513,16 +526,21 @@
             }
             const scoreMap = {};
             models.forEach(m => { scoreMap[m.model_type] = m; });
+            const summaryMap = {};
+            summaries.forEach(m => { summaryMap[m.model_type] = m; });
             tbody.innerHTML = MODEL_TYPES.map(mt => {
                 const m = scoreMap[mt];
+                const summary = summaryMap[mt] || {};
                 const isActive = mt === _activeModel;
                 const rowClass = isActive ? 'bg-sky-500/10' : '';
-                if (!m) return `<tr class="${rowClass}"><td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td><td colspan="4" class="text-slate-500">not scored</td></tr>`;
+                const role = summary.decision_role || m?.decision_role || (isActive ? 'primary' : 'shadow');
+                if (!m) return `<tr class="${rowClass}"><td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td><td colspan="5" class="text-slate-500">not scored</td></tr>`;
                 return `<tr class="${rowClass}">
                     <td>${MODEL_LABELS[mt]}${isActive ? ' <span class="badge badge-xs badge-info">active</span>' : ''}</td>
-                    <td>${Number(m.anomaly_score || 0).toFixed(4)}</td>
+                    <td>${role === 'primary' ? '<span class="badge badge-xs badge-info">primary</span>' : '<span class="badge badge-xs badge-ghost">shadow</span>'}</td>
                     <td class="whitespace-nowrap">${Number(m.risk_score || 0).toFixed(1)}</td>
-                    <td>${m.is_anomaly ? '<span class="badge badge-xs badge-error">YES</span>' : '<span class="badge badge-xs badge-success">no</span>'}</td>
+                    <td class="font-mono text-xs">${Number(m.score_margin || summary.max_score_margin || 0).toFixed(3)}</td>
+                    <td>${m.would_alert || m.is_anomaly ? '<span class="badge badge-xs badge-error">YES</span>' : '<span class="badge badge-xs badge-success">no</span>'}</td>
                     <td class="text-xs max-w-[120px] truncate">${fmtTs(m.timestamp)}</td>
                 </tr>`;
             }).join('');

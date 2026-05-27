@@ -69,12 +69,12 @@ class TestTrainingThreshold(unittest.TestCase):
         import importlib
         cls.train = importlib.import_module("app.train")
 
-    def test_isolation_forest_threshold_rate_is_more_sensitive_than_base(self):
+    def test_isolation_forest_threshold_rate_keeps_conservative_base(self):
         base = self.train._adaptive_contamination(samples=300, configured_contamination=0.03)
 
         tuned = self.train._model_threshold_rate("isolation_forest", base)
 
-        self.assertGreater(tuned, base)
+        self.assertEqual(tuned, base)
         self.assertLessEqual(tuned, self.train.ISOLATION_FOREST_THRESHOLD_MAX)
 
     def test_other_models_keep_adaptive_threshold_rate(self):

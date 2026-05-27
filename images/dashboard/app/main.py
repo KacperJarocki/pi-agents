@@ -233,6 +233,11 @@ async def get_device_model_scores(device_id: int, model_type: str = "isolation_f
     return await fetch_api(f"/devices/{device_id}/model-scores?model_type={model_type}&hours={hours}")
 
 
+@app.get("/api/devices/{device_id}/model-comparison")
+async def get_device_model_comparison(device_id: int, hours: int = 168):
+    return await fetch_api(f"/devices/{device_id}/model-comparison?hours={hours}")
+
+
 @app.get("/api/devices/{device_id}/model-replay")
 async def replay_device_model(device_id: int, model_type: str = "isolation_forest", hours: int = 24, model_registry_id: int | None = None):
     qs = f"/devices/{device_id}/model-replay?model_type={model_type}&hours={hours}"

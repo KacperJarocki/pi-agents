@@ -402,8 +402,10 @@ def _build_job_manifest(
         {"name": "N_ESTIMATORS", "value": str(training_config.get("n_estimators", 500))},
         {"name": "CONTAMINATION", "value": str(training_config.get("contamination", 0.01))},
         {"name": "ADAPTIVE_CONTAMINATION_MIN", "value": "0.005"},
-        {"name": "ADAPTIVE_CONTAMINATION_MAX", "value": "0.02"},
+        {"name": "ADAPTIVE_CONTAMINATION_MAX", "value": "0.01"},
         {"name": "ADAPTIVE_CONTAMINATION_TARGET_BUCKETS", "value": "1.0"},
+        {"name": "ISOLATION_FOREST_THRESHOLD_MULTIPLIER", "value": "1.0"},
+        {"name": "ISOLATION_FOREST_THRESHOLD_MAX", "value": "0.01"},
         {"name": "MODEL_REGISTRY_RETENTION_DAYS", "value": "14"},
     ]
     return {

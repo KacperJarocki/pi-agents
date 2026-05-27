@@ -39,6 +39,8 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn('@router.get("/{device_id}/model-versions"', router_src)
         self.assertIn('@router.post("/{device_id}/model-versions/{version_id}/activate"', router_src)
         self.assertIn('@router.get("/{device_id}/model-replay"', router_src)
+        self.assertIn('@router.get("/{device_id}/model-comparison"', router_src)
+        self.assertIn("get_model_comparison", router_src)
         self.assertIn('pattern=r"^(all|isolation_forest|lof|ocsvm|autoencoder)$"', router_src)
         self.assertIn('risk_delta', router_src)
         self.assertIn('correlation_bonus', router_src)
@@ -62,6 +64,15 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn("traffic_flows", replay)
         self.assertIn("joblib.load", replay)
         self.assertIn("risk_score", replay)
+
+    def test_model_scores_include_research_fields(self):
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "images" / "gateway-api" / "app" / "services" / "crud.py").read_text()
+
+        for field in ("norm_score", "norm_threshold", "score_margin", "would_alert", "decision_role"):
+            self.assertIn(field, src)
 
     def test_train_now_passes_effective_training_config_to_job(self):
         from pathlib import Path

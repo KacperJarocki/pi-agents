@@ -51,6 +51,10 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn("fmtDateTime", device_template)
         self.assertIn("height:460px", device_template)
         self.assertIn("model-scores?model_type=${mt}&hours=24", device_template)
+        self.assertIn("model-comparison?hours=168", device_template)
+        self.assertIn("primary", device_template)
+        self.assertIn("shadow", device_template)
+        self.assertIn("score_margin", device_template)
         self.assertIn("maxTicksLimit: 12", device_template)
         self.assertIn("tooltip", device_template)
         self.assertIn("parseApiTs", (repo / "images" / "dashboard" / "app" / "templates" / "index.html").read_text())
@@ -64,6 +68,7 @@ class TestDashboardTemplateUsage(unittest.TestCase):
         self.assertIn('/api/devices/{device_id}/model-versions', src)
         self.assertIn('/model-versions/{version_id}/activate', src)
         self.assertIn('/api/devices/{device_id}/model-replay', src)
+        self.assertIn('/api/devices/{device_id}/model-comparison', src)
 
 
 if __name__ == "__main__":

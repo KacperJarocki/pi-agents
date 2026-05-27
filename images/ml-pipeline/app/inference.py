@@ -110,6 +110,45 @@ PROTOCOL_ALERT_TYPES = {
 }
 
 
+def _score_margin(score: float, threshold: float) -> float:
+    """Positive margin means the score crossed below the anomaly threshold."""
+    return float(threshold) - float(score)
+
+
+def _select_primary_model_result(per_model: dict[str, dict], active_model_type: str) -> tuple[str, dict]:
+    """Pick the model that is allowed to drive production risk/anomaly decisions.
+
+    Shadow models are still scored for research, but never override the primary
+    decision. If the configured primary is missing, Isolation Forest is the
+    stable baseline fallback before using the first available model.
+    """
+    if active_model_type in per_model:
+        return active_model_type, per_model[active_model_type]
+    if "isolation_forest" in per_model:
+        return "isolation_forest", per_model["isolation_forest"]
+    model_type = next(iter(per_model))
+    return model_type, per_model[model_type]
+
+
+def _shadow_model_summary(per_model: dict[str, dict], primary_model_type: str) -> dict[str, dict]:
+    """Return research-only model outputs, excluding the primary decision model."""
+    summary = {}
+    for model_type, result in per_model.items():
+        if model_type == primary_model_type:
+            continue
+        summary[model_type] = {
+            "raw_score": round(float(result.get("raw_score", 0.0)), 6),
+            "norm_score": round(float(result.get("norm_score", 0.0)), 6),
+            "threshold": round(float(result.get("threshold", 0.0)), 6),
+            "norm_threshold": round(float(result.get("norm_threshold", 0.0)), 6),
+            "score_margin": round(_score_margin(result.get("norm_score", 0.0), result.get("norm_threshold", 0.0)), 6),
+            "risk_score": round(float(result.get("ml_risk", 0.0)), 4),
+            "would_alert": bool(result.get("is_anomaly", False)),
+            "severity": result.get("severity", "normal"),
+        }
+    return summary
+
+
 def _risk_from_score(score: float, threshold: float) -> float:
     # IsolationForest decision_function scores: lower => more anomalous.
     # Normal branch: ramp from 0 (well above threshold) to 35 (at threshold).
@@ -538,15 +577,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
     # Load per-device model type configs (kept for logging / per-device overrides)
     device_model_configs = await get_device_model_configs()
 
-    # Ensemble weights for weighted-average ml_risk (must sum to 1.0)
-    _ENSEMBLE_WEIGHTS: dict[str, float] = {
-        "isolation_forest": 0.40,
-        "lof":              0.30,
-        "ocsvm":            0.20,
-        "autoencoder":      0.10,
-    }
-
-    # Score ALL models per device, collect results for device_model_scores table
+    # Score all models per device. Only the configured primary model drives
+    # production decisions; the rest are shadow/research signals.
     all_model_scores: list[dict] = []
     # One ensemble result per device (for risk/anomalies/history)
     scored_results = []
@@ -592,6 +624,12 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                         "anomaly_score": float(row["anomaly_score"]),
                         "risk_score": float(ml_risk),
                         "is_anomaly": bool(row["is_anomaly"]),
+                        "threshold": float(device_detector.threshold),
+                        "norm_score": float(norm_s),
+                        "norm_threshold": float(norm_t),
+                        "score_margin": _score_margin(norm_s, norm_t),
+                        "would_alert": bool(row["is_anomaly"]),
+                        "decision_role": "primary" if model_type == active_model_type else "shadow",
                     })
                     per_model[model_type] = {
                         "norm_score": norm_s,
@@ -607,37 +645,29 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             if not per_model:
                 continue
 
-            # ── Ensemble: majority vote + weighted-average ml_risk ──────────
-            anomaly_votes = sum(1 for m in per_model.values() if m["is_anomaly"])
-            ensemble_is_anomaly = anomaly_votes >= 2  # majority of available models
-
-            total_weight = sum(_ENSEMBLE_WEIGHTS.get(mt, 0.1) for mt in per_model)
-            ensemble_ml_risk = sum(
-                per_model[mt]["ml_risk"] * _ENSEMBLE_WEIGHTS.get(mt, 0.1)
-                for mt in per_model
-            ) / max(total_weight, 1e-9)
-
-            # Use active model's raw scores for observability; fall back to first available
-            ref = per_model.get(active_model_type) or next(iter(per_model.values()))
-            ensemble_severity = "critical" if (ensemble_is_anomaly and anomaly_votes >= 3) else (
-                "warning" if ensemble_is_anomaly else "normal"
-            )
+            primary_model_type, ref = _select_primary_model_result(per_model, active_model_type)
+            shadow_scores = _shadow_model_summary(per_model, primary_model_type)
+            shadow_alerts = sum(1 for model in shadow_scores.values() if model["would_alert"])
+            for score_row in all_model_scores:
+                if score_row["device_id"] == int(device_id) and score_row["bucket_start"] == bucket_start:
+                    score_row["decision_role"] = "primary" if score_row["model_type"] == primary_model_type else "shadow"
 
             scored_results.append({
                 "device_id": int(device_id),
                 "bucket_start": bucket_start,
                 "anomaly_score": ref["raw_score"],
-                "is_anomaly": ensemble_is_anomaly,
+                "is_anomaly": bool(ref["is_anomaly"]),
                 "severity": ref["severity"],
                 "threshold": ref["threshold"],
                 "norm_score": ref["norm_score"],
                 "norm_threshold": ref["norm_threshold"],
                 "features": ref["features"],
-                "model_type": active_model_type,
-                # Ensemble metadata for observability
-                "ensemble_votes": anomaly_votes,
-                "ensemble_models_available": len(per_model),
-                "ensemble_ml_risk": round(ensemble_ml_risk, 4),
+                "model_type": primary_model_type,
+                "primary_model_type": primary_model_type,
+                "primary_ml_risk": round(float(ref["ml_risk"]), 4),
+                "shadow_model_scores": shadow_scores,
+                "shadow_alerts": shadow_alerts,
+                "shadow_models_available": len(shadow_scores),
                 "per_model_risks": {mt: round(v["ml_risk"], 4) for mt, v in per_model.items()},
             })
     else:
@@ -698,8 +728,9 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         ] if bucket_start is not None and not dev_flows.empty else pd.DataFrame()
 
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
-        # Use ensemble ml_risk if available (per_device_models path), else compute from norm_score
-        ml_risk = float(a.get("ensemble_ml_risk", _risk_from_score(norm_score, norm_threshold)))
+        # Production ML risk comes only from the primary model. Shadow models are
+        # stored for research/comparison and intentionally do not affect risk.
+        ml_risk = float(a.get("primary_ml_risk", _risk_from_score(norm_score, norm_threshold)))
         risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
         risk_score = risk_breakdown["final_risk"]
         inference_features = {
@@ -713,8 +744,11 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             "correlation_bonus": risk_breakdown["correlation_bonus"],
             "risk_top_reason": risk_breakdown["top_reason"],
             "risk_reason_summary": risk_breakdown["reason_summary"],
-            "ensemble_votes": a.get("ensemble_votes"),
-            "ensemble_models_available": a.get("ensemble_models_available"),
+            "decision_policy": "primary_shadow",
+            "primary_model_type": a.get("primary_model_type", a.get("model_type", "isolation_forest")),
+            "shadow_model_scores": a.get("shadow_model_scores", {}),
+            "shadow_alerts": a.get("shadow_alerts", 0),
+            "shadow_models_available": a.get("shadow_models_available", 0),
             "per_model_risks": a.get("per_model_risks"),
         }
 
@@ -734,8 +768,10 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
             behavior_alert_count=len(behavior_alerts),
             top_reason=risk_breakdown["top_reason"],
             is_anomaly=is_anomaly,
-            ensemble_votes=a.get("ensemble_votes"),
-            ensemble_models=a.get("ensemble_models_available"),
+            decision_policy="primary_shadow",
+            primary_model_type=a.get("primary_model_type", a.get("model_type")),
+            shadow_alerts=a.get("shadow_alerts", 0),
+            shadow_models=a.get("shadow_models_available", 0),
         )
 
         if is_anomaly:

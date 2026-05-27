@@ -67,8 +67,8 @@ do momentu gdy użytkownik widzi alert na dashboardzie.
   │                                                                 │
   │  SELECT traffic_flows (24h recent + 168h baseline)              │
   │  FeatureExtractor → latest closed bucket per device             │
-  │  AnomalyDetector.score() → ensemble majority vote (≥2/4)        │
-  │  ensemble_ml_risk: weighted avg (IF40% LOF30% OCSVM20% AE10%)   │
+  │  All 4 models score latest bucket                               │
+  │  Primary model drives risk/anomalies; shadow models are research │
   │  _build_behavior_alerts() → 9 heurystyk                         │
   │  _risk_with_contributors() → composite risk 0–100               │
   │       │                                                         │
@@ -163,9 +163,11 @@ wykrywa `features_count` z payloadu joblib lub z `model.n_features_in_` i używa
 ### Krok 3: feature buckets → scoring
 
 AnomalyDetector używa 12 features z bucketu do obliczenia anomaly score. Wszystkie 4 modele
-(IF, LOF, OCSVM, Autoencoder) scorują niezależnie. Ensemble majority vote (≥2/4) decyduje
-o `is_anomaly`, a ważona średnia tworzy `ensemble_ml_risk`.
-Score jest następnie łączony z behavior alerts i protocol signals w composite risk score (0–100).
+(IF, LOF, OCSVM, Autoencoder) scorują niezależnie. Model ustawiony w `device_model_config.model_type`
+jest primary i jako jedyny decyduje o produkcyjnym `is_anomaly` oraz ML risk. Pozostałe modele są
+shadow: zapisujemy ich `would_alert`, `risk_score`, `score_margin` i progi do `device_model_scores`,
+żeby porównywać je badawczo bez wpływu na alerty.
+Primary score jest następnie łączony z behavior alerts i protocol signals w composite risk score (0–100).
 
 Szczegóły algorytmów ML → [ML Pipeline](ML_PIPELINE.md)
 

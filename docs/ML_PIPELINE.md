@@ -119,7 +119,7 @@ Modele wytrenowane przed Fazą 9 mają tylko 8 features. System automatycznie wy
 
 System trenuje **4 różne modele** per urządzenie. Każdy patrzy na dane z innej perspektywy.
 
-> **Ensemble (od Fazy 8):** Wszystkie 4 modele scorują każdy bucket niezależnie. Wynik łączymy przez **majority vote** (≥ 2/4 modeli flaguje = anomalia) i **ważoną średnią** ml_risk (IF=40%, LOF=30%, OCSVM=20%, AE=10%). Wynikowy `ensemble_ml_risk` trafia do risk score. Pole `inference_features.per_model_risks` w historii inference zawiera rozbicie per model dla debugowania.
+> **Primary + Shadow (research mode):** Wszystkie 4 modele scorują każdy bucket niezależnie, ale tylko model ustawiony w `device_model_config.model_type` jest **primary** i może wpływać na `risk_score`, `device_inference_history` oraz wpisy w `anomalies`. Pozostałe modele są **shadow**: ich wyniki trafiają do `device_model_scores` i dashboardu jako materiał badawczy, ale nie podbijają alertów produkcyjnych. Dzięki temu można porównywać IF/LOF/OCSVM/Autoencoder bez zacierania wyników przez ensemble.
 
 ### Isolation Forest (domyślny)
 
@@ -278,11 +278,11 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 W trybie per-device, `contamination` nie jest stałe — jest obliczane adaptacyjnie:
 
 ```
-adaptive_contamination = max(0.01, min(configured_contamination, 0.03, 3.0 / samples))
+adaptive_contamination = max(0.005, min(configured_contamination, 0.01, 1.0 / samples))
 ```
 
-- Mało danych (~100 bucketów) → contamination około 0.03 (3%) — wyższa czułość dla near-miss ataków
-- Dużo danych (500+ bucketów) → contamination około 0.01 (1%) — nadal umiarkowanie konserwatywne
+- Mało danych (~100 bucketów) → contamination około 0.01 (1%) — konserwatywny baseline dla normalnego ruchu
+- Dużo danych (500+ bucketów) → contamination około 0.005 (0.5%) — mniej false positives na stabilnych urządzeniach
 - `configured_contamination` z global/device config działa jako górny cap; niższy override dodatkowo zmniejsza czułość.
 
 Możesz nadpisać tę wartość per device (patrz [Konfiguracja per device](#konfiguracja-per-device)).
@@ -301,8 +301,9 @@ Inference działa jako ciągła pętla (Deployment, nie CronJob):
    - Bierze **ostatni zamknięty bucket** per device, czyli taki, którego pełne okno już minęło plus `INFERENCE_BUCKET_GRACE_SECONDS`
    - Jeśli ostatni zamknięty bucket jest starszy niż `RISK_STALE_BUCKET_MINUTES` po końcu bucketa, zapisuje cooldown `risk_score=0` zamiast ponownie scorować stary atak
    - Ładuje modele z dysku (cache na mtime, odczytuje `features_count` z payloadu lub `n_features_in_`)
-   - Scoruje **wszystkie 4 modele** per device → **ensemble majority vote** (≥ 2/4 = anomalia)
-   - Oblicza `ensemble_ml_risk` jako ważoną średnią (IF 40%, LOF 30%, OCSVM 20%, AE 10%)
+   - Scoruje **wszystkie 4 modele** per device
+   - Finalną decyzję bierze tylko z modelu **primary** wybranego dla urządzenia
+   - Zapisuje pozostałe modele jako **shadow** research scores bez wpływu na alerty
    - Generuje behavior_alerts (9 heurystyk)
    - Zapisuje wyniki: `devices.risk_score`, `device_inference_history`, `anomalies`, `device_behavior_alerts`
    - Czyści stare dane (retention: flows 7 dni, history 7 dni, alerts 14 dni)
@@ -336,7 +337,7 @@ Te wartości są domyślnymi dla wszystkich urządzeń. Możesz je zmienić na s
 
 | Parametr | Domyślnie | Zakres | Co robi | Kiedy zmienić |
 |----------|-----------|--------|---------|---------------|
-| `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.005–0.01 i użyj 5-min bucketów. Za mało wykryć? Zostaw adaptive target 3 bucketów albo podnieś cap do 0.03–0.05. |
+| `contamination` | 0.01 (1%) | 0.001–0.20 | Górny cap procentu danych treningowych uznawanych za anomalie. Per-device training adaptuje tę wartość w dół wraz z liczbą bucketów. Wyższe = więcej wykryć, ale więcej false positives. | Za dużo false positives? Obniż do 0.003–0.005 i użyj 5-min bucketów. Za mało wykryć? Podnieś cap do 0.02–0.03 dla konkretnego urządzenia. |
 | `n_estimators` | 500 | 50–500 | Ile "drzew pytań" w Isolation Forest. Więcej = stabilniej i dokładniej, ale wolniejszy trening. | Na RPi z mało CPU obniż do 100–200. Na mocniejszej maszynie zostaw 300–500. |
 | `training_hours` | **168** | 6–336 | Ile godzin wstecz patrzeć po dane do treningu. 168h = 7 dni, łapie weekly patterns. | Nowe urządzenie? 48h. Stabilne środowisko z weekly patterns? 168h (domyślnie). |
 | `min_training_samples` | **100** | 10–10000 | Ile bucketów minimum żeby trenować model. | Chcesz szybki start? 30 (ale model będzie słabszy). Chcesz mniej FP na baseline? 100+. |
@@ -535,6 +536,21 @@ Porównanie czterech aktualnych artifactów na tym samym oknie:
 ./scripts/model-backtest.sh --device-id 10 --compare-all --start "2026-05-19 19:20:00" --end "2026-05-19 19:40:00" --label attack_port_sweep
 ```
 
+Do badań porównawczych można uruchomić wiele opisanych okien z CSV/JSONL. CSV powinien mieć kolumny `device_id,start,end,label,scenario`:
+
+```csv
+device_id,start,end,label,scenario
+10,2026-05-19 12:00:00,2026-05-19 12:30:00,benign,normal_idle
+10,2026-05-19 13:00:00,2026-05-19 13:30:00,benign,firmware_update
+10,2026-05-19 19:20:00,2026-05-19 19:40:00,attack_port_sweep,port_sweep
+```
+
+```bash
+./scripts/model-backtest.sh --windows-file research-windows.csv --compare-all
+```
+
+`summary.json` zawiera wtedy `model_rankings` z metrykami `TP/FP/TN/FN`, `precision`, `recall`, `f1`, `false_positive_rate`, `detection_delay_seconds`, `anomaly_bucket_rate` i `score_margin`. To jest preferowana ścieżka do wyboru modelu primary dla danego urządzenia.
+
 CLI backtest można uruchomić z repo albo z poda/hosta, który widzi SQLite i `/data/models`:
 
 ```bash
@@ -558,6 +574,7 @@ Rollback do konkretnej wersji modelu polega na skopiowaniu archived `.joblib` na
 
 Dashboard device page ma dwa widoki związane z tym workflow:
 
+- `Model Comparison` — live porównanie primary i shadow modeli. Primary decyduje o produkcyjnym risk/alertach; shadow pokazuje `would_alert`, `risk_score` i `score_margin` badawczo.
 - `Historical Model Replay` — ręczne, offline przeliczenie historycznych `traffic_flows` przez aktualny artifact modelu. Wykres pokazuje `risk_score` albo `anomaly_score` oraz czerwone punkty tam, gdzie model oznaczył bucket jako anomalię. Wynik nie jest zapisywany do `device_model_scores`, `inference_history` ani `devices.risk_score`.
 - `Model Versions` — lista archived modeli z przyciskami `Activate` do rollbacku aktywnego artefaktu oraz `Replay` do sprawdzenia konkretnej archived wersji na historycznym oknie danych.
 

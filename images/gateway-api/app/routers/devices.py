@@ -317,6 +317,24 @@ async def get_device_model_scores(
     return DeviceModelScoresResponse(device_id=device_id, hours=hours, model_type=model_type, data=data)
 
 
+@router.get("/{device_id}/model-comparison")
+async def get_model_comparison(
+    device_id: int,
+    hours: int = Query(168, ge=1, le=168),
+    db: AsyncSession = Depends(get_db),
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    config_service = DeviceModelConfigService(db)
+    return await cache.get_or_set(
+        f"device-model-comparison:{device_id}:{hours}",
+        5.0,
+        lambda: config_service.get_model_comparison(device_id, hours),
+    )
+
+
 @router.get("/{device_id}/model-replay")
 async def replay_device_model(
     device_id: int,

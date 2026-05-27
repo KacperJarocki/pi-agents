@@ -135,7 +135,8 @@ Szczegółowy widok pojedynczego urządzenia z **15+ sekcjami**:
 | Inference History | Wykres historii ML scoring | 5s |
 | Protocol Signals | Sygnały DNS/ICMP | 5s |
 | Behavior Baseline | Bazowe statystyki zachowania | 5s |
-| Multi-Model Timeline | Porównanie wyników różnych modeli (Chart.js) | 5s |
+| Model Comparison | Primary/shadow tabela: role, `would_alert`, `score_margin`, risk | 5s |
+| Multi-Model Timeline | Porównanie wyników różnych modeli (Chart.js); tylko primary wpływa na produkcyjny risk | 5s |
 | Historical Model Replay | Offline replay aktualnego albo archiwalnego artifactu modelu na historycznych `traffic_flows` | ręczne |
 | Model Versions | Lista artifactów z registry, rollback i replay archiwalnej wersji | ręczne |
 | ML Health | Status modelu, konfiguracja, metryki | 60s |
@@ -150,6 +151,7 @@ Ważne shape danych dla testów UI:
 
 - `GET /api/devices/{id}/protocol-signals` powinno zwracać `signals[]` z rekordami `{ label, value, note }`.
 - `GET /api/metrics/ml-status` powinno zwracać `training_metrics[]` dla każdego urządzenia, jeśli test ma weryfikować tabelę `ML Model Health`.
+- `GET /api/devices/{id}/model-comparison` zwraca agregat primary/shadow. Tabela `Model Comparison` pokazuje, który model jest primary i które shadow modele `would_alert`, ale shadow nie wpływa na alerty produkcyjne.
 - `Historical Model Replay` nie czyta zapisanych `device_model_scores`; wywołuje `/model-replay`, który ładuje `.joblib`, agreguje historyczne `traffic_flows` do bucketów i liczy `risk_score`/`is_anomaly` od nowa.
 - Tryb `All models` używa jednego requestu `model_type=all`, żeby gateway-api czytał flow i liczył feature buckets tylko raz dla czterech modeli.
 - `Risk Score Timeline` pokazuje live/persisted inference history. `Historical Model Replay` pokazuje offline scoring artifactu; te wykresy mogą się różnić, bo live risk zawiera też behavior/protocol/correlation, a replay pokazuje wynik modelu dla historycznych bucketów.

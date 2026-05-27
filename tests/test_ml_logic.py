@@ -69,12 +69,12 @@ class TestTrainingThreshold(unittest.TestCase):
         import importlib
         cls.train = importlib.import_module("app.train")
 
-    def test_isolation_forest_threshold_rate_is_more_sensitive_than_base(self):
+    def test_isolation_forest_threshold_rate_keeps_conservative_base(self):
         base = self.train._adaptive_contamination(samples=300, configured_contamination=0.03)
 
         tuned = self.train._model_threshold_rate("isolation_forest", base)
 
-        self.assertGreater(tuned, base)
+        self.assertEqual(tuned, base)
         self.assertLessEqual(tuned, self.train.ISOLATION_FOREST_THRESHOLD_MAX)
 
     def test_other_models_keep_adaptive_threshold_rate(self):
@@ -234,6 +234,56 @@ class TestRiskFromScore(unittest.TestCase):
             risk = self.mod._risk_from_score(s, -0.5)
             self.assertGreaterEqual(risk, 0.0, f"score={s}")
             self.assertLessEqual(risk, 100.0, f"score={s}")
+
+
+class TestPrimaryShadowDecision(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _setup_ml_path()
+        import importlib
+        cls.mod = importlib.import_module("app.inference")
+
+    def test_primary_model_drives_final_decision(self):
+        per_model = {
+            "isolation_forest": {"is_anomaly": False, "ml_risk": 8.0, "raw_score": 0.2},
+            "lof": {"is_anomaly": True, "ml_risk": 80.0, "raw_score": -3.0},
+            "ocsvm": {"is_anomaly": True, "ml_risk": 72.0, "raw_score": -2.0},
+        }
+
+        selected = self.mod._select_primary_model_result(per_model, "isolation_forest")
+
+        self.assertEqual(selected[0], "isolation_forest")
+        self.assertFalse(selected[1]["is_anomaly"])
+
+    def test_primary_falls_back_to_isolation_forest_then_first_available(self):
+        per_model = {
+            "isolation_forest": {"is_anomaly": False},
+            "lof": {"is_anomaly": True},
+        }
+
+        selected = self.mod._select_primary_model_result(per_model, "autoencoder")
+
+        self.assertEqual(selected[0], "isolation_forest")
+
+        no_if = {"lof": {"is_anomaly": True}, "ocsvm": {"is_anomaly": False}}
+        selected = self.mod._select_primary_model_result(no_if, "autoencoder")
+        self.assertEqual(selected[0], "lof")
+
+    def test_shadow_summary_excludes_primary_and_keeps_would_alert(self):
+        per_model = {
+            "isolation_forest": {"is_anomaly": False, "ml_risk": 8.0, "raw_score": 0.2},
+            "lof": {"is_anomaly": True, "ml_risk": 80.0, "raw_score": -3.0},
+        }
+
+        summary = self.mod._shadow_model_summary(per_model, "isolation_forest")
+
+        self.assertEqual(list(summary), ["lof"])
+        self.assertTrue(summary["lof"]["would_alert"])
+        self.assertEqual(summary["lof"]["risk_score"], 80.0)
+
+    def test_score_margin_is_threshold_minus_score(self):
+        self.assertAlmostEqual(self.mod._score_margin(score=-0.8, threshold=-0.5), 0.3)
+        self.assertAlmostEqual(self.mod._score_margin(score=0.2, threshold=-0.5), -0.7)
 
 
 class TestRiskWithContributors(unittest.TestCase):

@@ -64,6 +64,8 @@ class TestGatewayApiRoutes(unittest.TestCase):
         self.assertIn("traffic_flows", replay)
         self.assertIn("joblib.load", replay)
         self.assertIn("risk_score", replay)
+        self.assertIn("_calibrated_ml_risk", replay)
+        self.assertIn("anomaly_confidence", replay)
         self.assertIn("dst_port_entropy", replay)
         self.assertIn("risky_port_ratio", replay)
 

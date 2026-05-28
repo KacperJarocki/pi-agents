@@ -168,6 +168,44 @@ def _risk_from_score(score: float, threshold: float) -> float:
     return round(max(0.0, min(100.0, risk)), 4)
 
 
+def _anomaly_confidence(score: float, threshold: float) -> float:
+    margin = _score_margin(score, threshold)
+    if margin <= 0:
+        return 0.0
+    scale = max(abs(threshold), 0.05)
+    return round(max(0.0, min(1.0, margin / scale)), 6)
+
+
+def _calibrated_ml_risk(model_type: str, score: float, threshold: float, is_anomaly: bool) -> float:
+    """Model-only production risk policy.
+
+    ``_risk_from_score`` stays a monotonic score mapper. This wrapper makes the
+    primary model decision operational: once the model crosses its adaptive
+    threshold, the bucket is treated as a real ML detection instead of a weak
+    near-threshold signal.
+    """
+    base_risk = _risk_from_score(score, threshold)
+    if not is_anomaly:
+        return round(min(base_risk, 35.0), 4)
+
+    confidence = _anomaly_confidence(score, threshold)
+    anomaly_floor = 55.0
+    calibrated = anomaly_floor + (45.0 * confidence)
+    return round(max(base_risk, min(100.0, calibrated)), 4)
+
+
+def _ml_only_risk_breakdown(ml_risk: float, is_anomaly: bool) -> dict:
+    return {
+        "ml_risk": round(float(ml_risk), 4),
+        "behavior_risk": 0.0,
+        "protocol_risk": 0.0,
+        "correlation_bonus": 0.0,
+        "final_risk": round(float(ml_risk), 4),
+        "top_reason": "Primary ML model flagged anomaly" if is_anomaly else "Primary ML model within baseline",
+        "reason_summary": ["Final risk currently uses the primary ML model only"],
+    }
+
+
 def _median(values: list[float], default: float = 0.0) -> float:
     cleaned = [float(v) for v in values if v is not None]
     return float(median(cleaned)) if cleaned else default
@@ -616,7 +654,8 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                 for row in rows:
                     norm_s = device_detector.normalize_score(row["anomaly_score"])
                     norm_t = device_detector.normalize_threshold()
-                    ml_risk = _risk_from_score(norm_s, norm_t)
+                    ml_risk = _calibrated_ml_risk(model_type, norm_s, norm_t, bool(row["is_anomaly"]))
+                    anomaly_confidence = _anomaly_confidence(norm_s, norm_t)
                     all_model_scores.append({
                         "device_id": int(device_id),
                         "model_type": model_type,
@@ -640,6 +679,7 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
                         "features": row.get("features"),
                         "severity": row.get("severity", "warning"),
                         "ml_risk": ml_risk,
+                        "anomaly_confidence": anomaly_confidence,
                     }
 
             if not per_model:
@@ -730,14 +770,23 @@ async def run_inference_once(detector: AnomalyDetector, hours: int):
         behavior_alerts = _build_behavior_alerts(device_id, latest_bucket_flows, history_bucket_features, history_flows)
         # Production ML risk comes only from the primary model. Shadow models are
         # stored for research/comparison and intentionally do not affect risk.
-        ml_risk = float(a.get("primary_ml_risk", _risk_from_score(norm_score, norm_threshold)))
-        risk_breakdown = _risk_with_contributors(ml_risk, behavior_alerts)
+        ml_risk = float(a.get(
+            "primary_ml_risk",
+            _calibrated_ml_risk(
+                a.get("model_type", "isolation_forest"),
+                norm_score,
+                norm_threshold,
+                is_anomaly,
+            ),
+        ))
+        risk_breakdown = _ml_only_risk_breakdown(ml_risk, is_anomaly)
         risk_score = risk_breakdown["final_risk"]
         inference_features = {
             **(a.get("features") or {}),
             "threshold": threshold,
             "norm_score": norm_score,
             "norm_threshold": norm_threshold,
+            "anomaly_confidence": _anomaly_confidence(norm_score, norm_threshold),
             "ml_risk": risk_breakdown["ml_risk"],
             "behavior_risk": risk_breakdown["behavior_risk"],
             "protocol_risk": risk_breakdown["protocol_risk"],

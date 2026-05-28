@@ -189,40 +189,33 @@ Możesz zmienić aktywny model per urządzenie w dashboardzie (dropdown na stron
 
 ## Risk Score — skąd się bierze procent ryzyka
 
-Risk score (0–100%) to **kompozytowy** wynik z 4 komponentów:
+Risk score (0–100%) jest obecnie liczony z **samego primary ML modelu**. Behavior/protocol alerts są nadal zapisywane jako kontekst diagnostyczny, ale nie podbijają produkcyjnego `devices.risk_score`.
 
 ```
-ml_risk          (0–35)   ← wynik modelu ML
-+ behavior_risk  (0–35)   ← alerty heurystyczne (9 typów)
-+ protocol_risk  (0–20)   ← alerty protokołowe (DNS/ICMP)
-+ correlation    (0–15)   ← bonus gdy ML + heurystyki razem flagują
-= final_risk     (0–100)
+primary ML score vs adaptive threshold
+→ anomaly_confidence = normalized threshold margin
+→ ml_risk / final_risk (0–100)
 ```
 
-### ml_risk (0–35) — wynik modelu
+### ml_risk (0–100) — wynik modelu
 
 - Score modelu (anomaly_score) jest porównywany z **adaptive threshold** (obliczanym per model z danych treningowych).
-- Score **powyżej** threshold = normalny ruch → ml_risk 2–15% (baseline, żeby nie było 0.0)
-- Score **na** threshold = granica → ml_risk = 35%
-- Score **poniżej** threshold = anomalia → ml_risk 35–100% (skalowane)
+- Score **powyżej** threshold = normalny ruch → ml_risk pozostaje poniżej alert floor.
+- Score **na** threshold = granica → bazowy risk około 35%.
+- Score **poniżej** threshold = anomalia → calibrated ML risk ma floor 55% i rośnie z `anomaly_confidence` do 100%.
+- Shadow modele zapisują `would_alert` i własny risk research-only, ale nie wpływają na finalny wynik.
 
-### behavior_risk (0–35) — alerty heurystyczne
+### behavior_risk — alerty heurystyczne
 
-Suma kar z behavior alerts (patrz sekcja niżej). Przykład:
-- `destination_novelty` (warning) → +10
-- `dns_burst` (critical) → +15
-- Suma ograniczona do 35.
+Behavior alerts nadal powstają i są widoczne w dashboardzie, ale aktualna polityka finalnego risku jest ML-only. Pola `behavior_risk`, `protocol_risk` i `correlation_bonus` są ustawiane na 0 w breakdownie finalnego risku.
 
-### protocol_risk (0–20) — alerty protokołowe
+### protocol_risk — alerty protokołowe
 
-Alerty związane z DNS/ICMP (patrz sekcja niżej). Oddzielone od behavior bo dotyczą warstwy protokołu:
-- `dns_failure_spike` → +10
-- `icmp_sweep_suspected` → +10
-- Suma ograniczona do 20.
+Alerty DNS/ICMP nadal są liczone jako osobny kontekst, ale nie zmieniają produkcyjnego `risk_score`.
 
-### correlation_bonus (0–15) — bonus korelacji
+### correlation_bonus
 
-Kiedy **zarówno** model ML **i** heurystyki flagują to samo urządzenie, to prawdopodobieństwo prawdziwego problemu rośnie. Bonus = max(ml_risk, behavior_risk) × 0.3, cap 15.
+Wyłączony w aktualnej polityce ML-only.
 
 ---
 
@@ -230,7 +223,7 @@ Kiedy **zarówno** model ML **i** heurystyki flagują to samo urządzenie, to pr
 
 System ma **9 heurystycznych detektorów** które działają niezależnie od modeli ML. Nie wymagają treningu — porównują aktualne wartości z historią.
 
-### Alerty Behavior (wpływają na behavior_risk, cap 35)
+### Alerty Behavior (kontekst diagnostyczny)
 
 | Alert | Co wykrywa | Próg | Severity | Przykład |
 |-------|-----------|------|----------|---------|
@@ -240,7 +233,7 @@ System ma **9 heurystycznych detektorów** które działają niezależnie od mod
 | `traffic_pattern_drift` | Zmiana w profilu ruchu (bytes, packets) | — | warning | Z 10KB/5min na 5MB/5min |
 | `beaconing_suspected` | Regularny, periodyczny ruch (C2-like) | — | warning/critical | Co 60 sekund dokładnie 200B do tego samego IP |
 
-### Alerty Protocol (wpływają na protocol_risk, cap 20)
+### Alerty Protocol (kontekst diagnostyczny)
 
 | Alert | Co wykrywa | Severity | Przykład |
 |-------|-----------|----------|---------|

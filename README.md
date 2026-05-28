@@ -271,7 +271,7 @@ Services:
 ## Detection Layers
 
 - **ML primary model**: selected primary model scores the latest closed bucket and drives production anomaly/risk decisions; shadow models are persisted for comparison.
-- **Risk composition**: `ml_risk` (0–35) + `behavior_risk` (0–35) + `protocol_risk` (0–20) + `correlation_bonus` (0–15) = final 0–100.
+- **Risk composition**: final `risk_score` is currently ML-only from the selected primary model. Primary anomalies get a calibrated floor and then scale by normalized margin; behavior/protocol alerts remain diagnostic context.
 - **Heuristic alerts** (9 types): `destination_novelty` (≥4 new IPs), `dns_burst` (≥10 queries floor), `port_churn` (high ports AND new ports), `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, `dns_nxdomain_burst`, `icmp_sweep_suspected`, `icmp_echo_fanout`.
 - **Bytes direction**: collector splits `frame.len` into `bytes_sent` (outbound, src in LAN) and `bytes_received` (inbound, dst in LAN) — enables exfiltration vs. download distinction.
 - **Protocol signals**: DNS response codes and ICMP metadata enriched by collector for protocol-level heuristics.

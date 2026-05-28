@@ -179,12 +179,11 @@ kubectl apply -k k8s/overlays/gateway-prod
 
 ### Risk score composition (0–100)
 ```
-ml_risk          (0–35)   primary model decision score
-behavior_risk    (0–35)   9 heuristic alert types, capped per type
-protocol_risk    (0–20)   DNS/ICMP protocol-level signals
-correlation_bonus (0–15)  ML + heuristics firing together
-= final_risk     (0–100)  stored in devices.risk_score
+primary ML score vs adaptive threshold
+→ anomaly_confidence = normalized threshold margin
+→ ml_risk / final_risk (0–100) stored in devices.risk_score
 ```
+Behavior/protocol alerts are still persisted for context, but they do not currently boost production `risk_score`.
 
 ### Routing quirk
 `POST /api/v1/alerts/broadcast` is mounted directly on `app` in `main.py` (not via a router file), but still lives under `settings.api_prefix`.

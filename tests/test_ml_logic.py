@@ -249,6 +249,61 @@ class TestRiskFromScore(unittest.TestCase):
             self.assertLessEqual(risk, 100.0, f"score={s}")
 
 
+class TestCalibratedMlRisk(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _setup_ml_path()
+        import importlib
+        cls.mod = importlib.import_module("app.inference")
+
+    def test_normal_bucket_stays_below_alert_floor(self):
+        risk = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=0.2,
+            threshold=-0.5,
+            is_anomaly=False,
+        )
+
+        self.assertLessEqual(risk, 35.0)
+
+    def test_primary_anomaly_gets_meaningful_risk_floor(self):
+        risk = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=-0.51,
+            threshold=-0.5,
+            is_anomaly=True,
+        )
+
+        self.assertGreaterEqual(risk, 55.0)
+
+    def test_deeper_primary_anomaly_raises_risk_from_model_margin(self):
+        shallow = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=-0.51,
+            threshold=-0.5,
+            is_anomaly=True,
+        )
+        deep = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=-1.25,
+            threshold=-0.5,
+            is_anomaly=True,
+        )
+
+        self.assertGreater(deep, shallow)
+        self.assertGreaterEqual(deep, 80.0)
+
+    def test_risk_uses_model_decision_not_behavior_evidence(self):
+        risk = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=0.1,
+            threshold=-0.5,
+            is_anomaly=False,
+        )
+
+        self.assertLess(risk, 35.0)
+
+
 class TestPrimaryShadowDecision(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

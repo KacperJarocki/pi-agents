@@ -32,6 +32,24 @@ def _risk_from_score(score: float, threshold: float) -> float:
     return round(max(0.0, min(100.0, risk)), 4)
 
 
+def _anomaly_confidence(score: float, threshold: float) -> float:
+    margin = threshold - score
+    if margin <= 0:
+        return 0.0
+    scale = max(abs(threshold), 0.05)
+    return round(max(0.0, min(1.0, margin / scale)), 6)
+
+
+def _calibrated_ml_risk(model_type: str, score: float, threshold: float, is_anomaly: bool) -> float:
+    base_risk = _risk_from_score(score, threshold)
+    if not is_anomaly:
+        return round(min(base_risk, 35.0), 4)
+
+    confidence = _anomaly_confidence(score, threshold)
+    calibrated = 55.0 + (45.0 * confidence)
+    return round(max(base_risk, min(100.0, calibrated)), 4)
+
+
 def _entropy(series: pd.Series) -> float:
     counts = series.value_counts(normalize=True)
     if len(counts) <= 1:
@@ -189,6 +207,7 @@ class ModelReplayService:
             norm_threshold = _normalize(threshold, score_stats)
             for idx, raw_score in enumerate(scores):
                 norm_score = _normalize(float(raw_score), score_stats)
+                is_anomaly = bool(float(raw_score) < threshold)
                 rows.append({
                     "timestamp": features.iloc[idx]["bucket_start"].isoformat(),
                     "bucket_start": features.iloc[idx]["bucket_start"].isoformat(),
@@ -196,8 +215,9 @@ class ModelReplayService:
                     "normalized_score": float(norm_score),
                     "threshold": float(threshold),
                     "normalized_threshold": float(norm_threshold),
-                    "risk_score": _risk_from_score(norm_score, norm_threshold),
-                    "is_anomaly": bool(float(raw_score) < threshold),
+                    "risk_score": _calibrated_ml_risk(artifact["model_type"], norm_score, norm_threshold, is_anomaly),
+                    "anomaly_confidence": _anomaly_confidence(norm_score, norm_threshold),
+                    "is_anomaly": is_anomaly,
                     "features": features.iloc[idx][cols].to_dict(),
                 })
 

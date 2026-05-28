@@ -176,6 +176,10 @@ def _anomaly_confidence(score: float, threshold: float) -> float:
     return round(max(0.0, min(1.0, margin / scale)), 6)
 
 
+def _risk_margin_scale(model_type: str, threshold: float) -> float:
+    return max(0.25, min(abs(threshold), 0.5))
+
+
 def _calibrated_ml_risk(model_type: str, score: float, threshold: float, is_anomaly: bool) -> float:
     """Model-only production risk policy.
 
@@ -188,9 +192,11 @@ def _calibrated_ml_risk(model_type: str, score: float, threshold: float, is_anom
     if not is_anomaly:
         return round(min(base_risk, 35.0), 4)
 
-    confidence = _anomaly_confidence(score, threshold)
-    anomaly_floor = 55.0
-    calibrated = anomaly_floor + (45.0 * confidence)
+    margin = _score_margin(score, threshold)
+    scale = _risk_margin_scale(model_type, threshold)
+    confidence = max(0.0, min(1.0, margin / scale))
+    anomaly_floor = 60.0 if model_type == "isolation_forest" else 55.0
+    calibrated = anomaly_floor + ((100.0 - anomaly_floor) * confidence)
     return round(max(base_risk, min(100.0, calibrated)), 4)
 
 

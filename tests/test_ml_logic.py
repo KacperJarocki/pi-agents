@@ -293,6 +293,26 @@ class TestCalibratedMlRisk(unittest.TestCase):
         self.assertGreater(deep, shallow)
         self.assertGreaterEqual(deep, 80.0)
 
+    def test_isolation_forest_mid_margin_reaches_high_risk(self):
+        risk = self.mod._calibrated_ml_risk(
+            model_type="isolation_forest",
+            score=-0.9,
+            threshold=-0.5,
+            is_anomaly=True,
+        )
+
+        self.assertGreaterEqual(risk, 80.0)
+
+    def test_ocsvm_mid_margin_reaches_high_risk(self):
+        risk = self.mod._calibrated_ml_risk(
+            model_type="ocsvm",
+            score=-2.0,
+            threshold=-1.6,
+            is_anomaly=True,
+        )
+
+        self.assertGreaterEqual(risk, 80.0)
+
     def test_risk_uses_model_decision_not_behavior_evidence(self):
         risk = self.mod._calibrated_ml_risk(
             model_type="isolation_forest",

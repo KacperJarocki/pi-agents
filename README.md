@@ -116,6 +116,15 @@ By default this discovers reachable hosts in the local `/24` subnet without usin
 
 At the end it prints a k6-like phase summary with local start/end times and durations, and saves the same data in `artifacts/research-runs/<run-id>/summary.json`.
 
+For an overnight balanced dataset, run the 35-phase preset in the background. It uses discovery by default, runs 10 negative, 10 positive, 5 borderline, 5 slow, and 5 aggressive phases, and takes about 6h35m with a 5-minute gap:
+
+```bash
+python3 research.py --preset balanced35 --gap 5m --randomize --seed 42 --detach
+tail -f artifacts/research-runs/<run-id>/research.log
+```
+
+The detached runner writes `pid`, `research.log`, `status.json`, `manifest.json`, `markers.jsonl`, and `summary.json` under `artifacts/research-runs/<run-id>/`.
+
 If API access is available, API-discovered targets are still supported:
 
 ```bash

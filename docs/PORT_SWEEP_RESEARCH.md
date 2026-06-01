@@ -34,6 +34,14 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 
 `research.py` runs the suggested port-sweep protocol as one experiment: `negative`, `borderline`, `positive`, `slow`, and `aggressive`, with a quiet gap between phases. It stores top-level timestamps under `artifacts/research-runs/<run-id>/` so dashboard readings can be mapped back to each phase. Add `--phases normal,negative,borderline,positive,slow,aggressive` only if you want the benign IoT emulator included in the same run.
 
+For a larger overnight dataset, use the balanced preset:
+
+```bash
+python3 research.py --preset balanced35 --gap 5m --randomize --seed 42 --detach
+```
+
+`balanced35` expands to 35 phases: 10 `negative`, 10 `positive`, 5 `borderline`, 5 `slow`, and 5 `aggressive`. With the default profile durations and a 5-minute gap it takes about 6h35m. Discovery is still enabled by default, so this command finds reachable hosts in the local `/24` before each port-sweep phase.
+
 Target discovery options:
 
 | Option | Use case |
@@ -74,6 +82,12 @@ Target discovery options:
 # Full port-sweep research protocol with auto local subnet discovery
 python3 research.py
 
+# Overnight balanced research dataset in the background
+python3 research.py --preset balanced35 --gap 5m --randomize --seed 42 --detach
+
+# Follow detached run logs after noting the run id printed by the command
+tail -f artifacts/research-runs/<run-id>/research.log
+
 # Full port-sweep research protocol with explicit subnet discovery
 python3 research.py --discover-subnet 192.168.100.0/24 --randomize --seed 42
 
@@ -108,7 +122,16 @@ Full protocol runs write top-level metadata under:
 artifacts/research-runs/<run-id>/
   manifest.json
   markers.jsonl
+  status.json
   summary.json
+```
+
+Detached runs additionally write:
+
+```text
+artifacts/research-runs/<run-id>/
+  pid
+  research.log
 ```
 
 Child phase outputs go to `artifacts/port-sweep/<run-id>-01-negative/`, `artifacts/port-sweep/<run-id>-02-borderline/`, etc. If the optional `normal` phase is included, its child output goes to `artifacts/iot-emulator/<run-id>-01-normal/`.

@@ -172,6 +172,27 @@ def _normalize(raw_score: float, stats: dict) -> float:
     return (raw_score - float(mean)) / float(std)
 
 
+def _json_safe(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
+
+
+def _records(df: pd.DataFrame) -> list[dict]:
+    if df.empty:
+        return []
+    return [
+        {key: _json_safe(value) for key, value in row.items()}
+        for row in df.to_dict(orient="records")
+    ]
+
+
 class ModelReplayService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -201,6 +222,49 @@ class ModelReplayService:
 
         artifact = await self._artifact(device_id, model_type, model_registry_id)
         return self._score_artifact(device_id, hours, flows, features, artifact)
+
+    async def analysis_export(
+        self,
+        device_id: int,
+        hours: int,
+        include_flows: bool = True,
+        include_replay: bool = True,
+        model_type: str = "all",
+        max_flows: int = 50000,
+    ) -> dict:
+        flows = await self._flows(device_id, hours, limit=max_flows)
+        features = _extract_features(flows, self.bucket_minutes)
+        payload = {
+            "device_id": device_id,
+            "hours": hours,
+            "bucket_minutes": self.bucket_minutes,
+            "flow_count": int(len(flows)),
+            "bucket_count": int(len(features)),
+            "feature_columns": FEATURE_COLUMNS,
+            "features": _records(features),
+        }
+        if include_flows:
+            payload["flows"] = _records(flows)
+        if include_replay:
+            if model_type == "all":
+                results = []
+                for mt in MODEL_TYPES:
+                    artifact = await self._artifact(device_id, mt, None)
+                    try:
+                        results.append(self._score_artifact(device_id, hours, flows, features, artifact))
+                    except FileNotFoundError:
+                        continue
+                payload["model_replay"] = {
+                    "model_type": "all",
+                    "results": results,
+                }
+            else:
+                artifact = await self._artifact(device_id, model_type, None)
+                try:
+                    payload["model_replay"] = self._score_artifact(device_id, hours, flows, features, artifact)
+                except FileNotFoundError:
+                    payload["model_replay"] = None
+        return payload
 
     def _score_artifact(self, device_id: int, hours: int, flows: pd.DataFrame, features: pd.DataFrame, artifact: dict) -> dict:
         if not Path(artifact["model_path"]).exists():
@@ -251,15 +315,15 @@ class ModelReplayService:
             return {"model_registry_id": int(row.id), "model_type": row.model_type, "model_path": row.model_path}
         return {"model_registry_id": None, "model_type": model_type, "model_path": _current_model_path(self.model_root, device_id, model_type)}
 
-    async def _flows(self, device_id: int, hours: int) -> pd.DataFrame:
+    async def _flows(self, device_id: int, hours: int, limit: int = 50000) -> pd.DataFrame:
         rows = (await self.db.execute(text("""
             SELECT device_id, timestamp, src_ip, dst_ip, src_port, dst_port,
                    protocol, bytes_sent, bytes_received, dns_query
             FROM traffic_flows
             WHERE device_id = :did AND datetime(timestamp) >= datetime('now', :since)
             ORDER BY timestamp ASC
-            LIMIT 50000
-        """), {"did": device_id, "since": f"-{hours} hours"})).mappings().all()
+            LIMIT :limit
+        """), {"did": device_id, "since": f"-{hours} hours", "limit": limit})).mappings().all()
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame([dict(row) for row in rows])

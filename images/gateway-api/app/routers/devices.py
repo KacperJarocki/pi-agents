@@ -353,6 +353,30 @@ async def replay_device_model(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@router.get("/{device_id}/analysis-export")
+async def get_device_analysis_export(
+    device_id: int,
+    hours: int = Query(24, ge=1, le=720),
+    include_flows: bool = Query(True),
+    include_replay: bool = Query(True),
+    model_type: str = Query("all", pattern=r"^(all|isolation_forest|lof|ocsvm|autoencoder)$"),
+    max_flows: int = Query(50000, ge=1, le=200000),
+    db: AsyncSession = Depends(get_db),
+):
+    device_service = DeviceService(db)
+    device = await device_service.get_device(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return await ModelReplayService(db).analysis_export(
+        device_id=device_id,
+        hours=hours,
+        include_flows=include_flows,
+        include_replay=include_replay,
+        model_type=model_type,
+        max_flows=max_flows,
+    )
+
+
 @router.get("/{device_id}/model-versions")
 async def get_device_model_versions(
     device_id: int,

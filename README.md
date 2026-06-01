@@ -242,6 +242,7 @@ Services:
 | `/api/v1/devices/{id}/risk-contributors` | GET | Active ML and heuristic contributors |
 | `/api/v1/devices/{id}/behavior-baseline` | GET | Per-device median and p95 baseline |
 | `/api/v1/devices/{id}/protocol-signals` | GET | DNS failure and ICMP signal summary |
+| `/api/v1/devices/{id}/analysis-export` | GET | Research JSON export: raw flows, feature buckets, optional model replay |
 | `/api/v1/anomalies` | GET | List anomalies |
 | `/api/v1/metrics/summary` | GET | System summary |
 | `/api/v1/metrics/timeline` | GET | Traffic timeline |

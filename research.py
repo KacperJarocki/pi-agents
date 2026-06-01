@@ -5,8 +5,9 @@ Default usage:
 
     python3 research.py
 
-This intentionally runs only the port-sweep phases. Keep benign IoT traffic
-running separately in the background when measuring false positives.
+With no arguments this starts the overnight balanced35 research plan in the
+background with local subnet discovery enabled. Pass any CLI arguments to use
+the lower-level runner directly.
 """
 
 from __future__ import annotations
@@ -16,7 +17,17 @@ import sys
 from pathlib import Path
 
 
+DEFAULT_RESEARCH_ARGS = [
+    "--preset", "balanced35",
+    "--gap", "5m",
+    "--randomize",
+    "--shuffle-phases",
+    "--detach",
+]
+
+
 if __name__ == "__main__":
     runner = Path(__file__).resolve().parent / "scripts" / "research-traffic-runner.py"
-    sys.argv = [str(runner), *sys.argv[1:]]
+    args = sys.argv[1:] or DEFAULT_RESEARCH_ARGS
+    sys.argv = [str(runner), *args]
     runpy.run_path(str(runner), run_name="__main__")

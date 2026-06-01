@@ -16,7 +16,7 @@ For a complete port-sweep research run instead of manually launching each profil
 python3 research.py
 ```
 
-This does not require gateway API access. By default it runs local subnet discovery (`--discover-subnet auto`) and then sweeps the discovered reachable hosts.
+This does not require gateway API access. By default it runs local subnet discovery (`--discover-subnet auto`) and starts the 35-phase `balanced35` plan in the background with a 5-minute gap, randomized probe order, and shuffled phase order.
 
 Run it from the device being evaluated, not from the gateway host, so the collector attributes traffic to the tested device.
 
@@ -34,10 +34,10 @@ The `positive`, `slow`, and `aggressive` profiles are designed around the curren
 
 `research.py` runs the suggested port-sweep protocol as one experiment: `negative`, `borderline`, `positive`, `slow`, and `aggressive`, with a quiet gap between phases. It stores top-level timestamps under `artifacts/research-runs/<run-id>/` so dashboard readings can be mapped back to each phase. Add `--phases normal,negative,borderline,positive,slow,aggressive` only if you want the benign IoT emulator included in the same run.
 
-For a larger overnight dataset, use the balanced preset:
+`python3 research.py` is intentionally the ready-to-run overnight command. It is equivalent to:
 
 ```bash
-python3 research.py --preset balanced35 --gap 5m --randomize --seed 42 --detach
+python3 research.py --preset balanced35 --gap 5m --randomize --shuffle-phases --detach
 ```
 
 `balanced35` expands to 35 phases: 10 `negative`, 10 `positive`, 5 `borderline`, 5 `slow`, and 5 `aggressive`. With the default profile durations and a 5-minute gap it takes about 6h35m. Discovery is still enabled by default, so this command finds reachable hosts in the local `/24` before each port-sweep phase.
@@ -79,11 +79,11 @@ Target discovery options:
 # Sweep every active device known by the gateway API
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
 
-# Full port-sweep research protocol with auto local subnet discovery
+# Overnight balanced research dataset with auto local subnet discovery
 python3 research.py
 
-# Overnight balanced research dataset in the background
-python3 research.py --preset balanced35 --gap 5m --randomize --seed 42 --detach
+# Same plan spelled out explicitly
+python3 research.py --preset balanced35 --gap 5m --randomize --shuffle-phases --detach
 
 # Follow detached run logs after noting the run id printed by the command
 tail -f artifacts/research-runs/<run-id>/research.log

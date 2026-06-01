@@ -16,7 +16,7 @@ For a complete port-sweep research run instead of manually launching each profil
 python3 research.py
 ```
 
-This does not require gateway API access. By default it runs local subnet discovery (`--discover-subnet auto`) and then sweeps the discovered reachable hosts.
+This does not require gateway API access. By default it runs local subnet discovery (`--discover-subnet auto`) and starts the 35-phase `balanced35` plan in the background with a 5-minute gap, randomized probe order, and shuffled phase order.
 
 Run it from the device being evaluated, not from the gateway host, so the collector attributes traffic to the tested device.
 
@@ -33,6 +33,14 @@ Run it from the device being evaluated, not from the gateway host, so the collec
 The `positive`, `slow`, and `aggressive` profiles are designed around the current `port_churn` heuristic: at least 6 unique destination ports and at least 5 new destination ports in the latest inference bucket.
 
 `research.py` runs the suggested port-sweep protocol as one experiment: `negative`, `borderline`, `positive`, `slow`, and `aggressive`, with a quiet gap between phases. It stores top-level timestamps under `artifacts/research-runs/<run-id>/` so dashboard readings can be mapped back to each phase. Add `--phases normal,negative,borderline,positive,slow,aggressive` only if you want the benign IoT emulator included in the same run.
+
+`python3 research.py` is intentionally the ready-to-run overnight command. It is equivalent to:
+
+```bash
+python3 research.py --preset balanced35 --gap 5m --randomize --shuffle-phases --detach
+```
+
+`balanced35` expands to 35 phases: 10 `negative`, 10 `positive`, 5 `borderline`, 5 `slow`, and 5 `aggressive`. With the default profile durations and a 5-minute gap it takes about 6h35m. Discovery is still enabled by default, so this command finds reachable hosts in the local `/24` before each port-sweep phase.
 
 Target discovery options:
 
@@ -71,8 +79,14 @@ Target discovery options:
 # Sweep every active device known by the gateway API
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
 
-# Full port-sweep research protocol with auto local subnet discovery
+# Overnight balanced research dataset with auto local subnet discovery
 python3 research.py
+
+# Same plan spelled out explicitly
+python3 research.py --preset balanced35 --gap 5m --randomize --shuffle-phases --detach
+
+# Follow detached run logs after noting the run id printed by the command
+tail -f artifacts/research-runs/<run-id>/research.log
 
 # Full port-sweep research protocol with explicit subnet discovery
 python3 research.py --discover-subnet 192.168.100.0/24 --randomize --seed 42
@@ -108,7 +122,16 @@ Full protocol runs write top-level metadata under:
 artifacts/research-runs/<run-id>/
   manifest.json
   markers.jsonl
+  status.json
   summary.json
+```
+
+Detached runs additionally write:
+
+```text
+artifacts/research-runs/<run-id>/
+  pid
+  research.log
 ```
 
 Child phase outputs go to `artifacts/port-sweep/<run-id>-01-negative/`, `artifacts/port-sweep/<run-id>-02-borderline/`, etc. If the optional `normal` phase is included, its child output goes to `artifacts/iot-emulator/<run-id>-01-normal/`.

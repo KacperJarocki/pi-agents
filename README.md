@@ -106,15 +106,23 @@ Sweep all currently active devices known by the gateway API:
 ./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
 ```
 
-Run the port-sweep research protocol in one command. Keep benign IoT traffic running separately in the background, then run from the IoT Wi-Fi device:
+Run the overnight balanced port-sweep research protocol in one command. Keep benign IoT traffic running separately in the background, then run from the IoT Wi-Fi device:
 
 ```bash
 python3 research.py
 ```
 
-By default this discovers reachable hosts in the local `/24` subnet without using the API, then runs `negative`, `borderline`, `positive`, `slow`, and `aggressive` against those targets.
+By default this discovers reachable hosts in the local `/24` subnet without using the API, then starts the 35-phase `balanced35` plan in the background with a 5-minute gap, randomized probe order, and shuffled phase order.
 
 At the end it prints a k6-like phase summary with local start/end times and durations, and saves the same data in `artifacts/research-runs/<run-id>/summary.json`.
+
+The default run covers 10 negative, 10 positive, 5 borderline, 5 slow, and 5 aggressive phases, and takes about 6h35m with the 5-minute gap:
+
+```bash
+tail -f artifacts/research-runs/<run-id>/research.log
+```
+
+The detached runner writes `pid`, `research.log`, `status.json`, `manifest.json`, `markers.jsonl`, and `summary.json` under `artifacts/research-runs/<run-id>/`.
 
 If API access is available, API-discovered targets are still supported:
 

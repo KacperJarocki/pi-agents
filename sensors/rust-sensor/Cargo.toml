@@ -1,0 +1,9 @@
+[package]
+name = "pi-agents-sensor"
+version = "0.1.0"
+edition = "2021"
+description = "Bounded flow state core for the pi-agents gateway sensor"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"

@@ -11,6 +11,9 @@ __pycache__/
 .venv/
 .playwright-cli/
 
+# Rust build artifacts
+**/target/
+
 # Editor
 .idea/
 .vscode/

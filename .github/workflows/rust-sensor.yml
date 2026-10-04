@@ -1,0 +1,25 @@
+name: Rust Sensor
+
+on:
+  push:
+    paths:
+      - "sensors/rust-sensor/**"
+      - "tests/test_rust_sensor_sources.py"
+      - ".github/workflows/rust-sensor.yml"
+  pull_request:
+    paths:
+      - "sensors/rust-sensor/**"
+      - "tests/test_rust_sensor_sources.py"
+      - ".github/workflows/rust-sensor.yml"
+
+jobs:
+  test-and-arm64-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - run: cargo fmt --manifest-path sensors/rust-sensor/Cargo.toml -- --check
+      - run: cargo test --manifest-path sensors/rust-sensor/Cargo.toml
+      - run: cargo check --manifest-path sensors/rust-sensor/Cargo.toml --target aarch64-unknown-linux-gnu

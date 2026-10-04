@@ -19,6 +19,13 @@ class RustSensorSourceTests(unittest.TestCase):
         readme = (ROOT / "sensors" / "rust-sensor" / "README.md").read_text()
         self.assertIn("UpsertResult::Evicted", readme)
 
+    def test_arm64_sensor_workflow_checks_format_tests_and_target(self):
+        workflow = (ROOT / ".github" / "workflows" / "rust-sensor.yml").read_text()
+        self.assertIn("aarch64-unknown-linux-gnu", workflow)
+        self.assertIn("cargo fmt", workflow)
+        self.assertIn("cargo test", workflow)
+        self.assertIn("cargo check", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

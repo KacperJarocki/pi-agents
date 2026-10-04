@@ -11,7 +11,23 @@ externalServices:
 
 
 kafka:
+  enabled: false
+  name: pi-agents
+  version: "4.3.1"
+  metadataVersion: "4.3-IV0"
   bootstrapServers: ""
+  replicas: 3
+  storage:
+    type: persistent-claim
+    class: local-path
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 750m
+      memory: 768Mi
 
 clickhouse:
   database: analytics

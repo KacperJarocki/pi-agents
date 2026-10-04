@@ -107,6 +107,42 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         for forbidden in ("password:", "accessKey:", "secretKey:", "postgres://"):
             self.assertNotIn(forbidden, values)
 
+    def test_helm_chart_has_opt_in_strimzi_kafka_cluster(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        kafka = (chart / "templates" / "kafka.yaml").read_text()
+        profile = (chart / "values-kafka-cluster.yaml").read_text()
+        readme = (chart / "README.md").read_text()
+        self.assertIn("enabled: false", values)
+        self.assertIn("kind: Kafka", kafka)
+        self.assertIn("kind: KafkaNodePool", kafka)
+        self.assertIn("apiVersion: kafka.strimzi.io/v1", kafka)
+        self.assertIn('version: "4.3.1"', values)
+        self.assertIn('metadataVersion: "4.3-IV0"', values)
+        self.assertIn("type: persistent-claim", values)
+        self.assertIn("enabled: true", profile)
+        self.assertIn("streaming-kustomization.yaml", readme)
+
+    def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
+        chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
+        values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()
+        self.assertIn("alias: strimzi", chart)
+        self.assertIn("version: 1.2.0", chart)
+        self.assertIn("repository: oci://quay.io/strimzi-helm", chart)
+        self.assertIn("watchNamespaces", values)
+
+    def test_flux_orders_operator_before_platform(self):
+        operator = (ROOT / "k8s" / "flux" / "streaming-operator-helmrelease.yaml").read_text()
+        platform = (ROOT / "k8s" / "flux" / "streaming-platform-helmrelease.yaml").read_text()
+        source = (ROOT / "k8s" / "flux" / "streaming-source.yaml").read_text()
+        kustomization = (ROOT / "k8s" / "flux" / "streaming-kustomization.yaml").read_text()
+        self.assertIn("chart: ./charts/strimzi-operator", operator)
+        self.assertIn("chart: ./charts/pi-agents", platform)
+        self.assertIn("name: strimzi-operator", platform)
+        self.assertIn("name: pi-agents", source)
+        self.assertIn("path: ./k8s/flux", kustomization)
+        self.assertIn("name: pi-agents", kustomization)
+
 
 if __name__ == "__main__":
     unittest.main()

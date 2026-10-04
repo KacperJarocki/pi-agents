@@ -1,0 +1,9 @@
+streaming:
+  enabled: true
+
+kafka:
+  enabled: true
+  bootstrapServers: "pi-agents-kafka-bootstrap:9092"
+
+externalServices:
+  existingSecret: iot-security-external-services

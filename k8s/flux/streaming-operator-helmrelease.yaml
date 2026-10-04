@@ -1,0 +1,28 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: strimzi-operator
+  namespace: strimzi-system
+  labels:
+    app.kubernetes.io/part-of: pi-agents
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: ./charts/strimzi-operator
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: pi-agents
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    strimzi:
+      watchNamespaces:
+        - iot-security

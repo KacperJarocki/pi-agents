@@ -1,0 +1,59 @@
+{{- if .Values.kafka.enabled }}
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: {{ .Values.kafka.name | quote }}
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  kafka:
+    version: {{ .Values.kafka.version | quote }}
+    metadataVersion: {{ .Values.kafka.metadataVersion | quote }}
+    config:
+      offsets.topic.replication.factor: {{ .Values.kafka.replicas }}
+      transaction.state.log.replication.factor: {{ .Values.kafka.replicas }}
+      transaction.state.log.min.isr: 2
+      default.replication.factor: {{ .Values.kafka.replicas }}
+      min.insync.replicas: 2
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    template:
+      pod:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      strimzi.io/cluster: {{ .Values.kafka.name | quote }}
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{ .Values.kafka.name }}-pool
+  labels:
+    strimzi.io/cluster: {{ .Values.kafka.name | quote }}
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kafka.replicas }}
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: {{ .Values.kafka.storage.type }}
+        class: {{ .Values.kafka.storage.class | quote }}
+        size: {{ .Values.kafka.storage.size | quote }}
+  resources:
+    {{- toYaml .Values.kafka.resources | nindent 4 }}
+{{- end }}

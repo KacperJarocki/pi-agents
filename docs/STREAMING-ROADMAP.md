@@ -91,3 +91,6 @@ parity.
 - `MIG-002` Migrate control data and analytical history.
 - `MIG-003` Cut over UI and realtime consumers.
 - `MIG-004` Remove SQLite only after parity and recovery tests pass.
+
+`SENSOR-001` is implemented by `scripts/benchmark_capture.py`; its output is
+the required input for the capture-engine implementation decision.

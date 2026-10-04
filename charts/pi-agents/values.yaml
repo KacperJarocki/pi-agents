@@ -1,0 +1,20 @@
+streaming:
+  enabled: false
+  eventSchemaVersion: v1
+
+externalServices:
+  existingSecret: ""
+  secretKeys:
+    controlDatabaseUrl: control-database-url
+    clickhouseUrl: clickhouse-url
+    objectStorageEndpoint: object-storage-endpoint
+
+
+kafka:
+  bootstrapServers: ""
+
+clickhouse:
+  database: analytics
+
+objectStorage:
+  bucket: pi-agents

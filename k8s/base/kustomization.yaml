@@ -6,6 +6,7 @@ namespace: iot-security
 resources:
   - namespace.yaml
   - pvc.yaml
+  - streaming-config.yaml
 
 labels:
   - pairs:

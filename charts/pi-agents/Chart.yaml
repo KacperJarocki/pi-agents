@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pi-agents
+description: Streaming IoT security analytics platform foundation
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"

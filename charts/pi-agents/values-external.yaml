@@ -1,0 +1,10 @@
+# Example non-secret profile for an externalized storage deployment.
+# Credentials remain in externalServices.existingSecret.
+streaming:
+  enabled: true
+
+kafka:
+  bootstrapServers: "kafka-0:9092,kafka-1:9092,kafka-2:9092"
+
+externalServices:
+  existingSecret: iot-security-external-services

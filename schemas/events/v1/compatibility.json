@@ -1,0 +1,54 @@
+{
+  "EventEnvelope": {
+    "event_id": 1,
+    "event_type": 2,
+    "schema_version": 3,
+    "event_time_unix_millis": 4,
+    "ingest_time_unix_millis": 5,
+    "gateway_id": 6,
+    "device_key": 7,
+    "trace_id": 8,
+    "capture_sequence": 9
+  },
+  "FlowEvent": {
+    "envelope": 1,
+    "src_ip": 2,
+    "dst_ip": 3,
+    "src_port": 4,
+    "dst_port": 5,
+    "protocol": 6,
+    "direction": 7,
+    "bytes_sent": 8,
+    "bytes_received": 9,
+    "packets": 10,
+    "duration_ms": 11,
+    "dns_query": 12,
+    "metadata": 13
+  },
+  "FeatureVector": {
+    "envelope": 1,
+    "bucket_start_unix_millis": 2,
+    "bucket_end_unix_millis": 3,
+    "features": 4
+  },
+  "Detection": {
+    "envelope": 1,
+    "detection_id": 2,
+    "rule_id": 3,
+    "severity": 4,
+    "score": 5,
+    "title": 6,
+    "description": 7,
+    "source_event_ids": 8,
+    "evidence": 9
+  },
+  "CaptureObject": {
+    "envelope": 1,
+    "object_uri": 2,
+    "sha256": 3,
+    "size_bytes": 4,
+    "capture_start_unix_millis": 5,
+    "capture_end_unix_millis": 6,
+    "content_type": 7
+  }
+}

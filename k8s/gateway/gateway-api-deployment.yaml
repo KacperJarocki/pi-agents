@@ -33,12 +33,33 @@ spec:
               cpu: 1000m
               memory: 1024Mi
           env:
+            - name: CONTROL_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iot-security-external-services
+                  key: control-database-url
+                  optional: true
+            - name: CLICKHOUSE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iot-security-external-services
+                  key: clickhouse-url
+                  optional: true
+            - name: OBJECT_STORAGE_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: iot-security-external-services
+                  key: object-storage-endpoint
+                  optional: true
             - name: DATABASE_PATH
               value: "/data/iot-security.db"
             - name: MODEL_PATH
               value: "/data/models"
             - name: LOG_LEVEL
               value: "info"
+          envFrom:
+            - configMapRef:
+                name: iot-security-streaming-config
           volumeMounts:
             - name: sqlite-data
               mountPath: /data

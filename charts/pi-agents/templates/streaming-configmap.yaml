@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pi-agents.fullname" . }}-streaming
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+data:
+  STREAMING_ENABLED: {{ .Values.streaming.enabled | quote }}
+  EVENT_SCHEMA_VERSION: {{ .Values.streaming.eventSchemaVersion | quote }}
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Values.kafka.bootstrapServers | quote }}
+  CLICKHOUSE_DATABASE: {{ .Values.clickhouse.database | quote }}
+  OBJECT_STORAGE_BUCKET: {{ .Values.objectStorage.bucket | quote }}

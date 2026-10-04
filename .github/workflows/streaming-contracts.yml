@@ -1,0 +1,26 @@
+name: Streaming Contracts
+
+on:
+  push:
+    paths:
+      - "schemas/**"
+      - "scripts/validate_event_contract.py"
+      - "tests/test_event_contract_validator.py"
+      - ".github/workflows/streaming-contracts.yml"
+  pull_request:
+    paths:
+      - "schemas/**"
+      - "scripts/validate_event_contract.py"
+      - "tests/test_event_contract_validator.py"
+      - ".github/workflows/streaming-contracts.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/validate_event_contract.py
+      - run: python -m unittest tests.test_event_contract_validator -v

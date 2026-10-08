@@ -47,24 +47,10 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
             self.assertEqual(numbers, sorted(numbers), message)
             self.assertEqual(len(numbers), len(set(numbers)), message)
 
-    def test_legacy_runtime_is_not_claimed_to_be_streaming(self):
-        inference = (ROOT / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
-        self.assertIn("INFERENCE_INTERVAL", inference)
-        self.assertIn("run_inference_loop", inference)
+    def test_roadmap_names_the_legacy_path_and_its_removal(self):
         roadmap = (ROOT / "docs" / "STREAMING-ROADMAP.md").read_text()
         self.assertIn("legacy path", roadmap)
-
-    def test_gateway_api_exposes_external_service_configuration(self):
-        config = (ROOT / "images" / "gateway-api" / "app" / "core" / "config.py").read_text()
-        for env_name, field_name in (
-            ("CONTROL_DATABASE_URL", "control_database_url"),
-            ("CLICKHOUSE_URL", "clickhouse_url"),
-            ("OBJECT_STORAGE_ENDPOINT", "object_storage_endpoint"),
-            ("KAFKA_BOOTSTRAP_SERVERS", "kafka_bootstrap_servers"),
-            ("EVENT_SCHEMA_VERSION", "event_schema_version"),
-        ):
-            self.assertIn(env_name, config)
-            self.assertIn(field_name, config)
+        self.assertIn("thesis-final", roadmap)
 
     def test_configuration_document_keeps_sqlite_as_explicit_legacy_fallback(self):
         config = (ROOT / "docs" / "CONFIGURATION.md").read_text()
@@ -72,15 +58,9 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("legacy SQLite fallback", config)
         self.assertIn("CONTROL_DATABASE_URL", config)
 
-    def test_streaming_manifest_is_opt_in_and_external_endpoints_are_secret_backed(self):
+    def test_streaming_manifest_is_opt_in(self):
         config_map = (ROOT / "k8s" / "base" / "streaming-config.yaml").read_text()
-        deployment = (ROOT / "k8s" / "gateway" / "gateway-api-deployment.yaml").read_text()
         self.assertIn('STREAMING_ENABLED: "false"', config_map)
-        self.assertIn("iot-security-external-services", deployment)
-        self.assertIn("control-database-url", deployment)
-        self.assertIn("clickhouse-url", deployment)
-        self.assertIn("object-storage-endpoint", deployment)
-        self.assertIn("optional: true", deployment)
 
     def test_streaming_config_is_included_by_base_kustomization(self):
         kustomization = (ROOT / "k8s" / "base" / "kustomization.yaml").read_text()

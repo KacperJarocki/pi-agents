@@ -8,7 +8,7 @@ See `proposal.md` (Why) and `specs/` for required behaviour. The cluster has 5×
 - the `pi-agents` chart has single-node Strimzi Kafka and a Flink `FlinkDeployment` with a Longhorn RWX checkpoint profile;
 - Flux installs the Strimzi and Flink operators.
 
-The legacy pipeline keeps running and is not touched.
+The legacy batch pipeline (`collector`, `ml-pipeline`, `gateway-api`, `dashboard`, SQLite) is a finished thesis proof of concept and this change removes it. `gateway-agent` (hostapd/dnsmasq) stays: it makes the gateway a Wi-Fi AP, and the sensor captures on that interface.
 
 ## Goals / Non-Goals
 
@@ -20,8 +20,9 @@ The legacy pipeline keeps running and is not touched.
 **Non-Goals:**
 - ML scoring, model training/registry, and the 14-feature ML set (follow-up change, capability `streaming-model-lifecycle`).
 - Rules other than port scan.
-- Merging legacy and streaming alerts, or removing the legacy path.
-- Dashboard redesign beyond one live incidents page.
+- Dual-run, parity checks or alert merging with the legacy pipeline.
+- Rewriting the Wi-Fi AP controller (`gateway-agent`).
+- A full dashboard: the only UI is one live incidents page.
 
 ## Decisions
 
@@ -112,7 +113,9 @@ Alternative considered: a Flink JDBC sink. It would couple Flink checkpoints to 
 - `WS /ws/v2/incidents?after=<cursor>` sends catch-up first and then live changes from `LISTEN incident_feed`;
 - connection health and the latest `HealthEvent` summary go out on the same socket.
 
-The dashboard gets a `/live` page (Alpine.js) that keeps one row per `incident_id`, applies revisions in order, stores the last cursor, and reconnects with backoff. It is proxied through the existing dashboard like other `/api/*` routes.
+`incident-api` also serves a static `/live` page (plain HTML + Alpine.js, no build step) that keeps one row per `incident_id`, applies revisions in order, stores the last cursor, and reconnects with backoff. It shows a banner when the socket is down or the latest `HealthEvent` reports loss or unattributed traffic. The service is exposed through a Traefik `Ingress` on the host the legacy dashboard used.
+
+Alternative considered: keeping the legacy dashboard and adding `/live` to it. That keeps HTMX/Tailwind pages, the proxy and Playwright fixtures alive for a single view.
 
 To measure the latency target, each transition and feed row carries `evidence_event_time`, flow `ingest_time`, `detected_at`, `committed_at`, and the browser receive time. The page can log the end-to-end delay.
 
@@ -120,7 +123,7 @@ To measure the latency target, each transition and feed row carries `evidence_ev
 
 | Node | Workloads | Approx. limits |
 | --- | --- | --- |
-| gateway | sensor (+ 2 GiB spool on hostPath NVMe), legacy gateway pods | 0.5 GiB |
+| gateway | sensor (+ 2 GiB spool on hostPath NVMe), `gateway-agent` | 0.5 GiB |
 | node-a | Kafka-0, Flink JobManager, PG replica | 1.5 + 1.5 + 2 GiB |
 | node-b | Kafka-1, Flink TM-0 | 1.5 + 2 GiB |
 | node-c | Kafka-2, Flink TM-1 | 1.5 + 2 GiB |
@@ -128,8 +131,25 @@ To measure the latency target, each transition and feed row carries `evidence_ev
 
 Placement uses anti-affinity and preferred node affinity, not hard pins, except for two rules: the sensor is required on the gateway node, and every streaming component is excluded from it. The Flux HelmReleases add the operators: Strimzi (already present), Flink operator (already present) and CloudNativePG (new).
 
+### 8. Legacy removal
+
+Before deleting anything, `main` is tagged `thesis-final` and the tag is pushed, so the thesis code can be rebuilt.
+
+Removed:
+- `images/collector`, `images/ml-pipeline`, `images/gateway-api`, `images/dashboard`;
+- their `k8s/gateway` manifests (deployments, CronJob, RBAC, services, ingresses, certificates, PDB entries) and the SQLite/model PVCs in `k8s/base`;
+- their `docker-compose.yml` services and volumes;
+- tests that import or assert on those images, including the legacy Playwright specs and fixtures in `tests/ui` (the Playwright harness stays for `/live`);
+- the `validate.yml` steps and `docker-build.yml` matrix entries for those images;
+- the legacy sections of `AGENTS.md`, `CLAUDE.md` and `README.md`, and the dual-run/cutover milestones in `docs/STREAMING-ROADMAP.md`.
+
+Kept: `images/gateway-agent`, its manifests and `k8s/overlays/gateway-prod`, `schemas/events/v1` (frozen) and thesis research outputs.
+
+Removal comes first. There is no detection between removal and the streaming go-live, which is acceptable for a personal project.
+
 ## Risks / Trade-offs
 
+- [No detection between legacy removal and streaming go-live] → Accepted; there is no SLA. The legacy stack can be redeployed from `thesis-final`.
 - [Single RustFS node holds checkpoints and backups] → Acceptable at this stage. Kafka retention still allows a job restart from offsets. Revisit with distributed RustFS later.
 - [Unanswered-SYN outcome is provisional at flush time] → The follow-up `established` event retracts that target from the signal. Fixtures cover slow servers.
 - [Threshold values are guesses] → They are configurable per rule version. Validate them against the existing `negative`/`borderline`/`positive`/`slow`/`aggressive` port-sweep profiles before trusting alerts.
@@ -139,8 +159,9 @@ Placement uses anti-affinity and preferred node affinity, not hard pins, except 
 
 ## Migration Plan
 
-1. Deploy the platform (Kafka node pool, CloudNativePG, RustFS, Flink with the S3 profile) with `streaming.enabled=true` alongside the legacy stack.
-2. Deploy the sensor in parallel with the legacy collector on the gateway. Both capture independently.
-3. Deploy the Flink job, projector, incident API and `/live` page. Validate against the port-sweep profiles.
-4. Rollback: disable `streaming.enabled`. Legacy is unaffected. Kafka and PostgreSQL data are retained.
-5. Cutover and removal of the legacy path are out of scope for this change.
+1. Tag `main` as `thesis-final` and push the tag.
+2. Remove the legacy workloads from the cluster and the repository, keeping `gateway-agent`. Alerts are unavailable from here until step 5.
+3. Deploy the platform (Kafka node pool, CloudNativePG, RustFS, Flink with the S3 profile) with `streaming.enabled=true`.
+4. Deploy the sensor on the gateway.
+5. Deploy the Flink job, projector, incident API and `/live` page. Validate against the port-sweep profiles.
+6. Rollback: disable `streaming.enabled`; Kafka and PostgreSQL data are retained. The legacy stack can be redeployed by hand from `thesis-final`.

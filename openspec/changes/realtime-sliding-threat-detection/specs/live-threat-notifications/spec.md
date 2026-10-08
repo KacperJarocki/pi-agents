@@ -28,13 +28,13 @@ The system SHALL push new incident state changes to connected dashboards and all
 - **WHEN** a dashboard reconnects after missing incident updates
 - **THEN** it can resume from its last acknowledged event or refresh a consistent current incident view without losing active alerts
 
-### Requirement: Coexistence with legacy alerts during migration
-The system SHALL keep the legacy alert feed available unchanged during migration and SHALL label each streaming incident with its source. Streaming incidents SHALL NOT be merged with legacy alerts.
+### Requirement: Visible degraded delivery and coverage
+The system SHALL show on the live incidents page when live delivery is interrupted or when ingestion reports loss or unattributed traffic, instead of implying complete coverage.
 
-#### Scenario: Same attack detected on both paths
-- **WHEN** legacy and streaming detections refer to the same active device attack
-- **THEN** the legacy alert remains in the existing alert feed, the streaming incident appears once on the live incidents view with streaming source provenance, and neither view shows duplicates of its own incident
+#### Scenario: Live connection lost
+- **WHEN** the browser's live connection to the incident service drops
+- **THEN** the page indicates that live delivery is degraded, keeps showing the last known incident state, and clears the indicator after it resumes and catches up
 
-#### Scenario: Streaming path unavailable
-- **WHEN** streaming delivery is degraded during the migration
-- **THEN** the existing alert feed remains available and the dashboard indicates that live delivery is degraded
+#### Scenario: Ingestion loss reported
+- **WHEN** the latest ingestion health reports dropped or unattributed events
+- **THEN** the page shows the affected gateway, the count and the time range

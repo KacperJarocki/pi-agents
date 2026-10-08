@@ -8,7 +8,7 @@ metadata:
 data:
   # The streaming path is opt-in until the dual-run milestone is complete.
   STREAMING_ENABLED: "false"
-  EVENT_SCHEMA_VERSION: "v1"
+  EVENT_SCHEMA_VERSION: "v2"
   CLICKHOUSE_DATABASE: "analytics"
   OBJECT_STORAGE_BUCKET: "pi-agents"
   # Replace in an overlay or external deployment configuration.

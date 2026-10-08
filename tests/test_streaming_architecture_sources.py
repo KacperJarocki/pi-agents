@@ -103,6 +103,24 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("enabled: true", profile)
         self.assertIn("streaming-kustomization.yaml", readme)
 
+    def test_kafka_chart_defines_v2_topics_off_the_gateway(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        kafka = (chart / "templates" / "kafka.yaml").read_text()
+        for topic in (
+            "traffic.flows.v2",
+            "traffic.features.v2",
+            "traffic.detections.v2",
+            "traffic.health.v2",
+            "traffic.late.v2",
+        ):
+            self.assertIn(f"name: {topic}", values)
+        self.assertIn("kind: KafkaTopic", kafka)
+        self.assertIn("excludeNodeLabel: node-role.kubernetes.io/gateway", values)
+        self.assertIn("operator: NotIn", kafka)
+        self.assertIn("min.insync.replicas: 2", kafka)
+        self.assertIn("eventSchemaVersion: v2", values)
+
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
         values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()

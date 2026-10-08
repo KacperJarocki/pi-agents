@@ -1,6 +1,6 @@
 streaming:
   enabled: false
-  eventSchemaVersion: v1
+  eventSchemaVersion: v2
 
 externalServices:
   existingSecret: ""
@@ -21,13 +21,35 @@ kafka:
     type: persistent-claim
     class: local-path
     size: 2Gi
+  # Brokers never run on nodes carrying this label with value "true".
+  excludeNodeLabel: node-role.kubernetes.io/gateway
+  jvmOptions:
+    -Xms: 768m
+    -Xmx: 768m
   resources:
     requests:
       cpu: 250m
-      memory: 512Mi
+      memory: 1536Mi
     limits:
-      cpu: 750m
-      memory: 768Mi
+      cpu: "1"
+      memory: 1536Mi
+  # Changing the partition count of traffic.flows.v2 requires a replay plan.
+  topics:
+    - name: traffic.flows.v2
+      partitions: 6
+      retentionMs: 1209600000   # 14 days
+    - name: traffic.features.v2
+      partitions: 6
+      retentionMs: 259200000    # 3 days
+    - name: traffic.detections.v2
+      partitions: 3
+      retentionMs: 2592000000   # 30 days
+    - name: traffic.health.v2
+      partitions: 1
+      retentionMs: 1209600000   # 14 days
+    - name: traffic.late.v2
+      partitions: 1
+      retentionMs: 604800000    # 7 days
 
 flink:
   enabled: false

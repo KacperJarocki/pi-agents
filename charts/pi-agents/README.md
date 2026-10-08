@@ -29,9 +29,17 @@ kubectl apply -f k8s/flux/streaming-source.yaml
 kubectl apply -f k8s/flux/streaming-kustomization.yaml
 ```
 
-The Kafka profile uses three KRaft dual-role nodes, local-path storage, a
-2GiB volume per node, and resource limits suitable for the current ARM64
-cluster. Do not enable it while the node-local storage path or Longhorn is
+The Kafka profile uses three KRaft dual-role nodes (replication factor 3,
+`min.insync.replicas=2`), local-path storage, a 2GiB volume per node, a
+768MiB heap in a 1.5GiB container, and a required node affinity that keeps
+brokers off nodes labelled `node-role.kubernetes.io/gateway=true`.
+
+`kafka.topics` creates one `KafkaTopic` per v2 topic (`traffic.flows.v2`,
+`traffic.features.v2`, `traffic.detections.v2`, `traffic.health.v2`,
+`traffic.late.v2`) with its partition count and time-based retention. Size the
+volume for that retention before enabling the profile on real traffic; the
+2GiB default only fits short tests. Changing the partition count of
+`traffic.flows.v2` requires a replay plan. Do not enable it while the node-local storage path or Longhorn is
 degraded. Production retention and larger volumes belong in a separate values
 file after the capacity benchmark.
 

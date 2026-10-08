@@ -4,7 +4,7 @@
 
 - [x] 1.1 Document the current capture, bucket, inference and dashboard delay sources from code/config in `docs/CAPTURE-BENCHMARK.md`; verify all timings are identified as configuration values rather than measured results.
 - [x] 1.2 Add `schemas/events/v2/events.proto` (`Envelope`, `FlowEvent`, `FeatureUpdate`, `DetectionTransition`, `HealthEvent`, enums) with `compatibility.json` and `baseline.proto`; extend `scripts/validate_event_contract.py` to validate v1 and v2. Verify with `python -m unittest tests.test_event_contract_validator -v`.
-- [ ] 1.3 Update `docs/STREAMING-ROADMAP.md`: replace `FLINK-005` (1 s/10 s) with 60 s/900 s rolling horizons, switch the topic table to the v2 topics, keys, partitions and retention from design.md, and replace the dual-run/cutover milestones (`MIG-*`, M6 SQLite retirement) with the direct legacy removal. Verify with `grep -n "FLINK-005" docs/STREAMING-ROADMAP.md`, then run the source-assertion tests.
+- [x] 1.3 Update `docs/STREAMING-ROADMAP.md`: replace `FLINK-005` (1 s/10 s) with 60 s/900 s rolling horizons, switch the topic table to the v2 topics, keys, partitions and retention from design.md, and replace the dual-run/cutover milestones (`MIG-*`, M6 SQLite retirement) with the direct legacy removal. Verify with `grep -n "FLINK-005" docs/STREAMING-ROADMAP.md`, then run the source-assertion tests.
 
 ## 2. Legacy removal
 

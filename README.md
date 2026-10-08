@@ -1,311 +1,107 @@
 # IoT Security Agent System
 
-Agent-based IoT threat detection system running on K3s cluster with ML-powered anomaly detection.
+Real-time IoT threat detection on a K3s cluster of Raspberry Pis. A gateway Pi runs the Wi-Fi access point, captures device traffic and publishes it to Kafka; Flink keeps per-device 60-second and 900-second sliding views and pushes incidents to the browser as soon as evidence crosses a rule threshold.
+
+The batch SQLite/ML pipeline from the master's thesis (collector, ml-pipeline, gateway-api, dashboard) has been removed. Its last state is tagged `thesis-final`.
+
+## Status
+
+The streaming system is under construction. The active plan is the OpenSpec change `openspec/changes/realtime-sliding-threat-detection/` (`proposal.md`, `design.md`, `tasks.md`); `docs/STREAMING-ROADMAP.md` holds the wider backlog. Until the sensor, Flink job and incident API are deployed there is no detection running.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      K3s Cluster                             │
-│  Masters: 3x  |  Workers: 2x (worker-1 = AP Gateway)        │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │ Worker-AP (Gateway Node)                             │   │
-│  │                                                      │   │
-│  │  gateway-agent (pod) ─ WiFi AP + DHCP + NAT        │   │
-│  │                                                      │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐   │   │
-│  │  │ collector  │  │ ml-trainer │  │ ml-inference│   │   │
-│  │  │ (Deploy)   │  │  (CronJob) │  │  (Deploy)   │   │   │
-│  │  └────────────┘  └────────────┘  └────────────┘   │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐   │   │
-│  │  │gateway-api │  │ dashboard  │  │  SQLite    │   │   │
-│  │  │  (Deploy)  │  │  (Deploy) │  │ (Longhorn)│   │   │
-│  │  └────────────┘  └────────────┘  └────────────┘   │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                           │                                 │
-│                    Traefik + cert-manager                   │
-└───────────────────────────┼─────────────────────────────────┘
+gateway Pi                     cluster (non-gateway nodes)
+┌──────────────────┐          ┌───────────────────────────────────────────────┐
+│ gateway-agent    │          │ Kafka (Strimzi, KRaft)                        │
+│  hostapd/dnsmasq │          │   traffic.flows.v2 ──► Flink port-scan job     │
+│ rust-sensor ─────┼─────────►│                         │                     │
+│  micro-flows,    │          │   traffic.detections.v2 ◄┘                     │
+│  disk spool      │          │        │                                       │
+└──────────────────┘          │        ▼                                       │
+                              │ incident projector ──► PostgreSQL (CNPG)       │
+                              │                          │ LISTEN/NOTIFY       │
+                              │ incident-api (REST + WS + /live page) ◄┘       │
+                              │ RustFS (Flink checkpoints, PG backups)         │
+                              └───────────────────────────────────────────────┘
 ```
 
-## Infrastructure Stack
+Planned components are described in `design.md` of the active change. What exists today:
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| Ingress | Traefik | Routing traffic |
-| TLS | cert-manager | Let's Encrypt certificates |
-| Storage | Longhorn | Persistent volumes |
-| GitOps | Flux CD | Deployment automation |
-| Monitoring | Alloy | Metrics collection |
+| Path | Purpose |
+|------|---------|
+| `images/gateway-agent/` | Wi-Fi AP controller (hostapd/dnsmasq), FastAPI on port 7000 |
+| `sensors/rust-sensor/` | Rust capture sensor (bounded `FlowTable` core so far) |
+| `schemas/events/v2/` | Protobuf event contract (`v1` is frozen) |
+| `charts/pi-agents/` | Helm chart: streaming config, Strimzi Kafka, Flink |
+| `k8s/flux/` | Flux sources and HelmReleases for operators and the chart |
+| `k8s/base`, `k8s/gateway`, `k8s/overlays/gateway-prod` | Namespace, streaming ConfigMap and `gateway-agent` |
+| `scripts/` | Event contract validator, capture benchmark, traffic generators |
 
-## URLs
+## Hardware
 
-| Service | URL |
-|---------|-----|
-| Gateway API | `https://iot-api.homelab.kacperjarocki.dev` |
-| Dashboard | `https://iot-dashboard.homelab.kacperjarocki.dev` |
+5× Raspberry Pi 5 (8 GB RAM, NVMe). One node is labelled as the gateway and runs only the AP and the sensor:
 
-Default WiFi config:
-- SSID: `IoT-Security`
-- PSK: `change-me-please`
-
-## Images
-
-| Component | Image | Registry |
-|-----------|-------|----------|
-| gateway-api | `gateway-api:latest` | ghcr.io/kacperjarocki |
-| collector | `collector:latest` | ghcr.io/kacperjarocki |
-| gateway-agent | `gateway-agent:latest` | ghcr.io/kacperjarocki |
-| ml-pipeline | `ml-pipeline:latest` | ghcr.io/kacperjarocki |
-| dashboard | `dashboard:latest` | ghcr.io/kacperjarocki |
-
-## K8s Structure
-
-```
-k8s/
-├── base/              # Namespace and PVC
-├── gateway/           # All workload deployments
-└── overlays/          # Environment-specific overrides
+```bash
+kubectl label node <gateway-node> node-role.kubernetes.io/gateway=true
 ```
 
-## K8s Workloads
+All workloads are ARM64 and must declare resource requests and limits.
 
-| Component | Type | Schedule | Description |
-|-----------|------|----------|-------------|
-| collector | Deployment | Always | Traffic capture via tcpdump/tshark |
-| gateway-agent | Deployment | Always | WiFi AP + DHCP + NAT control |
-| gateway-api | Deployment | Always | REST API + WebSocket alerts |
-| ml-trainer | CronJob | Every 30 min | Train all 4 models per device (168h window, min 100 buckets, conservative baseline contamination) |
-| ml-inference | Deployment | Always | Batch anomaly inference |
-| dashboard | Deployment | Always | Web UI |
+## Deployment
 
-## Component Docs
+```bash
+kubectl apply -k k8s/gateway                 # namespace, streaming config, gateway-agent (safe mode)
+kubectl apply -k k8s/overlays/gateway-prod   # same, with ENABLE_APPLY=true so the SSID comes up
+```
 
-- `images/gateway-agent/README.md`
-- `images/collector/README.md`
-- `images/gateway-api/README.md`
-- `images/dashboard/README.md`
-- `images/ml-pipeline/README.md`
-- `k8s/README.md`
-- `docs/MVP-VERIFICATION.md`
-- `docs/PORT_SWEEP_RESEARCH.md`
+The streaming platform is deployed by Flux from `k8s/flux` (Strimzi and Flink operators, then the `pi-agents` chart). See `charts/pi-agents/README.md` for values and checkpoint profiles.
 
-## Traffic Research Scripts
+### Wi-Fi access point
 
-Generate controlled port-sweep traffic from a device connected to the IoT Wi-Fi:
+`gateway-agent` runs with `hostNetwork` and privileges on the gateway node. With `ENABLE_APPLY=false` (the default) it validates and stores config but does not start hostapd. Its API (`/status`, `/validate`, `/apply`, `/rollback`, `/block`, `/blocked`) is reachable in-cluster at `http://gateway-agent.iot-security:7000`.
+
+Default Wi-Fi config: SSID `IoT-Security`, PSK `change-me-please`.
+
+Troubleshooting a missing SSID: make sure `k8s/overlays/gateway-prod` is applied and `GET /status` reports `apply_enabled: true` and `hostapd.running: true`.
+
+## Development
+
+```bash
+python -m unittest discover -v
+python scripts/validate_event_contract.py
+cargo test --manifest-path sensors/rust-sensor/Cargo.toml
+helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
+kubectl kustomize k8s/flux
+```
+
+`docker-compose --profile gateway up --build` runs `gateway-agent` locally (Linux only; host network and privileged).
+
+## Traffic research scripts
+
+Generate controlled port-sweep traffic from a device on the IoT Wi-Fi:
 
 ```bash
 ./scripts/port-sweep.sh --target 192.168.50.1 --profile positive
 ```
 
-Use `negative`, `borderline`, `positive`, `slow`, and `aggressive` profiles to measure false positives, false negatives, reaction time, and per-model response in the dashboard. `positive` runs for 300 seconds by default; override with `--duration 10m` for a ten-minute sweep. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; use `--seed 42` for reproducible randomized runs.
+Profiles `negative`, `borderline`, `positive`, `slow` and `aggressive` are the fixtures for validating port-scan rule thresholds. Each run writes metadata to `artifacts/port-sweep/<run-id>/`; `--seed 42` makes randomized runs reproducible.
 
-Sweep all currently active devices known by the gateway API:
-
-```bash
-./scripts/port-sweep.sh --targets-api http://localhost:8080/api/v1/devices --api-active-only --profile aggressive --repeat 2 --randomize
-```
-
-Run the overnight balanced port-sweep research protocol in one command. Keep benign IoT traffic running separately in the background, then run from the IoT Wi-Fi device:
+Run the overnight balanced research protocol (35 phases, about 6h35m with a 5-minute gap) in the background:
 
 ```bash
 python3 research.py
-```
-
-By default this discovers reachable hosts in the local `/24` subnet without using the API, then starts the 35-phase `balanced35` plan in the background with a 5-minute gap, randomized probe order, and shuffled phase order.
-
-At the end it prints a k6-like phase summary with local start/end times and durations, and saves the same data in `artifacts/research-runs/<run-id>/summary.json`.
-
-The default run covers 10 negative, 10 positive, 5 borderline, 5 slow, and 5 aggressive phases, and takes about 6h35m with the 5-minute gap:
-
-```bash
 tail -f artifacts/research-runs/<run-id>/research.log
 ```
 
-The detached runner writes `pid`, `research.log`, `status.json`, `manifest.json`, `markers.jsonl`, and `summary.json` under `artifacts/research-runs/<run-id>/`.
+It discovers reachable hosts in the local `/24`; use `--no-discover --target 192.168.50.1` when client isolation blocks discovery. Results and phase markers land in `artifacts/research-runs/<run-id>/`.
 
-If API access is available, API-discovered targets are still supported:
-
-```bash
-python3 research.py --targets-api http://localhost:8080/api/v1/devices --api-active-only --randomize --seed 42
-```
-
-If subnet discovery is blocked by client isolation, target the gateway AP or provide a file manually:
-
-```bash
-python3 research.py --no-discover --target 192.168.50.1
-```
-
-Generate benign IoT-like baseline traffic from the tested device:
+Generate benign IoT-like baseline traffic:
 
 ```bash
 ./scripts/iot-device-emulator.sh --profile sensor --duration 30m
 ```
 
-Use `sensor`, `plug`, and `camera-idle` profiles to create normal traffic windows before comparing model reactions to attack traffic.
+## Images
 
-Backtest a historical traffic window against a current or archived model artifact:
-
-```bash
-./scripts/model-backtest.sh --device-id 10 --model-type isolation_forest --start "2026-05-19 19:20:00" --end "2026-05-19 19:40:00" --label attack_port_sweep
-```
-
-Model artifacts are versioned under `/data/models/archive/` and retained for 14 days by default (`MODEL_REGISTRY_RETENTION_DAYS`). Use `summary.json` from backtests to classify TP/FP/FN/TN for experiment windows. Add `--compare-all` to score the same historical window with the latest artifact for IF, LOF, OCSVM, and Autoencoder.
-
-The device dashboard includes `Historical Model Replay` for offline artifact replay. The `Replay` button re-aggregates historical `traffic_flows` and scores them through the selected current model artifact, so the graph shows how that model would classify past buckets (`risk_score`, `anomaly_score`, `is_anomaly`). The `Model Versions` table also has `Replay` buttons for archived artifacts. This does not modify live device risk tables.
-
-Activate an archived model version for rollback:
-
-```bash
-./scripts/model-activate.sh --model-registry-id 123
-```
-
-The device dashboard also exposes a `Model Versions` panel for listing archived versions and activating a selected artifact without using the CLI.
-
-## Building Images
-
-Images are built automatically via GitHub Actions on push to `images/*`:
-
-```bash
-# .github/workflows/docker-build.yml
-```
-
-Images pushed to: `ghcr.io/kacperjarocki/{image-name}`
-
-Tags: `latest`, `sha-{git-sha}`
-
-## Gateway Constraints (Critical)
-
-- All pods MUST have CPU/memory limits (see below)
-- WiFi AP is managed by the `gateway-agent` container (hostNetwork + privileged)
-- ML training runs every 30 minutes for MVP
-- collector uses hostNetwork mode for direct NIC access
-
-## Resource Limits
-
-| Pod | CPU Request | CPU Limit | Memory |
-|-----|------------|-----------|--------|
-| collector | 100m | 300m | 256Mi |
-| ml-trainer | 100m | 500m | 512Mi |
-| ml-inference | 100m | 300m | 512Mi |
-| gateway-api | 200m | 1000m | 512Mi request / 1024Mi limit |
-| dashboard | 50m | 100m | 128Mi |
-
-## Deployment
-
-### Prerequisites
-
-- K3s cluster with 3 masters + 2 workers
-- Longhorn for persistent storage
-- Traefik ingress controller
-- cert-manager with ClusterIssuer
-- Label gateway worker: `kubectl label node <worker-1> node-role.kubernetes.io/gateway=true`
-
-### Deploy to K3s
-
-```bash
-kubectl apply -k k8s/base
-kubectl apply -k k8s/gateway
-```
-
-Ingress is exposed using standard Kubernetes `Ingress` resources with `ingressClassName: traefik`.
-
-### Enable WiFi AP Control (Required For SSID)
-
-By default `gateway-agent` is deployed with `ENABLE_APPLY=false` (safe mode). This means the SSID will not appear until you enable apply.
-
-Use the production overlay to enable AP control:
-
-```bash
-kubectl apply -k k8s/overlays/gateway-prod
-```
-
-### Local Development
-
-```bash
-docker-compose up --build
-```
-
-Gateway-only services (privileged, may not work on non-Linux hosts):
-
-```bash
-docker-compose --profile gateway up --build
-```
-
-Services:
-- Dashboard: http://localhost:3000
-- API: http://localhost:8080
-- API Docs: http://localhost:8080/docs
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/devices` | GET | List all devices |
-| `/api/v1/devices/{id}` | GET | Get device details |
-| `/api/v1/devices/{id}/traffic` | GET | 24h traffic profile for the device |
-| `/api/v1/devices/{id}/destinations` | GET | Top destinations, ports and DNS queries |
-| `/api/v1/devices/{id}/inference-history` | GET | 7-day inference trail |
-| `/api/v1/devices/{id}/behavior-alerts` | GET | Recent heuristic behavior alerts |
-| `/api/v1/devices/{id}/risk-contributors` | GET | Active ML and heuristic contributors |
-| `/api/v1/devices/{id}/behavior-baseline` | GET | Per-device median and p95 baseline |
-| `/api/v1/devices/{id}/protocol-signals` | GET | DNS failure and ICMP signal summary |
-| `/api/v1/devices/{id}/analysis-export` | GET | Research JSON export: raw flows, feature buckets, optional model replay |
-| `/api/v1/anomalies` | GET | List anomalies |
-| `/api/v1/metrics/summary` | GET | System summary |
-| `/api/v1/metrics/timeline` | GET | Traffic timeline |
-| `/api/v1/metrics/top-talking` | GET | Top talkers |
-| `/api/v1/metrics/ml-status` | GET | ML model readiness status |
-| `/api/v1/gateway/wifi/config` | GET/PUT | Read/update WiFi config |
-| `/api/v1/gateway/wifi/validate` | POST | Validate WiFi config |
-| `/api/v1/gateway/wifi/apply` | POST | Apply WiFi config |
-| `/api/v1/gateway/wifi/rollback` | POST | Rollback to last-known-good |
-| `/api/v1/gateway/wifi/status` | GET | Gateway agent status |
-| `/ws/alerts` | WS | Real-time alerts |
-
-## ML Pipeline
-
-- **Algorithms**: Isolation Forest, LOF, OCSVM, Autoencoder (sklearn/keras) — all 4 trained per device
-- **Primary + Shadow**: `device_model_config.model_type` selects the primary model that drives production `risk_score`/`anomalies`; other models are shadow-scored for research comparison only
-- **Features**: 14 per-device features per 5-min bucket (bytes_sent+received, packets, unique_destinations, unique_ports, dns_queries, avg_bytes/pkt, packet_rate, conn_duration_avg, protocol_entropy, dst_ip_entropy, dns_to_total_ratio, iat_std, dst_port_entropy, risky_port_ratio)
-- **Training**: CronJob every 30 minutes; on-demand via K8s Job
-- **Training window**: 168h (7 days) — catches weekly traffic patterns
-- **Model registry**: current model files are archived under `/data/models/archive/` for rollback/backtesting, default retention 14 days.
-- **Inference**: Batch every 60 seconds in K8s (configurable via `INFERENCE_INTERVAL`)
-- **Risk reset**: stale latest buckets reset active risk after `RISK_STALE_BUCKET_MINUTES` (default 15) instead of repeatedly scoring old attack traffic.
-- **Minimum training samples**: 30 per-device buckets
-- **Adaptive threshold**: contamination = max(0.005, min(configured_contamination, 0.01, 1.0 / samples))
-- **Backward compat**: old 8/12-feature models load correctly (features_count inferred from `features_count` or `n_features_in_`)
-
-## Detection Layers
-
-- **ML primary model**: selected primary model scores the latest closed bucket and drives production anomaly/risk decisions; shadow models are persisted for comparison.
-- **Risk composition**: final `risk_score` is currently ML-only from the selected primary model. Primary anomalies get a calibrated floor and then scale by normalized margin; behavior/protocol alerts remain diagnostic context.
-- **Heuristic alerts** (9 types): `destination_novelty` (≥4 new IPs), `dns_burst` (≥10 queries floor), `port_churn` (high ports AND new ports), `traffic_pattern_drift`, `beaconing_suspected`, `dns_failure_spike`, `dns_nxdomain_burst`, `icmp_sweep_suspected`, `icmp_echo_fanout`.
-- **Bytes direction**: collector splits `frame.len` into `bytes_sent` (outbound, src in LAN) and `bytes_received` (inbound, dst in LAN) — enables exfiltration vs. download distinction.
-- **Protocol signals**: DNS response codes and ICMP metadata enriched by collector for protocol-level heuristics.
-
-## Device Console
-
-- Dashboard device detail pages expose a SOC-style view with traffic profile, inference trail, top destinations, top ports, top DNS queries, behavior alerts, risk contributors, behavior baseline, and protocol signals.
-- The device console also shows a `Risk Breakdown` panel with previous risk, risk delta, contributor status, and the current top reason driving the score.
-
-## Device Presence
-
-- Connected devices are sourced from `dnsmasq` DHCP leases exposed by `gateway-agent`
-- Recent traffic is used as a fallback signal when a lease is missing
-- Dashboard devices may appear even before collector has built a persistent device record
-
-## Troubleshooting
-
-- SSID not visible:
-  - Ensure `k8s/overlays/gateway-prod` is applied (sets `ENABLE_APPLY=true`)
-  - Check `GET /api/v1/gateway/wifi/status` and look for `apply_enabled: true` and `hostapd.running: true`
-
-- collector needs `CAP_NET_ADMIN` + `CAP_NET_RAW` (securityContext)
-- collector uses `hostNetwork: true` + `dnsPolicy: ClusterFirstWithHostNet`
-- collector metrics endpoint is disabled for MVP to avoid conflicts with host-level exporters like `node_exporter`
-- SQLite stored on Longhorn PVC at `/data/iot-security.db`
-- Minimum training samples for MVP are 30 per-device buckets
-
-- Playwright mocked UI tests must stub both dashboard proxy routes (`/api/*`) and any asserted HTMX partial routes (`/partial/*`), because partial HTML is rendered server-side by the dashboard before it reaches the browser
+Built by `.github/workflows/docker-build.yml` and pushed to `ghcr.io/kacperjarocki/<name>` with tags `latest` and `sha-<8 chars>` (multi-arch on `main`, amd64-only build on PRs). Currently only `gateway-agent`.

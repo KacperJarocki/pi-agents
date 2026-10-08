@@ -93,4 +93,64 @@ parity.
 - `MIG-004` Remove SQLite only after parity and recovery tests pass.
 
 `SENSOR-001` is implemented by `scripts/benchmark_capture.py`; its output is
-the required input for the capture-engine implementation decision.
+an optional hardware baseline for the capture-engine implementation decision.
+
+## Event path contract (first opt-in release)
+
+The new pipeline uses `schemas/events/v1/events.proto`. A `FlowEvent` has an
+immutable `event_id` derived from `(gateway_id, capture_sequence)`, packet
+`event_time_unix_millis`, first publish `ingest_time_unix_millis`, and a stable
+`device_key` (gateway ID plus the client MAC when known). Replaying an event
+preserves its ID and timestamps. Flink partitions by `device_key` to keep
+per-device updates ordered; two devices need not share a global order.
+
+| Topic | Key | Initial policy |
+| --- | --- | --- |
+| `traffic.flows.v1` | `gateway_id/device_key` | Delete retention at least training lookback plus replay/outage margin; start at 14 days for a 7-day training lookback. No compaction. |
+| `traffic.flows.dlq.v1` | original `event_id` | Record original bytes, reason and ingestion time for malformed/too-late events; bounded retention (14 days initially). |
+| `traffic.features.v1` | `gateway_id/device_key/horizon_seconds` | Versioned rolling updates; bounded delete retention (7 days initially). |
+| `traffic.detections.v1` | stable `incident_id` | Keep revisions for replay/audit with bounded delete retention (14 days initially); the incident projector stores current state separately. |
+| `traffic.health.v1` | `gateway_id/component` | Bounded health/loss events (14 days initially); report spool exhaustion explicitly. |
+
+Start with a configured partition count for `traffic.flows.v1` that supports
+more than one Flink task; use the same stable key for all events from a given
+device and do not change the hash/partition count without a replay and
+state-migration plan. Kafka guarantees order **within** a partition, not
+event-time order or exactly-once effects at an external database. Configure
+three brokers with replication factor 3 and minimum in-sync replicas 2;
+producers use `acks=all`, idempotence, bounded retries and a durable gateway
+spool until broker acknowledgment. Consumers checkpoint offsets together with
+window state, and the incident projector deduplicates transition IDs in the
+same transaction that updates the incident. On insufficient ISR or broker
+unavailability, the gateway queues locally instead of reporting success.
+
+Retention is independent of consumer progress. Topic/storage quotas and spool
+limits MUST be explicit and monitored; if the backlog reaches its bound, emit a
+health event containing the first/last affected sequence and loss count. A
+longer configured training lookback requires at least that much retained raw
+history (plus recovery margin), or a separately validated archive. Do not
+claim full research coverage when earlier offsets have expired. Record the
+observed queue lag and available retention before extending lookback.
+
+Flink updates the rolling 60- and 900-second views immediately on arrival;
+watermarks and an initial 30-second lateness allowance are for event-time
+corrections, **not** a 30-second hold before first scoring. Events arriving
+within that allowance may revise the same incident; later events are sent to
+the late-event side output/DLQ with reason and identity. Replayed IDs must not
+increment counters twice. Per-device state retains only the maximum horizon
+plus lateness, along with bounded deduplication state; TTL and state-size
+alerts report when evidence is incomplete.
+
+Deterministic ordering example (same device, window at 12:00:03):
+
+| Kafka arrival | Event ID | Packet time | Expected result |
+| --- | --- | --- | --- |
+| 1 | `gw/41` | 12:00:01 | Add once to both horizons. |
+| 2 | `gw/42` | 12:00:03 | Update both horizons and score immediately. |
+| 3 | `gw/41` | 12:00:01 | Duplicate: no counter or incident revision change. |
+| 4 | `gw/40` | 12:00:02 | Out-of-order but within lateness: correct both horizons without a second incident. |
+| 5 | `gw/12` | 11:40:00 | Older than both horizons and allowed lateness: record as late, not as a new detection. |
+
+Use this fixture for replay tests in `SENSOR-005`, `FLINK-002` and
+`FLINK-008`. It illustrates ordering and correction semantics without claiming
+that packet timing or throughput has been measured on the gateway.

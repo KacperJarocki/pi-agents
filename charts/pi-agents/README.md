@@ -91,3 +91,24 @@ state. Before moving from Longhorn to S3, take a verified savepoint, configure
 the new storage backend and credentials, then restore from that savepoint and
 test restart recovery. Leave the Longhorn state intact until restoration is
 confirmed.
+
+## PostgreSQL (CloudNativePG)
+
+`postgres.enabled` creates a two-instance CloudNativePG `Cluster`
+(`<release>-pg`, database and owner `incidents`) on `local-path` volumes with a
+2 GiB limit per instance, required anti-affinity across nodes, and no
+instance on the gateway node. WAL archiving and a daily `ScheduledBackup` go to
+`s3://pi-agents/postgres` on RustFS through the Barman Cloud plugin
+(`ObjectStore` `<release>-pg-backups`, 14-day retention), using the same
+`rustfs-credentials` Secret as Flink.
+
+The CNPG operator (chart 0.29.1) and the Barman Cloud plugin (chart 0.8.0) are
+installed by Flux from `k8s/flux/cnpg-operator-helmrelease.yaml` into
+`cnpg-system`; the plugin needs cert-manager. The `pi-agents` HelmRelease
+waits for the plugin before installing.
+
+```sh
+helm lint charts/pi-agents -f charts/pi-agents/values-postgres.yaml
+helm template pi-agents charts/pi-agents -n iot-security \
+  -f charts/pi-agents/values-postgres.yaml
+```

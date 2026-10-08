@@ -1,0 +1,79 @@
+{{- if .Values.postgres.enabled }}
+{{- $name := printf "%s-pg" (include "pi-agents.fullname" .) }}
+{{- $backup := .Values.postgres.backup }}
+{{- $endpoint := $backup.endpoint | default (printf "http://%s-rustfs:9000" (include "pi-agents.fullname" .)) }}
+{{- $secret := required "postgres.backup.credentialsSecret is required" $backup.credentialsSecret }}
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ $name }}-backups
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  retentionPolicy: {{ $backup.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ printf "s3://%s/%s" $backup.bucket ($backup.prefix | trimAll "/") | quote }}
+    endpointURL: {{ $endpoint | quote }}
+    s3Credentials:
+      accessKeyId:
+        name: {{ $secret | quote }}
+        key: AWS_ACCESS_KEY_ID
+      secretAccessKey:
+        name: {{ $secret | quote }}
+        key: AWS_SECRET_ACCESS_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  instanceSidecarConfiguration:
+    resources:
+      {{- toYaml $backup.sidecarResources | nindent 6 }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgres.instances }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgres.database }}
+      owner: {{ .Values.postgres.owner }}
+  storage:
+    storageClass: {{ .Values.postgres.storage.class | quote }}
+    size: {{ .Values.postgres.storage.size | quote }}
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/gateway
+                operator: DoesNotExist
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ $name }}-backups
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ $name }}-daily
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  cluster:
+    name: {{ $name }}
+  schedule: {{ $backup.schedule | quote }}
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+{{- end }}

@@ -137,6 +137,24 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("operator: DoesNotExist", rustfs)
         self.assertIn("resources:", rustfs)
 
+    def test_postgres_cluster_backs_up_to_rustfs(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        postgres = (chart / "templates" / "postgres.yaml").read_text()
+        flux = (ROOT / "k8s" / "flux" / "kustomization.yaml").read_text()
+        operator = (ROOT / "k8s" / "flux" / "cnpg-operator-helmrelease.yaml").read_text()
+        platform = (ROOT / "k8s" / "flux" / "streaming-platform-helmrelease.yaml").read_text()
+        self.assertIn("instances: 2", values)
+        self.assertIn("kind: Cluster", postgres)
+        self.assertIn("kind: ObjectStore", postgres)
+        self.assertIn("kind: ScheduledBackup", postgres)
+        self.assertIn("barman-cloud.cloudnative-pg.io", postgres)
+        self.assertIn("isWALArchiver: true", postgres)
+        self.assertIn("cnpg-operator-helmrelease.yaml", flux)
+        self.assertIn("chart: cloudnative-pg", operator)
+        self.assertIn("chart: plugin-barman-cloud", operator)
+        self.assertIn("name: barman-cloud", platform)
+
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
         values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()

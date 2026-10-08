@@ -1,0 +1,8 @@
+streaming:
+  enabled: true
+
+rustfs:
+  enabled: true
+
+postgres:
+  enabled: true

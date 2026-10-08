@@ -40,6 +40,11 @@ jobs:
           helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-flink-longhorn.yaml > /tmp/flink-longhorn.yaml
           helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-flink-s3.yaml > /tmp/flink-s3.yaml
 
+      - name: Validate PostgreSQL profile
+        run: |
+          helm lint charts/pi-agents -f charts/pi-agents/values-postgres.yaml
+          helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-postgres.yaml > /tmp/postgres.yaml
+
       - name: Setup kind
         uses: helm/kind-action@v1.10.0
 

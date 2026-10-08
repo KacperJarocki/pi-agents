@@ -10,6 +10,8 @@ spec:
   dependsOn:
     - name: strimzi-operator
       namespace: strimzi-system
+    - name: barman-cloud
+      namespace: cnpg-system
   chart:
     spec:
       chart: ./charts/pi-agents

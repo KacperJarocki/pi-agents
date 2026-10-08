@@ -106,6 +106,40 @@ rustfs:
       cpu: "1"
       memory: 1Gi
 
+# CloudNativePG cluster for incidents; needs the CNPG operator and the
+# Barman Cloud plugin (k8s/flux/cnpg-operator-helmrelease.yaml).
+postgres:
+  enabled: false
+  instances: 2
+  database: incidents
+  owner: incidents
+  storage:
+    class: local-path
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 2Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  backup:
+    # Empty endpoint means the in-chart RustFS service.
+    endpoint: ""
+    bucket: pi-agents
+    prefix: postgres
+    credentialsSecret: rustfs-credentials
+    retentionPolicy: 14d
+    # Six-field cron (seconds first): daily at 03:00.
+    schedule: "0 0 3 * * *"
+    sidecarResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
 clickhouse:
   database: analytics
 

@@ -55,33 +55,56 @@ flink:
   enabled: false
   image: flink:1.20.5-scala_2.12-java17
   version: v1_20
-  taskSlots: 1
+  taskSlots: 2
+  taskManagerReplicas: 2
   checkpoint:
-    backend: longhorn
+    # s3 (RustFS, default) or longhorn (RWX volume).
+    backend: s3
     interval: 10s
     longhorn:
       size: 5Gi
       storageClass: longhorn
     s3:
+      # Empty endpoint means the in-chart RustFS service.
       endpoint: ""
-      bucket: ""
+      bucket: pi-agents
       prefix: flink
-      credentialsSecret: ""
+      credentialsSecret: rustfs-credentials
   smokeJob: false
   jobManager:
     requests:
       cpu: 250m
-      memory: 1024Mi
+      memory: 1536Mi
     limits:
       cpu: "1"
-      memory: 1024Mi
+      memory: 1536Mi
   taskManager:
     requests:
-      cpu: 250m
-      memory: 1024Mi
+      cpu: 500m
+      memory: 2048Mi
+    limits:
+      cpu: "2"
+      memory: 2048Mi
+
+# Single-node S3 store for Flink checkpoints and PostgreSQL backups.
+rustfs:
+  enabled: false
+  image: rustfs/rustfs:1.0.1
+  bootstrapImage: amazon/aws-cli:2.17.0
+  # Secret managed outside Git with keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+  credentialsSecret: rustfs-credentials
+  buckets:
+    - pi-agents
+  storage:
+    class: local-path
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
     limits:
       cpu: "1"
-      memory: 1024Mi
+      memory: 1Gi
 
 clickhouse:
   database: analytics

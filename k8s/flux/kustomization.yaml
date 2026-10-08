@@ -5,3 +5,5 @@ resources:
   - streaming-kustomization.yaml
   - streaming-operator-helmrelease.yaml
   - streaming-platform-helmrelease.yaml
+  - flink-operator-source.yaml
+  - flink-operator-helmrelease.yaml

@@ -121,6 +121,22 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("min.insync.replicas: 2", kafka)
         self.assertIn("eventSchemaVersion: v2", values)
 
+    def test_flink_defaults_to_rustfs_checkpoints(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        rustfs = (chart / "templates" / "rustfs.yaml").read_text()
+        profile = (chart / "values-flink-s3.yaml").read_text()
+        self.assertIn("backend: s3", values)
+        self.assertIn("taskSlots: 2", values)
+        self.assertIn("taskManagerReplicas: 2", values)
+        self.assertIn("credentialsSecret: rustfs-credentials", values)
+        self.assertIn("rustfs:\n  enabled: true", profile)
+        self.assertIn("kind: Deployment", rustfs)
+        self.assertIn("helm.sh/hook: post-install,post-upgrade", rustfs)
+        self.assertIn("secretKeyRef", rustfs)
+        self.assertIn("operator: DoesNotExist", rustfs)
+        self.assertIn("resources:", rustfs)
+
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
         values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()

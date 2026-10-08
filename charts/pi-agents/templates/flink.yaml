@@ -4,10 +4,10 @@
 {{- fail "flink.checkpoint.backend must be longhorn or s3" }}
 {{- end }}
 {{- if eq $backend "s3" }}
-{{- $_ := required "flink.checkpoint.s3.endpoint is required" .Values.flink.checkpoint.s3.endpoint }}
 {{- $_ := required "flink.checkpoint.s3.bucket is required" .Values.flink.checkpoint.s3.bucket }}
 {{- $_ := required "flink.checkpoint.s3.credentialsSecret is required" .Values.flink.checkpoint.s3.credentialsSecret }}
 {{- end }}
+{{- $endpoint := .Values.flink.checkpoint.s3.endpoint | default (printf "http://%s-rustfs:9000" (include "pi-agents.fullname" .)) }}
 {{- $root := "file:///flink-state" }}
 {{- if eq $backend "s3" }}
 {{- $root = printf "s3://%s/%s" .Values.flink.checkpoint.s3.bucket (.Values.flink.checkpoint.s3.prefix | trimAll "/") }}
@@ -45,7 +45,7 @@ spec:
     high-availability.type: kubernetes
     high-availability.storageDir: {{ printf "%s/ha" $root | quote }}
     {{- if eq $backend "s3" }}
-    s3.endpoint: {{ .Values.flink.checkpoint.s3.endpoint | quote }}
+    s3.endpoint: {{ $endpoint | quote }}
     s3.path.style.access: "true"
     {{- end }}
   podTemplate:
@@ -92,6 +92,7 @@ spec:
     resources:
       {{- toYaml .Values.flink.jobManager | nindent 6 }}
   taskManager:
+    replicas: {{ .Values.flink.taskManagerReplicas }}
     resources:
       {{- toYaml .Values.flink.taskManager | nindent 6 }}
   {{- if .Values.flink.smokeJob }}

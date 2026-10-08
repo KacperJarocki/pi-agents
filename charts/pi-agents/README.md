@@ -56,32 +56,35 @@ be ready before enabling the Flink profile in this chart. The Flink 1.20.5
 runtime image includes `linux/arm64`. JobManager and TaskManagers cannot be
 scheduled on the gateway-labeled node, and both have CPU/memory limits.
 
-The initial checkpoint profile uses a **Longhorn RWX** claim mounted at
-`/flink-state` by both pod roles. Checkpoints, savepoints and Kubernetes HA
-metadata use separate subdirectories; this is a shared durable volume, not
-an `emptyDir` or a node-local hostPath. Render and inspect it before
-enabling:
+The default checkpoint backend is **S3 on the in-chart RustFS**
+(`values-flink-s3.yaml` enables both). RustFS runs as one pod on a
+`local-path` volume off the gateway node; a post-install/post-upgrade Job
+creates the buckets listed in `rustfs.buckets`. Create the credentials Secret
+outside Git before enabling it; RustFS, the bucket Job and Flink all read it:
 
 ```sh
-helm lint charts/pi-agents -f charts/pi-agents/values-flink-longhorn.yaml
-helm template pi-agents charts/pi-agents -n iot-security \
-  -f charts/pi-agents/values-flink-longhorn.yaml
+kubectl -n iot-security create secret generic rustfs-credentials \
+  --from-literal=AWS_ACCESS_KEY_ID=<access-key> \
+  --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key>
 ```
 
-For a stateful Flink smoke job, add `--set flink.smokeJob=true` in a test
-release only. The actual detection job replaces the smoke job later.
-
-The `values-flink-s3.yaml` profile illustrates the future **S3-compatible**
-backend (such as RustFS). Set the real endpoint and bucket; create the
-referenced Kubernetes Secret with keys `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` outside Git. The template requires all three values
-and enables the Flink S3 plugin. Render it with:
+With an empty `flink.checkpoint.s3.endpoint` Flink uses
+`http://<release>-rustfs:9000`; set it to point at an external S3 store
+instead. The sizing is 2 TaskManagers × 2 slots (2 GiB each) and a 1.5 GiB
+JobManager, enough for a parallelism-4 job.
 
 ```sh
 helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
 helm template pi-agents charts/pi-agents -n iot-security \
   -f charts/pi-agents/values-flink-s3.yaml
 ```
+
+The **Longhorn RWX** profile (`values-flink-longhorn.yaml`) mounts a shared
+claim at `/flink-state` in both pod roles instead. Checkpoints, savepoints and
+Kubernetes HA metadata use separate subdirectories in either backend.
+
+For a stateful Flink smoke job, add `--set flink.smokeJob=true` in a test
+release only. The actual detection job replaces the smoke job later.
 
 Changing the checkpoint URI of a running stateful job does not migrate its
 state. Before moving from Longhorn to S3, take a verified savepoint, configure

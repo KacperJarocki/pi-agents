@@ -1,0 +1,53 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: flink-operator
+  namespace: iot-security
+  labels:
+    app.kubernetes.io/part-of: pi-agents
+spec:
+  suspend: true
+  interval: 10m
+  chart:
+    spec:
+      chart: flink-kubernetes-operator
+      version: 1.16.1
+      sourceRef:
+        kind: HelmRepository
+        name: flink-operator
+        namespace: flux-system
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    watchNamespaces:
+      - iot-security
+    image:
+      tag: 1.16.1
+    operatorPod:
+      resources:
+        requests:
+          cpu: 150m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/gateway
+                    operator: DoesNotExist
+      webhook:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi

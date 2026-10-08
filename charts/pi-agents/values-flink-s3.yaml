@@ -1,0 +1,15 @@
+streaming:
+  enabled: true
+
+kafka:
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+
+flink:
+  enabled: true
+  checkpoint:
+    backend: s3
+    s3:
+      endpoint: http://rustfs.iot-security.svc.cluster.local:9000
+      bucket: pi-agents
+      prefix: flink
+      credentialsSecret: flink-s3-credentials

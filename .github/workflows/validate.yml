@@ -31,6 +31,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate Flink checkpoint profiles
+        run: |
+          helm lint charts/pi-agents -f charts/pi-agents/values-flink-longhorn.yaml
+          helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
+          helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-flink-longhorn.yaml > /tmp/flink-longhorn.yaml
+          helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-flink-s3.yaml > /tmp/flink-s3.yaml
+
       - name: Setup kind
         uses: helm/kind-action@v1.10.0
 

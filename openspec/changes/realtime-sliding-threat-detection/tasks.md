@@ -12,7 +12,7 @@
 - [x] 2.2 Delete `images/{collector,ml-pipeline,gateway-api,dashboard}`, their `k8s/gateway` manifests, the SQLite/model PVCs in `k8s/base`, and their `docker-compose.yml` services and volumes; keep `gateway-agent` and `k8s/overlays/gateway-prod`. Verify that `kubectl kustomize k8s/gateway` and `kubectl kustomize k8s/overlays/gateway-prod` render only `gateway-agent` resources and `docker compose config` succeeds.
 - [x] 2.3 Delete the tests that import or assert on removed images, the legacy Playwright specs and fixtures in `tests/ui` (keeping the harness), and the matching `validate.yml` steps and `docker-build.yml` matrix entries. Verify with `python -m compileall -q images` and `python -m unittest discover -v` passing locally, and green CI on the PR.
 - [x] 2.4 Rewrite `AGENTS.md`, `CLAUDE.md` and `README.md` for the streaming system and `gateway-agent` only. Verify that `grep -rnE "collector|ml-pipeline|gateway-api|images/dashboard|SQLite" AGENTS.md CLAUDE.md README.md` returns only intentional historical references to `thesis-final`.
-- [ ] 2.5 Remove the legacy workloads from the cluster (`kubectl delete` of the removed manifests, then the PVCs). Verify that `kubectl get all,pvc -n iot-security` shows only `gateway-agent` and streaming resources.
+- [x] 2.5 Remove the legacy workloads from the cluster (`kubectl delete` of the removed manifests, then the PVCs). Verify that `kubectl get all,pvc -n iot-security` shows only `gateway-agent` and streaming resources.
 
 ## 3. Platform
 

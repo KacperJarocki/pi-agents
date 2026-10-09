@@ -7,6 +7,9 @@ metadata:
     app.kubernetes.io/part-of: pi-agents
 spec:
   interval: 5m
+  # Rolling three Kafka brokers (and waiting for the Kafka CR to be Ready)
+  # takes longer than Helm's default 5 minutes.
+  timeout: 20m
   dependsOn:
     - name: strimzi-operator
       namespace: strimzi-system
@@ -27,6 +30,9 @@ spec:
   upgrade:
     remediation:
       retries: 3
+      # Do not roll back a timed-out Kafka roll; a rollback restarts every
+      # broker again and reverts placement changes.
+      remediateLastFailure: false
   values:
     streaming:
       enabled: true

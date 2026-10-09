@@ -1,0 +1,122 @@
+{
+  "Envelope": {
+    "event_id": 1,
+    "schema_version": 2,
+    "gateway_id": 3,
+    "device_key": 4,
+    "event_time_unix_millis": 5,
+    "ingest_time_unix_millis": 6,
+    "trace_id": 7
+  },
+  "FlowEvent": {
+    "envelope": 1,
+    "capture_sequence": 2,
+    "device_mac": 3,
+    "src_ip": 4,
+    "dst_ip": 5,
+    "src_port": 6,
+    "dst_port": 7,
+    "protocol": 8,
+    "direction": 9,
+    "first_packet_time_unix_micros": 10,
+    "last_packet_time_unix_micros": 11,
+    "packets_from_device": 12,
+    "packets_to_device": 13,
+    "bytes_from_device": 14,
+    "bytes_to_device": 15,
+    "tcp_syn": 16,
+    "tcp_syn_ack": 17,
+    "tcp_rst": 18,
+    "tcp_fin": 19,
+    "attempt_outcome": 20,
+    "dns_query": 21,
+    "continuation": 22
+  },
+  "FeatureUpdate": {
+    "envelope": 1,
+    "horizon_seconds": 2,
+    "window_end_unix_millis": 3,
+    "feature_version": 4,
+    "features": 5
+  },
+  "HorizonEvidence": {
+    "horizon_seconds": 1,
+    "value": 2,
+    "open_threshold": 3,
+    "over_threshold": 4
+  },
+  "DetectionTransition": {
+    "envelope": 1,
+    "transition_id": 2,
+    "incident_id": 3,
+    "revision": 4,
+    "status": 5,
+    "threat_family": 6,
+    "rule_id": 7,
+    "rule_version": 8,
+    "severity": 9,
+    "horizons": 10,
+    "evidence_event_time_unix_millis": 11,
+    "detected_at_unix_millis": 12,
+    "episode_start_unix_millis": 13,
+    "sample_event_ids": 14,
+    "feature_version": 15,
+    "evidence_ingest_time_unix_millis": 16
+  },
+  "HealthEvent": {
+    "envelope": 1,
+    "component": 2,
+    "kind": 3,
+    "count": 4,
+    "first_sequence": 5,
+    "last_sequence": 6,
+    "first_event_time_unix_millis": 7,
+    "last_event_time_unix_millis": 8,
+    "detail": 9
+  },
+  "Protocol": {
+    "PROTOCOL_UNSPECIFIED": 0,
+    "PROTOCOL_TCP": 1,
+    "PROTOCOL_UDP": 2,
+    "PROTOCOL_ICMP": 3,
+    "PROTOCOL_ICMPV6": 4,
+    "PROTOCOL_OTHER": 15
+  },
+  "Direction": {
+    "DIRECTION_UNSPECIFIED": 0,
+    "DIRECTION_OUTBOUND": 1,
+    "DIRECTION_INBOUND": 2
+  },
+  "AttemptOutcome": {
+    "ATTEMPT_OUTCOME_UNSPECIFIED": 0,
+    "ATTEMPT_OUTCOME_NOT_APPLICABLE": 1,
+    "ATTEMPT_OUTCOME_ESTABLISHED": 2,
+    "ATTEMPT_OUTCOME_REJECTED": 3,
+    "ATTEMPT_OUTCOME_UNANSWERED": 4
+  },
+  "ThreatFamily": {
+    "THREAT_FAMILY_UNSPECIFIED": 0,
+    "THREAT_FAMILY_PORT_SCAN": 1
+  },
+  "TransitionStatus": {
+    "TRANSITION_STATUS_UNSPECIFIED": 0,
+    "TRANSITION_STATUS_OPEN": 1,
+    "TRANSITION_STATUS_UPDATE": 2,
+    "TRANSITION_STATUS_REOPEN": 3,
+    "TRANSITION_STATUS_RESOLVE": 4
+  },
+  "Severity": {
+    "SEVERITY_UNSPECIFIED": 0,
+    "SEVERITY_LOW": 1,
+    "SEVERITY_MEDIUM": 2,
+    "SEVERITY_HIGH": 3
+  },
+  "HealthKind": {
+    "HEALTH_KIND_UNSPECIFIED": 0,
+    "HEALTH_KIND_HEARTBEAT": 1,
+    "HEALTH_KIND_SPOOL_LOSS": 2,
+    "HEALTH_KIND_UNATTRIBUTED": 3,
+    "HEALTH_KIND_LATE_EVENTS": 4,
+    "HEALTH_KIND_FLOW_TABLE_EVICTION": 5
+  }
+}

@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package pi_agents.events.v2;
+
+option java_multiple_files = true;
+option java_package = "io.piagents.events.v2";
+
+// Streaming event contract. Consumers must tolerate enum values they do not
+// know; producers must never renumber or retype an existing field or value.
+
+message Envelope {
+  // Flow events: "<gateway_id>/<capture_sequence>". Other events: a
+  // deterministic ID derived from their content (for example transition_id).
+  string event_id = 1;
+  string schema_version = 2;
+  string gateway_id = 3;
+  // "<gateway_id>:<client mac>"; empty for gateway-level events.
+  string device_key = 4;
+  // Observation time of the evidence (last packet for flows).
+  int64 event_time_unix_millis = 5;
+  // First time the producer attempted to publish; preserved on redelivery.
+  int64 ingest_time_unix_millis = 6;
+  string trace_id = 7;
+}
+
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_TCP = 1;
+  PROTOCOL_UDP = 2;
+  PROTOCOL_ICMP = 3;
+  PROTOCOL_ICMPV6 = 4;
+  PROTOCOL_OTHER = 15;
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  // The device initiated the micro-flow.
+  DIRECTION_OUTBOUND = 1;
+  // A remote endpoint initiated the micro-flow towards the device.
+  DIRECTION_INBOUND = 2;
+}
+
+enum AttemptOutcome {
+  ATTEMPT_OUTCOME_UNSPECIFIED = 0;
+  ATTEMPT_OUTCOME_NOT_APPLICABLE = 1;
+  ATTEMPT_OUTCOME_ESTABLISHED = 2;
+  // The responder answered the attempt with RST (TCP) or an ICMP unreachable.
+  ATTEMPT_OUTCOME_REJECTED = 3;
+  // No answer had been seen when the micro-flow was flushed. A later event
+  // for the same 5-tuple may supersede this outcome.
+  ATTEMPT_OUTCOME_UNANSWERED = 4;
+}
+
+// One micro-flow: packets of a 5-tuple observed within at most one second.
+message FlowEvent {
+  Envelope envelope = 1;
+  uint64 capture_sequence = 2;
+  string device_mac = 3;
+  string src_ip = 4;
+  string dst_ip = 5;
+  uint32 src_port = 6;
+  uint32 dst_port = 7;
+  Protocol protocol = 8;
+  Direction direction = 9;
+  int64 first_packet_time_unix_micros = 10;
+  int64 last_packet_time_unix_micros = 11;
+  uint32 packets_from_device = 12;
+  uint32 packets_to_device = 13;
+  uint64 bytes_from_device = 14;
+  uint64 bytes_to_device = 15;
+  uint32 tcp_syn = 16;
+  uint32 tcp_syn_ack = 17;
+  uint32 tcp_rst = 18;
+  uint32 tcp_fin = 19;
+  AttemptOutcome attempt_outcome = 20;
+  string dns_query = 21;
+  // True when an earlier event already reported this 5-tuple.
+  bool continuation = 22;
+}
+
+message FeatureUpdate {
+  Envelope envelope = 1;
+  uint32 horizon_seconds = 2;
+  int64 window_end_unix_millis = 3;
+  string feature_version = 4;
+  map<string, double> features = 5;
+}
+
+enum ThreatFamily {
+  THREAT_FAMILY_UNSPECIFIED = 0;
+  THREAT_FAMILY_PORT_SCAN = 1;
+}
+
+enum TransitionStatus {
+  TRANSITION_STATUS_UNSPECIFIED = 0;
+  TRANSITION_STATUS_OPEN = 1;
+  TRANSITION_STATUS_UPDATE = 2;
+  TRANSITION_STATUS_REOPEN = 3;
+  TRANSITION_STATUS_RESOLVE = 4;
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_LOW = 1;
+  SEVERITY_MEDIUM = 2;
+  SEVERITY_HIGH = 3;
+}
+
+message HorizonEvidence {
+  uint32 horizon_seconds = 1;
+  double value = 2;
+  double open_threshold = 3;
+  bool over_threshold = 4;
+}
+
+message DetectionTransition {
+  Envelope envelope = 1;
+  // "<incident_id>:<revision>"; the idempotency key for projectors.
+  string transition_id = 2;
+  // Stable for the whole episode, including reopen within the cooldown.
+  string incident_id = 3;
+  uint64 revision = 4;
+  TransitionStatus status = 5;
+  ThreatFamily threat_family = 6;
+  string rule_id = 7;
+  string rule_version = 8;
+  Severity severity = 9;
+  repeated HorizonEvidence horizons = 10;
+  int64 evidence_event_time_unix_millis = 11;
+  int64 detected_at_unix_millis = 12;
+  int64 episode_start_unix_millis = 13;
+  // Bounded sample of supporting flow event IDs.
+  repeated string sample_event_ids = 14;
+  string feature_version = 15;
+  // Ingest time of the evidence-completing flow, for latency accounting.
+  int64 evidence_ingest_time_unix_millis = 16;
+}
+
+enum HealthKind {
+  HEALTH_KIND_UNSPECIFIED = 0;
+  HEALTH_KIND_HEARTBEAT = 1;
+  HEALTH_KIND_SPOOL_LOSS = 2;
+  HEALTH_KIND_UNATTRIBUTED = 3;
+  HEALTH_KIND_LATE_EVENTS = 4;
+  HEALTH_KIND_FLOW_TABLE_EVICTION = 5;
+}
+
+message HealthEvent {
+  Envelope envelope = 1;
+  string component = 2;
+  HealthKind kind = 3;
+  uint64 count = 4;
+  uint64 first_sequence = 5;
+  uint64 last_sequence = 6;
+  int64 first_event_time_unix_millis = 7;
+  int64 last_event_time_unix_millis = 8;
+  string detail = 9;
+}

@@ -1,0 +1,105 @@
+{{- if .Values.flink.enabled }}
+{{- $backend := .Values.flink.checkpoint.backend }}
+{{- if not (has $backend (list "longhorn" "s3")) }}
+{{- fail "flink.checkpoint.backend must be longhorn or s3" }}
+{{- end }}
+{{- if eq $backend "s3" }}
+{{- $_ := required "flink.checkpoint.s3.bucket is required" .Values.flink.checkpoint.s3.bucket }}
+{{- $_ := required "flink.checkpoint.s3.credentialsSecret is required" .Values.flink.checkpoint.s3.credentialsSecret }}
+{{- end }}
+{{- $endpoint := .Values.flink.checkpoint.s3.endpoint | default (printf "http://%s-rustfs:9000" (include "pi-agents.fullname" .)) }}
+{{- $root := "file:///flink-state" }}
+{{- if eq $backend "s3" }}
+{{- $root = printf "s3://%s/%s" .Values.flink.checkpoint.s3.bucket (.Values.flink.checkpoint.s3.prefix | trimAll "/") }}
+{{- end }}
+{{- if eq $backend "longhorn" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pi-agents.fullname" . }}-flink-state
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: {{ .Values.flink.checkpoint.longhorn.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.flink.checkpoint.longhorn.size | quote }}
+---
+{{- end }}
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: {{ include "pi-agents.fullname" . }}-flink
+  labels:
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  image: {{ .Values.flink.image | quote }}
+  flinkVersion: {{ .Values.flink.version }}
+  serviceAccount: flink
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: {{ .Values.flink.taskSlots | quote }}
+    execution.checkpointing.interval: {{ .Values.flink.checkpoint.interval | quote }}
+    state.checkpoints.dir: {{ printf "%s/checkpoints" $root | quote }}
+    state.savepoints.dir: {{ printf "%s/savepoints" $root | quote }}
+    high-availability.type: kubernetes
+    high-availability.storageDir: {{ printf "%s/ha" $root | quote }}
+    {{- if eq $backend "s3" }}
+    s3.endpoint: {{ $endpoint | quote }}
+    s3.path.style.access: "true"
+    {{- end }}
+  podTemplate:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/gateway
+                    operator: DoesNotExist
+      securityContext:
+        runAsUser: 9999
+        runAsGroup: 9999
+        fsGroup: 9999
+      containers:
+        - name: flink-main-container
+          {{- if eq $backend "longhorn" }}
+          volumeMounts:
+            - name: flink-state
+              mountPath: /flink-state
+          {{- else }}
+          env:
+            - name: ENABLE_BUILT_IN_PLUGINS
+              value: flink-s3-fs-hadoop-1.20.5.jar
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.flink.checkpoint.s3.credentialsSecret | quote }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.flink.checkpoint.s3.credentialsSecret | quote }}
+                  key: AWS_SECRET_ACCESS_KEY
+          {{- end }}
+      {{- if eq $backend "longhorn" }}
+      volumes:
+        - name: flink-state
+          persistentVolumeClaim:
+            claimName: {{ include "pi-agents.fullname" . }}-flink-state
+      {{- end }}
+  jobManager:
+    resources:
+      {{- toYaml .Values.flink.jobManager | nindent 6 }}
+  taskManager:
+    replicas: {{ .Values.flink.taskManagerReplicas }}
+    resources:
+      {{- toYaml .Values.flink.taskManager | nindent 6 }}
+  {{- if .Values.flink.smokeJob }}
+  job:
+    jarURI: local:///opt/flink/examples/streaming/StateMachineExample.jar
+    parallelism: 1
+    upgradeMode: last-state
+    state: running
+  {{- end }}
+{{- end }}

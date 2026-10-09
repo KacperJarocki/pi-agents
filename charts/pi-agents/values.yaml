@@ -1,6 +1,6 @@
 streaming:
   enabled: false
-  eventSchemaVersion: v1
+  eventSchemaVersion: v2
 
 externalServices:
   existingSecret: ""
@@ -21,13 +21,124 @@ kafka:
     type: persistent-claim
     class: local-path
     size: 2Gi
+  # Brokers never run on nodes carrying this label with value "true".
+  excludeNodeLabel: node-role.kubernetes.io/gateway
+  jvmOptions:
+    -Xms: 768m
+    -Xmx: 768m
   resources:
     requests:
       cpu: 250m
+      memory: 1536Mi
+    limits:
+      cpu: "1"
+      memory: 1536Mi
+  # Changing the partition count of traffic.flows.v2 requires a replay plan.
+  topics:
+    - name: traffic.flows.v2
+      partitions: 6
+      retentionMs: 1209600000   # 14 days
+    - name: traffic.features.v2
+      partitions: 6
+      retentionMs: 259200000    # 3 days
+    - name: traffic.detections.v2
+      partitions: 3
+      retentionMs: 2592000000   # 30 days
+    - name: traffic.health.v2
+      partitions: 1
+      retentionMs: 1209600000   # 14 days
+    - name: traffic.late.v2
+      partitions: 1
+      retentionMs: 604800000    # 7 days
+
+flink:
+  enabled: false
+  image: flink:1.20.5-scala_2.12-java17
+  version: v1_20
+  taskSlots: 2
+  taskManagerReplicas: 2
+  checkpoint:
+    # s3 (RustFS, default) or longhorn (RWX volume).
+    backend: s3
+    interval: 10s
+    longhorn:
+      size: 5Gi
+      storageClass: longhorn
+    s3:
+      # Empty endpoint means the in-chart RustFS service.
+      endpoint: ""
+      bucket: pi-agents
+      prefix: flink
+      credentialsSecret: rustfs-credentials
+  smokeJob: false
+  jobManager:
+    requests:
+      cpu: 250m
+      memory: 1536Mi
+    limits:
+      cpu: "1"
+      memory: 1536Mi
+  taskManager:
+    requests:
+      cpu: 500m
+      memory: 2048Mi
+    limits:
+      cpu: "2"
+      memory: 2048Mi
+
+# Single-node S3 store for Flink checkpoints and PostgreSQL backups.
+rustfs:
+  enabled: false
+  image: rustfs/rustfs:1.0.1
+  bootstrapImage: amazon/aws-cli:2.17.0
+  # Secret managed outside Git with keys AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+  credentialsSecret: rustfs-credentials
+  buckets:
+    - pi-agents
+  storage:
+    class: local-path
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
       memory: 512Mi
     limits:
-      cpu: 750m
-      memory: 768Mi
+      cpu: "1"
+      memory: 1Gi
+
+# CloudNativePG cluster for incidents; needs the CNPG operator and the
+# Barman Cloud plugin (k8s/flux/cnpg-operator-helmrelease.yaml).
+postgres:
+  enabled: false
+  instances: 2
+  database: incidents
+  owner: incidents
+  storage:
+    class: local-path
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 2Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  backup:
+    # Empty endpoint means the in-chart RustFS service.
+    endpoint: ""
+    bucket: pi-agents
+    prefix: postgres
+    credentialsSecret: rustfs-credentials
+    retentionPolicy: 14d
+    # Six-field cron (seconds first): daily at 03:00.
+    schedule: "0 0 3 * * *"
+    sidecarResources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
 
 clickhouse:
   database: analytics

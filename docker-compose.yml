@@ -1,74 +1,6 @@
 version: '3.8'
 
 services:
-  gateway-api:
-    build: ./images/gateway-api
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_PATH=/data/iot-security.db
-      - LOG_LEVEL=info
-      - GATEWAY_AGENT_URL=http://gateway-agent:7000
-    volumes:
-      - sqlite-data:/data
-      - model-data:/data/models
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  collector:
-    build: ./images/collector
-    profiles: ["gateway"]
-    network_mode: host
-    privileged: true
-    environment:
-      - DATABASE_PATH=/data/iot-security.db
-      - INTERFACE=wlan0
-      - BATCH_SIZE=100
-      - FLUSH_INTERVAL=5
-    volumes:
-      - sqlite-data:/data
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-
-  ml-trainer:
-    build: ./images/ml-pipeline
-    command: ["python", "-m", "app.train"]
-    environment:
-      - DATABASE_PATH=/data/iot-security.db
-      - MODEL_PATH=/data/models
-    volumes:
-      - sqlite-data:/data
-      - model-data:/data/models
-    restart: on-failure
-
-  ml-inference:
-    build: ./images/ml-pipeline
-    command: ["python", "-m", "app.inference"]
-    environment:
-      - DATABASE_PATH=/data/iot-security.db
-      - MODEL_PATH=/data/models
-      - INFERENCE_INTERVAL=300
-    volumes:
-      - sqlite-data:/data
-      - model-data:/data/models
-    depends_on:
-      - ml-trainer
-    restart: unless-stopped
-
-  dashboard:
-    build: ./images/dashboard
-    ports:
-      - "3000:8080"
-    environment:
-      - GATEWAY_API_URL=http://gateway-api:8080
-      - REFRESH_INTERVAL=30
-    depends_on:
-      - gateway-api
-
   gateway-agent:
     build: ./images/gateway-agent
     profiles: ["gateway"]
@@ -81,6 +13,4 @@ services:
       - gateway-agent-state:/data
 
 volumes:
-  sqlite-data:
-  model-data:
   gateway-agent-state:

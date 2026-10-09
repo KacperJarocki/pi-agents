@@ -1,0 +1,11 @@
+streaming:
+  enabled: true
+
+kafka:
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+
+rustfs:
+  enabled: true
+
+flink:
+  enabled: true

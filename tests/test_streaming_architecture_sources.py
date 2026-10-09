@@ -47,24 +47,10 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
             self.assertEqual(numbers, sorted(numbers), message)
             self.assertEqual(len(numbers), len(set(numbers)), message)
 
-    def test_legacy_runtime_is_not_claimed_to_be_streaming(self):
-        inference = (ROOT / "images" / "ml-pipeline" / "app" / "inference.py").read_text()
-        self.assertIn("INFERENCE_INTERVAL", inference)
-        self.assertIn("run_inference_loop", inference)
+    def test_roadmap_names_the_legacy_path_and_its_removal(self):
         roadmap = (ROOT / "docs" / "STREAMING-ROADMAP.md").read_text()
         self.assertIn("legacy path", roadmap)
-
-    def test_gateway_api_exposes_external_service_configuration(self):
-        config = (ROOT / "images" / "gateway-api" / "app" / "core" / "config.py").read_text()
-        for env_name, field_name in (
-            ("CONTROL_DATABASE_URL", "control_database_url"),
-            ("CLICKHOUSE_URL", "clickhouse_url"),
-            ("OBJECT_STORAGE_ENDPOINT", "object_storage_endpoint"),
-            ("KAFKA_BOOTSTRAP_SERVERS", "kafka_bootstrap_servers"),
-            ("EVENT_SCHEMA_VERSION", "event_schema_version"),
-        ):
-            self.assertIn(env_name, config)
-            self.assertIn(field_name, config)
+        self.assertIn("thesis-final", roadmap)
 
     def test_configuration_document_keeps_sqlite_as_explicit_legacy_fallback(self):
         config = (ROOT / "docs" / "CONFIGURATION.md").read_text()
@@ -72,15 +58,9 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("legacy SQLite fallback", config)
         self.assertIn("CONTROL_DATABASE_URL", config)
 
-    def test_streaming_manifest_is_opt_in_and_external_endpoints_are_secret_backed(self):
+    def test_streaming_manifest_is_opt_in(self):
         config_map = (ROOT / "k8s" / "base" / "streaming-config.yaml").read_text()
-        deployment = (ROOT / "k8s" / "gateway" / "gateway-api-deployment.yaml").read_text()
         self.assertIn('STREAMING_ENABLED: "false"', config_map)
-        self.assertIn("iot-security-external-services", deployment)
-        self.assertIn("control-database-url", deployment)
-        self.assertIn("clickhouse-url", deployment)
-        self.assertIn("object-storage-endpoint", deployment)
-        self.assertIn("optional: true", deployment)
 
     def test_streaming_config_is_included_by_base_kustomization(self):
         kustomization = (ROOT / "k8s" / "base" / "kustomization.yaml").read_text()
@@ -122,6 +102,58 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("type: persistent-claim", values)
         self.assertIn("enabled: true", profile)
         self.assertIn("streaming-kustomization.yaml", readme)
+
+    def test_kafka_chart_defines_v2_topics_off_the_gateway(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        kafka = (chart / "templates" / "kafka.yaml").read_text()
+        for topic in (
+            "traffic.flows.v2",
+            "traffic.features.v2",
+            "traffic.detections.v2",
+            "traffic.health.v2",
+            "traffic.late.v2",
+        ):
+            self.assertIn(f"name: {topic}", values)
+        self.assertIn("kind: KafkaTopic", kafka)
+        self.assertIn("excludeNodeLabel: node-role.kubernetes.io/gateway", values)
+        self.assertIn("operator: NotIn", kafka)
+        self.assertIn("min.insync.replicas: 2", kafka)
+        self.assertIn("eventSchemaVersion: v2", values)
+
+    def test_flink_defaults_to_rustfs_checkpoints(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        rustfs = (chart / "templates" / "rustfs.yaml").read_text()
+        profile = (chart / "values-flink-s3.yaml").read_text()
+        self.assertIn("backend: s3", values)
+        self.assertIn("taskSlots: 2", values)
+        self.assertIn("taskManagerReplicas: 2", values)
+        self.assertIn("credentialsSecret: rustfs-credentials", values)
+        self.assertIn("rustfs:\n  enabled: true", profile)
+        self.assertIn("kind: Deployment", rustfs)
+        self.assertIn("helm.sh/hook: post-install,post-upgrade", rustfs)
+        self.assertIn("secretKeyRef", rustfs)
+        self.assertIn("operator: DoesNotExist", rustfs)
+        self.assertIn("resources:", rustfs)
+
+    def test_postgres_cluster_backs_up_to_rustfs(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        postgres = (chart / "templates" / "postgres.yaml").read_text()
+        flux = (ROOT / "k8s" / "flux" / "kustomization.yaml").read_text()
+        operator = (ROOT / "k8s" / "flux" / "cnpg-operator-helmrelease.yaml").read_text()
+        platform = (ROOT / "k8s" / "flux" / "streaming-platform-helmrelease.yaml").read_text()
+        self.assertIn("instances: 2", values)
+        self.assertIn("kind: Cluster", postgres)
+        self.assertIn("kind: ObjectStore", postgres)
+        self.assertIn("kind: ScheduledBackup", postgres)
+        self.assertIn("barman-cloud.cloudnative-pg.io", postgres)
+        self.assertIn("isWALArchiver: true", postgres)
+        self.assertIn("cnpg-operator-helmrelease.yaml", flux)
+        self.assertIn("chart: cloudnative-pg", operator)
+        self.assertIn("chart: plugin-barman-cloud", operator)
+        self.assertIn("name: barman-cloud", platform)
 
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()

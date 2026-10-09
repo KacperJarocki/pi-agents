@@ -1,0 +1,10 @@
+streaming:
+  enabled: true
+
+kafka:
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+
+flink:
+  enabled: true
+  checkpoint:
+    backend: longhorn

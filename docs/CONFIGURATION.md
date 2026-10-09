@@ -13,7 +13,7 @@ SQLite fallback while the migration is in dual-run mode.
 | `OBJECT_STORAGE_ENDPOINT` | RustFS/S3-compatible endpoint | Yes for PCAP/checkpoints |
 | `OBJECT_STORAGE_BUCKET` | Object storage bucket/prefix root | No, defaults to `pi-agents` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker list | Yes for event streaming |
-| `EVENT_SCHEMA_VERSION` | Protobuf event contract version | No, defaults to `v1` |
+| `EVENT_SCHEMA_VERSION` | Protobuf event contract version | No, defaults to `v2` |
 
 The application must not infer whether a service is internal or external from
 its hostname. Helm values or environment injection own that decision.

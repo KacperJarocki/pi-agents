@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package pi_agents.events.v1;
+
+option java_multiple_files = true;
+option java_package = "io.piagents.events.v1";
+
+// Frozen v1 contract: changes to events.proto must remain compatible with this schema.
+message EventEnvelope {
+  string event_id = 1;
+  string event_type = 2;
+  string schema_version = 3;
+  int64 event_time_unix_millis = 4;
+  int64 ingest_time_unix_millis = 5;
+  string gateway_id = 6;
+  string device_key = 7;
+  string trace_id = 8;
+  uint64 capture_sequence = 9;
+}
+
+message FlowEvent {
+  EventEnvelope envelope = 1;
+  string src_ip = 2;
+  string dst_ip = 3;
+  uint32 src_port = 4;
+  uint32 dst_port = 5;
+  string protocol = 6;
+  string direction = 7;
+  uint64 bytes_sent = 8;
+  uint64 bytes_received = 9;
+  uint32 packets = 10;
+  uint32 duration_ms = 11;
+  string dns_query = 12;
+  map<string, string> metadata = 13;
+}
+
+message FeatureVector {
+  EventEnvelope envelope = 1;
+  int64 bucket_start_unix_millis = 2;
+  int64 bucket_end_unix_millis = 3;
+  map<string, double> features = 4;
+}
+
+message Detection {
+  EventEnvelope envelope = 1;
+  string detection_id = 2;
+  string rule_id = 3;
+  string severity = 4;
+  double score = 5;
+  string title = 6;
+  string description = 7;
+  repeated string source_event_ids = 8;
+  map<string, string> evidence = 9;
+}
+
+message CaptureObject {
+  EventEnvelope envelope = 1;
+  string object_uri = 2;
+  string sha256 = 3;
+  uint64 size_bytes = 4;
+  int64 capture_start_unix_millis = 5;
+  int64 capture_end_unix_millis = 6;
+  string content_type = 7;
+}

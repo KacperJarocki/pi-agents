@@ -5,3 +5,8 @@ resources:
   - streaming-kustomization.yaml
   - streaming-operator-helmrelease.yaml
   - streaming-platform-helmrelease.yaml
+  - flink-operator-source.yaml
+  - flink-operator-helmrelease.yaml
+  - cnpg-namespace.yaml
+  - cnpg-source.yaml
+  - cnpg-operator-helmrelease.yaml

@@ -23,6 +23,8 @@ public class FlowRecord {
   /** {@code AttemptOutcome} enum number from the v2 contract. */
   public int attemptOutcome;
   public boolean continuation;
+  public long bytesFromDevice;
+  public long bytesToDevice;
   /** Set by the deserializer when the bytes are not a usable FlowEvent. */
   public String malformedReason;
   public byte[] raw = new byte[0];
@@ -43,6 +45,8 @@ public class FlowRecord {
     r.direction = event.getDirectionValue();
     r.attemptOutcome = event.getAttemptOutcomeValue();
     r.continuation = event.getContinuation();
+    r.bytesFromDevice = event.getBytesFromDevice();
+    r.bytesToDevice = event.getBytesToDevice();
     r.raw = raw;
     return r;
   }

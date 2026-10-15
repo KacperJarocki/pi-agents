@@ -27,8 +27,11 @@ class IngestTest {
   private static Result run(List<FlowRecord> input) throws Exception {
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     env.setParallelism(1);
+    env.getConfig().disableGenericTypes();
     DataStream<FlowRecord> flows = env.fromData(FlowRecord.class, input.toArray(new FlowRecord[0]));
     DetectionJob.Ingest ingest = DetectionJob.ingest(flows, DetectionJob.DEFAULT_LATENESS);
+    // Exercise the full keyed pipeline (views state) under disabled generic types.
+    DetectionJob.views(ingest.accepted()).collectAsync();
     Iterator<FlowRecord> accepted = ingest.accepted().collectAsync();
     Iterator<LateEvent> late = ingest.late().collectAsync();
     env.execute("ingest-test");

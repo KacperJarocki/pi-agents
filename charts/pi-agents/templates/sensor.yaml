@@ -1,0 +1,103 @@
+{{- if .Values.sensor.enabled }}
+{{- $bootstrap := .Values.sensor.kafkaBootstrap | default .Values.kafka.bootstrapServers | default (printf "%s-kafka-bootstrap:9092" .Values.kafka.name) }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "pi-agents.fullname" . }}-sensor
+  labels:
+    app.kubernetes.io/component: sensor
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: sensor
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: sensor
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      # Only the Wi-Fi gateway sees device traffic.
+      nodeSelector:
+        node-role.kubernetes.io/gateway: "true"
+      # Capture on the AP interface of the host; resolve cluster services.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: sensor
+          image: "{{ .Values.sensor.image.repository }}:{{ .Values.sensor.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GATEWAY_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          args:
+            - --interface
+            - {{ .Values.sensor.interface | quote }}
+            - --leases
+            - /leases/dnsmasq.leases
+            - --kafka
+            - {{ $bootstrap | quote }}
+            - --gateway-id
+            - $(GATEWAY_ID)
+            - --spool-dir
+            - /spool
+            - --spool-bytes
+            - {{ .Values.sensor.spool.bytes | int64 | quote }}
+            - --segment-bytes
+            - {{ .Values.sensor.spool.segmentBytes | int64 | quote }}
+            - --capacity
+            - {{ .Values.sensor.flowTableCapacity | int64 | quote }}
+            - --status-file
+            - /run/sensor/status
+          securityContext:
+            # libpcap needs a raw socket; nothing else.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_RAW"]
+          # The status file is rewritten every 10 s while capture runs.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test $(( $(date +%s) - $(stat -c %Y /run/sensor/status) )) -lt 60
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.sensor.resources | nindent 12 }}
+          volumeMounts:
+            - name: leases
+              mountPath: /leases
+              readOnly: true
+            - name: spool
+              mountPath: /spool
+            - name: status
+              mountPath: /run/sensor
+      volumes:
+        # dnsmasq lease file written by gateway-agent on the same node.
+        - name: leases
+          hostPath:
+            path: {{ .Values.sensor.leasesHostPath | quote }}
+            type: Directory
+        # Survives pod restarts so unacknowledged events are not lost.
+        - name: spool
+          hostPath:
+            path: {{ .Values.sensor.spool.hostPath | quote }}
+            type: DirectoryOrCreate
+        - name: status
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+{{- end }}

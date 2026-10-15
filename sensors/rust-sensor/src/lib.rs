@@ -8,8 +8,13 @@
 //! the `live` feature and Kafka publishing in a later component.
 
 pub mod attribution;
+pub mod forward;
+#[cfg(feature = "kafka")]
+pub mod kafka;
 pub mod packet;
 pub mod pcapfile;
+pub mod proto;
+pub mod spool;
 
 use std::collections::HashMap;
 use std::net::IpAddr;

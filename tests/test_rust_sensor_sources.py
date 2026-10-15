@@ -18,6 +18,41 @@ class RustSensorSourceTests(unittest.TestCase):
         self.assertIn("DEFAULT_IDLE_US: i64 = 1_000_000", source)
         self.assertIn("DEFAULT_ACTIVE_US: i64 = 1_000_000", source)
 
+    def test_sensor_publishes_through_a_bounded_spool_with_idempotent_kafka(self):
+        crate = ROOT / "sensors" / "rust-sensor"
+        cargo = (crate / "Cargo.toml").read_text()
+        kafka = (crate / "src" / "kafka.rs").read_text()
+        spool = (crate / "src" / "spool.rs").read_text()
+        forward = (crate / "src" / "forward.rs").read_text()
+        self.assertIn('kafka = ["dep:rdkafka"]', cargo)
+        self.assertIn('.set("acks", "all")', kafka)
+        self.assertIn('.set("enable.idempotence", "true")', kafka)
+        self.assertIn('.set("linger.ms", "20")', kafka)
+        self.assertIn("SEQUENCE_BLOCK", spool)
+        self.assertIn("pub struct Loss", spool)
+        self.assertIn('FLOWS_TOPIC: &str = "traffic.flows.v2"', forward)
+        self.assertIn('HEALTH_TOPIC: &str = "traffic.health.v2"', forward)
+        self.assertIn("HealthKind::SpoolLoss", forward)
+
+    def test_sensor_daemonset_is_pinned_to_the_gateway_with_minimal_privileges(self):
+        chart = ROOT / "charts" / "pi-agents"
+        daemonset = (chart / "templates" / "sensor.yaml").read_text()
+        values = (chart / "values.yaml").read_text()
+        dockerfile = (ROOT / "sensors" / "rust-sensor" / "Dockerfile").read_text()
+        build = (ROOT / ".github" / "workflows" / "docker-build.yml").read_text()
+        self.assertIn("kind: DaemonSet", daemonset)
+        self.assertIn('node-role.kubernetes.io/gateway: "true"', daemonset)
+        self.assertIn("hostNetwork: true", daemonset)
+        self.assertIn('drop: ["ALL"]', daemonset)
+        self.assertIn('add: ["NET_RAW"]', daemonset)
+        self.assertIn("readOnlyRootFilesystem: true", daemonset)
+        self.assertIn("type: DirectoryOrCreate", daemonset)
+        self.assertIn("livenessProbe:", daemonset)
+        self.assertIn("resources:", daemonset)
+        self.assertIn("memory: 512Mi", values)
+        self.assertIn("--features live,kafka", dockerfile)
+        self.assertIn("image_dir: sensors/rust-sensor", build)
+
     def test_sensor_has_pcap_fixtures_for_each_scenario(self):
         fixtures = ROOT / "sensors" / "rust-sensor" / "tests" / "fixtures"
         for name in (
@@ -43,6 +78,7 @@ class RustSensorSourceTests(unittest.TestCase):
         self.assertIn("cargo test", workflow)
         self.assertIn("cargo check", workflow)
         self.assertIn("--features live", workflow)
+        self.assertIn("--features kafka,live", workflow)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+# Generates events_pb2.py from schemas/events/v2/events.proto (bundles protoc).
+grpcio-tools==1.84.0

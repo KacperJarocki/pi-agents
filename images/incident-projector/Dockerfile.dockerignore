@@ -1,0 +1,6 @@
+*
+!schemas/events/v2
+!images/incident-projector/requirements.txt
+!images/incident-projector/requirements-build.txt
+!images/incident-projector/generate_proto.py
+!images/incident-projector/app

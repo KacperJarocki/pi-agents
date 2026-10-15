@@ -36,6 +36,9 @@ jobs:
           - image_dir: flink/detection-job
             image_name: flink-detection-job
             context: .
+          - image_dir: images/incident-projector
+            image_name: incident-projector
+            context: .
 
     steps:
       - name: Checkout repository

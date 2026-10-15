@@ -30,7 +30,7 @@
 
 - [x] 5.1 Create the Flink job module (Java 17, Maven, ARM64 image) with v2 Protobuf deserialisation, event-ID dedupe and a `traffic.late.v2` side output. Verify with MiniCluster tests for the duplicate and too-late cases from the roadmap ordering fixture.
 - [x] 5.2 Implement the per-device 60 s/900 s rolling state with incremental aggregates, in-order insertion within the 30 s lateness, and processing-time expiry during silence. Verify with tests for burst, sparse device, out-of-order correction, silence expiry, and a long-running stream with bounded state size.
-- [ ] 5.3 Implement port-scan rule v1 with configurable open/clear thresholds, hold, cooldown and deterministic `incident_id`, emitting `DetectionTransition`s only on meaningful change. Verify fixture tests: a fast scan opens via 60 s; a slow scan opens via 900 s only; benign traffic opens nothing; oscillation yields one incident; resolve after hold; reopen within cooldown; replay from scratch yields identical IDs.
+- [x] 5.3 Implement port-scan rule v1 with configurable open/clear thresholds, hold, cooldown and deterministic `incident_id`, emitting `DetectionTransition`s only on meaningful change. Verify fixture tests: a fast scan opens via 60 s; a slow scan opens via 900 s only; benign traffic opens nothing; oscillation yields one incident; resolve after hold; reopen within cooldown; replay from scratch yields identical IDs.
 - [ ] 5.4 Emit throttled `FeatureUpdate`s, add the `FlinkDeployment` job spec to the chart (exactly-once sink, S3 checkpoints), and document window semantics, rule parameters and observability in `docs/STREAMING-DETECTION.md`. Verify with `helm template` and, in K3s, the job recovering from a savepoint without duplicate transitions.
 
 ## 6. Incidents and browser

@@ -25,6 +25,37 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -v
 
+  projector:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install projector dependencies
+        run: |
+          pip install -r images/incident-projector/requirements.txt
+          pip install -r images/incident-projector/requirements-build.txt
+
+      - name: Projector tests against PostgreSQL
+        env:
+          PROJECTOR_TEST_DSN: postgresql://postgres:test@localhost:5432/postgres
+        run: python -m unittest tests.test_incident_projector -v
+
   k8s:
     runs-on: ubuntu-latest
     steps:

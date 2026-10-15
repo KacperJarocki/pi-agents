@@ -79,9 +79,9 @@ spec:
         enabled: true
         image:
           tag: sha-d22b5c59
-        # One-time: the smoke job's savepoint holds state this job does not
-        # have. Set back to false after the first successful rollout.
-        allowNonRestoredState: true
+        # Restores must keep all operator state; true only for deliberate
+        # operator removals (it was true once for the switch from the smoke job).
+        allowNonRestoredState: false
     sensor:
       enabled: true
       image:

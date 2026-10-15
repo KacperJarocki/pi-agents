@@ -23,6 +23,7 @@ public final class DetectionJob {
   public static final String FLOWS_TOPIC = "traffic.flows.v2";
   public static final String LATE_TOPIC = "traffic.late.v2";
   public static final Duration DEFAULT_LATENESS = Duration.ofSeconds(30);
+  public static final Duration SHORT_HORIZON = Duration.ofSeconds(60);
   public static final Duration LONGEST_HORIZON = Duration.ofSeconds(900);
 
   private DetectionJob() {}
@@ -63,12 +64,24 @@ public final class DetectionJob {
     return new Ingest(accepted, late);
   }
 
+  /** Per-device rolling views over both horizons, emitted on change. */
+  public static DataStream<DeviceWindows.View> views(DataStream<FlowRecord> accepted) {
+    return accepted
+        .keyBy(r -> r.deviceKey)
+        .process(new RollingViews(SHORT_HORIZON.toMillis(), LONGEST_HORIZON.toMillis()))
+        .name("rolling-views")
+        .uid("rolling-views");
+  }
+
   public static void main(String[] args) throws Exception {
     ParameterTool params = ParameterTool.fromArgs(args);
     String bootstrap = params.get("bootstrap", "pi-agents-kafka-bootstrap:9092");
     Duration lateness = Duration.ofMillis(params.getLong("lateness-ms", DEFAULT_LATENESS.toMillis()));
 
     StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    // Every record and state type has an explicit serializer; fail fast if
+    // something would silently fall back to Kryo.
+    env.getConfig().disableGenericTypes();
 
     KafkaSource<FlowRecord> source =
         KafkaSource.<FlowRecord>builder()
@@ -92,8 +105,8 @@ public final class DetectionJob {
             .build();
     ingest.late().sinkTo(lateSink).name("traffic.late.v2").uid("late-sink");
 
-    // Replaced by the sliding-window state and port-scan rule (tasks 5.2-5.3).
-    ingest.accepted().sinkTo(new DiscardingSink<>()).name("detection-placeholder");
+    // Consumed by the port-scan rule (task 5.3).
+    views(ingest.accepted()).sinkTo(new DiscardingSink<>()).name("views-placeholder");
 
     env.execute("pi-agents detection");
   }

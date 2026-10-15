@@ -19,6 +19,21 @@ device, will maintain the 60 s / 900 s sliding views and the port-scan rule
   the same topic with `pi-agents-reason: malformed`. Key = device key, value =
   the original bytes.
 
+- **Rolling views** (`DeviceWindows`, `RollingViews`): per device, one
+  time-ordered deque per horizon (60 s and 900 s) with incremental aggregates:
+  flows, bytes, distinct remote IPs, distinct `(protocol, IP, port)` targets,
+  and *failed targets* (targets whose latest attempt was rejected or
+  unanswered; a later `established` retracts the target). A horizon covers
+  `(clock - horizon, clock]`; events late within the 30 s allowance are
+  inserted in order. The device clock is the maximum event time; during
+  silence a processing-time timer (1 s after the last change, then every 5 s)
+  advances it by the wall time since the last event, so evidence expires
+  without new packets. State is cleared once every horizon is empty. A
+  `View` per horizon is emitted whenever its aggregates change.
+- **Serialization**: generic types are disabled; records and views are POJOs
+  and the window state has its own `DeviceWindowsSerializer` (aggregates are
+  rebuilt on restore), so nothing goes through Kryo.
+
 ## Build and test
 
 ```sh

@@ -61,13 +61,14 @@ CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s
 ```
 
 ### CI
-- `validate.yml`: `compileall images`, unit tests, Helm lint/template of both Flink profiles, `kubectl kustomize k8s/gateway` + client dry run.
+- `validate.yml`: `compileall images`, unit tests, Helm lint/template of every values profile, `kubectl kustomize k8s/gateway` + client dry run; `projector` job runs the incident projector and API tests against a `postgres:17.6` service (`PROJECTOR_TEST_DSN`); `ui` job runs the Playwright `/live` tests.
+- `flink-job.yml`: `./mvnw verify` for `flink/detection-job` (MiniCluster and operator-harness tests).
 - `rust-sensor.yml`: fmt, test and an aarch64 check for the sensor.
 - `streaming-contracts.yml`: event contract validator and its tests.
 - `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`).
 
 ### Playwright
-`tests/ui/` keeps the Playwright harness (`playwright.config.ts`, `package.json`, `BASE_URL` env) for the upcoming `/live` incidents page. There are no specs until that page exists.
+`tests/ui/live.spec.ts` tests the `/live` page (`images/incident-api/app/static/index.html`) with the page served from disk and the incident WebSocket mocked through `page.routeWebSocket`, so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts --project=chromium`.
 
 ---
 

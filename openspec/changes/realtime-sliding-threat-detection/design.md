@@ -113,7 +113,7 @@ Alternative considered: a Flink JDBC sink. It would couple Flink checkpoints to 
 - `WS /ws/v2/incidents?after=<cursor>` sends catch-up first and then live changes from `LISTEN incident_feed`;
 - connection health and the latest `HealthEvent` summary go out on the same socket.
 
-`incident-api` also serves a static `/live` page (plain HTML + Alpine.js, no build step) that keeps one row per `incident_id`, applies revisions in order, stores the last cursor, and reconnects with backoff. It shows a banner when the socket is down or the latest `HealthEvent` reports loss or unattributed traffic. The service is exposed through a Traefik `Ingress` on the host the legacy dashboard used.
+`incident-api` also serves a static `/live` page (plain HTML and dependency-free JavaScript, no build step, works offline) that keeps one row per `incident_id`, applies revisions in order, stores the last cursor, and reconnects with backoff. It shows a banner when the socket is down or the latest `HealthEvent` reports loss or unattributed traffic. The service is exposed through a Traefik `Ingress` on the host the legacy dashboard used.
 
 Alternative considered: keeping the legacy dashboard and adding `/live` to it. That keeps HTMX/Tailwind pages, the proxy and Playwright fixtures alive for a single view.
 

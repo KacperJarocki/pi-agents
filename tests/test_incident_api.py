@@ -81,6 +81,14 @@ class IncidentApiTests(unittest.TestCase):
         ok = self.client.get("/api/v2/incidents/changes", params={"after": 2})
         self.assertEqual(ok.status_code, 200)
 
+    def test_live_page_is_served_and_root_redirects(self):
+        page = self.client.get("/live/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Live incidents", page.text)
+        root = self.client.get("/", follow_redirects=False)
+        self.assertIn(root.status_code, (302, 307))
+        self.assertEqual(root.headers["location"], "/live/")
+
     def receive_until(self, ws, kind):
         while True:
             msg = ws.receive_json()

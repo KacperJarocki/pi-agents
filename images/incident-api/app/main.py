@@ -19,7 +19,7 @@ from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -192,6 +192,10 @@ def create_app(dsn: str | None = None) -> FastAPI:
 
     if STATIC_DIR.is_dir() and any(STATIC_DIR.iterdir()):
         app.mount("/live", StaticFiles(directory=STATIC_DIR, html=True), name="live")
+
+        @app.get("/", include_in_schema=False)
+        async def root():
+            return RedirectResponse("/live/")
 
     return app
 

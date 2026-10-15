@@ -23,7 +23,7 @@
 ## 4. Gateway sensor
 
 - [x] 4.1 Implement capture on the AP interface with MAC-based device attribution, micro-flow aggregation with 1 s idle/active flush, TCP flag counts and attempt outcome. Verify with pcap fixture tests for TCP established/rejected/unanswered, UDP, ICMP, DNS, unattributed traffic, and packet-time timestamps.
-- [ ] 4.2 Add the v2 Protobuf encoding, persisted `capture_sequence`, the bounded segmented spool, and the idempotent `acks=all` producer. Verify with tests for broker outage and recovery (ordered, no loss), restart without ID reuse, and spool exhaustion emitting a `HealthEvent` with loss count and range.
+- [x] 4.2 Add the v2 Protobuf encoding, persisted `capture_sequence`, the bounded segmented spool, and the idempotent `acks=all` producer. Verify with tests for broker outage and recovery (ordered, no loss), restart without ID reuse, and spool exhaustion emitting a `HealthEvent` with loss count and range.
 - [ ] 4.3 Add the sensor container image (ARM64), the DaemonSet pinned to the gateway node with capabilities, a hostPath spool, resource limits and health metrics, and setup docs in `sensors/rust-sensor/README.md`. Verify with `helm template` and, in K3s, events from a test client appearing on `traffic.flows.v2`.
 
 ## 5. Flink detection job

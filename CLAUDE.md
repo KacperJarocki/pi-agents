@@ -20,6 +20,7 @@ The thesis-era batch pipeline is gone (tag `thesis-final`); do not reintroduce S
   python -m unittest tests.test_event_contract_validator -v
   ```
 - **Rust sensor** — `sensors/rust-sensor/`: frame parser, MAC attribution from dnsmasq leases, and the bounded micro-flow `FlowTable` (1 s idle/active flush) in a dependency-free core; libpcap capture only behind the `live` feature. Kafka publishing (feature `kafka`, librdkafka) goes through a bounded on-disk spool that assigns `capture_sequence`; the v2 Protobuf encoder is hand-written in `src/proto.rs` and tested against `compatibility.json`. A full `FlowTable` flushes its oldest flow early and returns `UpsertResult::Evicted`; callers must expose it as a metric/health event. Pcap fixtures come from `tests/fixtures/generate.py`.
+- **Flink detection job** — `flink/detection-job/` (Java 17, Flink 1.20.5, Maven Wrapper). Protobuf classes are generated from `schemas/events/v2/events.proto` at build time; `baseline.proto` is excluded. Run `./mvnw verify` (MiniCluster tests). The image builds from the repository root: `docker build -f flink/detection-job/Dockerfile .`.
 - **Helm chart** — `charts/pi-agents/` owns the shared streaming config, Strimzi Kafka, and Flink templates. `streaming.enabled` defaults to `false`. Secrets are referenced, never stored in values. CI lints both Flink checkpoint profiles:
   ```bash
   helm lint charts/pi-agents -f charts/pi-agents/values-flink-longhorn.yaml

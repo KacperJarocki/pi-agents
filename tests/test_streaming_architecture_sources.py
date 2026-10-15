@@ -155,6 +155,18 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("chart: plugin-barman-cloud", operator)
         self.assertIn("name: barman-cloud", platform)
 
+    def test_flink_job_builds_from_the_shared_v2_contract(self):
+        job = ROOT / "flink" / "detection-job"
+        pom = (job / "pom.xml").read_text()
+        dockerfile = (job / "Dockerfile").read_text()
+        source = (job / "src" / "main" / "java" / "io" / "piagents" / "detection")
+        self.assertIn("../../schemas/events/v2", pom)
+        self.assertIn("<exclude>baseline.proto</exclude>", pom)
+        self.assertIn("<flink.version>1.20.5</flink.version>", pom)
+        self.assertIn("flink:1.20.5-scala_2.12-java17", dockerfile)
+        self.assertIn('LATE_TOPIC = "traffic.late.v2"', (source / "DetectionJob.java").read_text())
+        self.assertIn("enableTimeToLive", (source / "DedupeAndLateness.java").read_text())
+
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
         values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()

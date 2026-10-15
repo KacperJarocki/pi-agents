@@ -1,0 +1,28 @@
+name: Flink Job
+
+on:
+  push:
+    paths:
+      - "flink/detection-job/**"
+      - "schemas/events/v2/**"
+      - ".github/workflows/flink-job.yml"
+  pull_request:
+    paths:
+      - "flink/detection-job/**"
+      - "schemas/events/v2/**"
+      - ".github/workflows/flink-job.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: flink/detection-job/pom.xml
+      - name: Build and test (MiniCluster)
+        working-directory: flink/detection-job
+        run: ./mvnw -B verify

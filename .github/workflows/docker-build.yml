@@ -6,11 +6,15 @@ on:
     paths:
       - 'images/**'
       - 'sensors/rust-sensor/**'
+      - 'flink/detection-job/**'
+      - 'schemas/events/v2/**'
       - '.github/workflows/docker-build.yml'
   pull_request:
     paths:
       - 'images/**'
       - 'sensors/rust-sensor/**'
+      - 'flink/detection-job/**'
+      - 'schemas/events/v2/**'
   workflow_dispatch:
 
 jobs:
@@ -28,6 +32,10 @@ jobs:
             image_name: gateway-agent
           - image_dir: sensors/rust-sensor
             image_name: rust-sensor
+          # Built from the repository root: the job compiles schemas/events/v2.
+          - image_dir: flink/detection-job
+            image_name: flink-detection-job
+            context: .
 
     steps:
       - name: Checkout repository
@@ -65,7 +73,7 @@ jobs:
           REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           
           echo "Building and pushing multi-platform Docker image"
-          echo "From directory: ${{ matrix.image_dir }}"
+          echo "From directory: ${{ matrix.image_dir }} (context: ${{ matrix.context || matrix.image_dir }})"
           echo "To: ghcr.io/${IMAGE_NAME}"
           
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -74,14 +82,16 @@ jobs:
               --platform linux/amd64 \
               --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:pr-${{ github.event.number }}" \
               --load \
-              "${{ matrix.image_dir }}"
+              --file "${{ matrix.image_dir }}/Dockerfile" \
+              "${{ matrix.context || matrix.image_dir }}"
           else
             docker buildx build \
               --platform linux/amd64,linux/arm64 \
               --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:latest" \
               --tag "ghcr.io/${REPO_OWNER_LOWER}/${{ matrix.image_name }}:sha-${SHA_SHORT:0:8}" \
               --push \
-              "${{ matrix.image_dir }}"
+              --file "${{ matrix.image_dir }}/Dockerfile" \
+              "${{ matrix.context || matrix.image_dir }}"
           fi
 
       - name: Display build success

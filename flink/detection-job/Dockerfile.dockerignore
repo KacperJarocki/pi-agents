@@ -1,0 +1,6 @@
+*
+!schemas/events/v2
+!flink/detection-job/.mvn
+!flink/detection-job/mvnw
+!flink/detection-job/pom.xml
+!flink/detection-job/src

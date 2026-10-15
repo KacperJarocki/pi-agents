@@ -1,6 +1,7 @@
 package io.piagents.detection;
 
 import java.time.Duration;
+import java.util.Properties;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.connector.base.DeliveryGuarantee;
@@ -11,7 +12,6 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
 import org.apache.flink.util.Collector;
 
 /**
@@ -22,6 +22,7 @@ import org.apache.flink.util.Collector;
 public final class DetectionJob {
   public static final String FLOWS_TOPIC = "traffic.flows.v2";
   public static final String LATE_TOPIC = "traffic.late.v2";
+  public static final String DETECTIONS_TOPIC = "traffic.detections.v2";
   public static final Duration DEFAULT_LATENESS = Duration.ofSeconds(30);
   public static final Duration SHORT_HORIZON = Duration.ofSeconds(60);
   public static final Duration LONGEST_HORIZON = Duration.ofSeconds(900);
@@ -65,12 +66,32 @@ public final class DetectionJob {
   }
 
   /** Per-device rolling views over both horizons, emitted on change. */
-  public static DataStream<DeviceWindows.View> views(DataStream<FlowRecord> accepted) {
+  public static DataStream<DeviceWindows.ViewSet> views(DataStream<FlowRecord> accepted) {
     return accepted
         .keyBy(r -> r.deviceKey)
         .process(new RollingViews(SHORT_HORIZON.toMillis(), LONGEST_HORIZON.toMillis()))
         .name("rolling-views")
         .uid("rolling-views");
+  }
+
+  /** Port-scan transitions from the per-device views. */
+  public static DataStream<Transition> detect(
+      DataStream<DeviceWindows.ViewSet> views, PortScanRule.Config config) {
+    return views
+        .keyBy(v -> v.deviceKey)
+        .process(new PortScanDetector(config))
+        .name("port-scan-rule")
+        .uid("port-scan-rule");
+  }
+
+  static PortScanRule.Config ruleConfig(ParameterTool params) {
+    PortScanRule.Config c = new PortScanRule.Config();
+    c.openThresholds[0] = params.getDouble("open-threshold-60s", c.openThresholds[0]);
+    c.openThresholds[1] = params.getDouble("open-threshold-900s", c.openThresholds[1]);
+    c.clearFraction = params.getDouble("clear-fraction", c.clearFraction);
+    c.holdMs = params.getLong("hold-ms", c.holdMs);
+    c.cooldownMs = params.getLong("cooldown-ms", c.cooldownMs);
+    return c;
   }
 
   public static void main(String[] args) throws Exception {
@@ -105,8 +126,23 @@ public final class DetectionJob {
             .build();
     ingest.late().sinkTo(lateSink).name("traffic.late.v2").uid("late-sink");
 
-    // Consumed by the port-scan rule (task 5.3).
-    views(ingest.accepted()).sinkTo(new DiscardingSink<>()).name("views-placeholder");
+    DataStream<Transition> transitions = detect(views(ingest.accepted()), ruleConfig(params));
+
+    // Exactly-once: transitions are committed with Flink checkpoints. The
+    // incident projector reads read_uncommitted and dedupes by transition ID,
+    // so it does not wait for the checkpoint interval.
+    Properties producer = new Properties();
+    // Must not exceed the broker's transaction.max.timeout.ms (15 min default).
+    producer.setProperty("transaction.timeout.ms", "900000");
+    KafkaSink<Transition> detectionsSink =
+        KafkaSink.<Transition>builder()
+            .setBootstrapServers(bootstrap)
+            .setRecordSerializer(new TransitionSerializer(DETECTIONS_TOPIC))
+            .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+            .setTransactionalIdPrefix(params.get("transactional-id-prefix", "pi-agents-detection"))
+            .setKafkaProducerConfig(producer)
+            .build();
+    transitions.sinkTo(detectionsSink).name(DETECTIONS_TOPIC).uid("detections-sink");
 
     env.execute("pi-agents detection");
   }

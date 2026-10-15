@@ -15,9 +15,9 @@ import org.junit.jupiter.api.Test;
 /** RollingViews with processing-time timers, via Flink's operator test harness. */
 class RollingViewsTest {
 
-  private static KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.View>
+  private static KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.ViewSet>
       harness() throws Exception {
-    KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.View> h =
+    KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.ViewSet> h =
         new KeyedOneInputStreamOperatorTestHarness<>(
             new KeyedProcessOperator<>(new RollingViews(60_000, 900_000)),
             r -> r.deviceKey,
@@ -26,12 +26,12 @@ class RollingViewsTest {
     return h;
   }
 
-  private static List<DeviceWindows.View> drain(
-      KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.View> h) {
-    List<DeviceWindows.View> views = new ArrayList<>();
+  private static List<DeviceWindows.ViewSet> drain(
+      KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.ViewSet> h) {
+    List<DeviceWindows.ViewSet> views = new ArrayList<>();
     for (Object o : h.getOutput()) {
       if (o instanceof StreamRecord<?> r) {
-        views.add((DeviceWindows.View) r.getValue());
+        views.add((DeviceWindows.ViewSet) r.getValue());
       }
     }
     h.getOutput().clear();
@@ -50,25 +50,25 @@ class RollingViewsTest {
     h.setProcessingTime(0);
     h.processElement(probe(1, "12:00:00", 22), 0);
     h.processElement(probe(2, "12:00:01", 23), 0);
-    List<DeviceWindows.View> views = drain(h);
-    assertEquals(4, views.size());
-    assertEquals(2, views.get(2).failedTargets);
+    List<DeviceWindows.ViewSet> sets = drain(h);
+    assertEquals(2, sets.size(), "one set per change");
+    assertEquals(2, sets.get(1).views[1].failedTargets);
 
     // 61 s of silence: the 60 s view empties, the 900 s view keeps both.
     for (long t = 1_000; t <= 61_000; t += 1_000) {
       h.setProcessingTime(t);
     }
-    views = drain(h);
-    DeviceWindows.View last60 = views.stream().filter(v -> v.horizonSeconds == 60).reduce((a, b) -> b).orElseThrow();
-    assertEquals(0, last60.failedTargets);
-    assertTrue(views.stream().noneMatch(v -> v.horizonSeconds == 900), "900 s view unchanged");
+    sets = drain(h);
+    DeviceWindows.ViewSet last = sets.get(sets.size() - 1);
+    assertEquals(0, last.views[0].failedTargets);
+    assertEquals(2, last.views[1].failedTargets);
 
     // After 15 minutes everything has expired and the state is gone.
     for (long t = 61_000; t <= 920_000; t += 5_000) {
       h.setProcessingTime(t);
     }
-    views = drain(h);
-    assertEquals(0, views.get(views.size() - 1).failedTargets);
+    sets = drain(h);
+    assertEquals(0, sets.get(sets.size() - 1).views[1].failedTargets);
     assertEquals(0, h.numKeyedStateEntries());
     assertEquals(0, h.numProcessingTimeTimers());
     h.close();
@@ -84,7 +84,7 @@ class RollingViewsTest {
     h.close();
 
     var restored =
-        new KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.View>(
+        new KeyedOneInputStreamOperatorTestHarness<String, FlowRecord, DeviceWindows.ViewSet>(
             new KeyedProcessOperator<>(new RollingViews(60_000, 900_000)),
             r -> r.deviceKey,
             Types.STRING);
@@ -92,8 +92,8 @@ class RollingViewsTest {
     restored.open();
     restored.setProcessingTime(0);
     restored.processElement(probe(3, "12:00:01", 24), 0);
-    List<DeviceWindows.View> views = drain(restored);
-    assertEquals(3, views.get(0).failedTargets, "restored state plus the new probe");
+    List<DeviceWindows.ViewSet> sets = drain(restored);
+    assertEquals(3, sets.get(0).views[0].failedTargets, "restored state plus the new probe");
     restored.close();
   }
 }

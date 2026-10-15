@@ -26,13 +26,14 @@ struct Args {
     spool_dir: String,
     spool_bytes: u64,
     segment_bytes: u64,
+    status_file: Option<String>,
 }
 
 fn usage() -> ExitCode {
     eprintln!(
         "usage: pi-agents-sensor --leases <dnsmasq.leases> (--pcap <file> | --interface <iface>)\n\
          \x20      [--capacity <flows>] [--kafka <bootstrap> --gateway-id <id> --spool-dir <dir>\n\
-         \x20      [--spool-bytes <n>] [--segment-bytes <n>]]"
+         \x20      [--spool-bytes <n>] [--segment-bytes <n>]] [--status-file <path>]"
     );
     ExitCode::from(2)
 }
@@ -48,6 +49,7 @@ fn parse_args() -> Option<Args> {
         spool_dir: String::new(),
         spool_bytes: 2 << 30,
         segment_bytes: 64 << 20,
+        status_file: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -62,6 +64,7 @@ fn parse_args() -> Option<Args> {
             "--spool-dir" => args.spool_dir = value,
             "--spool-bytes" => args.spool_bytes = value.parse().ok()?,
             "--segment-bytes" => args.segment_bytes = value.parse().ok()?,
+            "--status-file" => args.status_file = Some(value),
             _ => return None,
         }
     }
@@ -92,9 +95,11 @@ fn load_clients(path: &str) -> Clients {
     }
 }
 
-fn report(sensor: &Sensor, sink: &Sink) {
+/// Prints stats on stderr and, if configured, rewrites the status file that
+/// the Kubernetes liveness probe checks for freshness.
+fn report(sensor: &Sensor, sink: &Sink, status_file: Option<&str>) {
     let s = sensor.stats();
-    eprintln!(
+    let line = format!(
         "{{\"frames\":{},\"flows\":{},\"open_flows\":{},\"unattributed\":{},\"non_ip\":{},\"malformed\":{},\"evictions\":{}{}}}",
         s.frames,
         s.flows,
@@ -105,6 +110,15 @@ fn report(sensor: &Sensor, sink: &Sink) {
         s.evictions,
         sink.stats_json()
     );
+    eprintln!("{line}");
+    if let Some(path) = status_file {
+        let tmp = format!("{path}.tmp");
+        let written =
+            std::fs::write(&tmp, format!("{line}\n")).and_then(|()| std::fs::rename(&tmp, path));
+        if let Err(err) = written {
+            eprintln!("warning: cannot write status file {path}: {err}");
+        }
+    }
 }
 
 /// Where flushed micro-flows go.
@@ -318,12 +332,18 @@ fn replay(path: &str, mut sensor: Sensor, mut sink: Sink) -> io::Result<()> {
     sink.emit(&mut out)?;
     sink.housekeeping(&sensor)?;
     sink.finish()?;
-    report(&sensor, &sink);
+    report(&sensor, &sink, None);
     Ok(())
 }
 
 #[cfg(feature = "live")]
-fn capture(interface: &str, leases: &str, mut sensor: Sensor, mut sink: Sink) -> io::Result<()> {
+fn capture(
+    interface: &str,
+    leases: &str,
+    status_file: Option<&str>,
+    mut sensor: Sensor,
+    mut sink: Sink,
+) -> io::Result<()> {
     use std::time::{Duration, Instant};
 
     let modified = |path: &str| std::fs::metadata(path).and_then(|m| m.modified()).ok();
@@ -341,6 +361,7 @@ fn capture(interface: &str, leases: &str, mut sensor: Sensor, mut sink: Sink) ->
     let mut leases_mtime = modified(leases);
     let mut last_flush = Instant::now();
     let mut last_housekeeping = Instant::now();
+    report(&sensor, &sink, status_file);
     loop {
         match capture.next_packet() {
             Ok(packet) => {
@@ -373,14 +394,20 @@ fn capture(interface: &str, leases: &str, mut sensor: Sensor, mut sink: Sink) ->
                 leases_mtime = mtime;
             }
             sink.housekeeping(&sensor)?;
-            report(&sensor, &sink);
+            report(&sensor, &sink, status_file);
             last_housekeeping = Instant::now();
         }
     }
 }
 
 #[cfg(not(feature = "live"))]
-fn capture(_interface: &str, _leases: &str, _sensor: Sensor, _sink: Sink) -> io::Result<()> {
+fn capture(
+    _interface: &str,
+    _leases: &str,
+    _status_file: Option<&str>,
+    _sensor: Sensor,
+    _sink: Sink,
+) -> io::Result<()> {
     Err(io::Error::other(
         "live capture needs the `live` feature (cargo build --features live)",
     ))
@@ -400,7 +427,13 @@ fn main() -> ExitCode {
     let sensor = Sensor::new(load_clients(&args.leases), FlowTable::new(args.capacity));
     let result = match (&args.pcap, &args.interface) {
         (Some(path), None) => replay(path, sensor, sink),
-        (None, Some(interface)) => capture(interface, &args.leases, sensor, sink),
+        (None, Some(interface)) => capture(
+            interface,
+            &args.leases,
+            args.status_file.as_deref(),
+            sensor,
+            sink,
+        ),
         _ => return usage(),
     };
     match result {

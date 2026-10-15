@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'images/**'
+      - 'sensors/rust-sensor/**'
       - '.github/workflows/docker-build.yml'
   pull_request:
     paths:
       - 'images/**'
+      - 'sensors/rust-sensor/**'
   workflow_dispatch:
 
 jobs:
@@ -24,6 +26,8 @@ jobs:
         include:
           - image_dir: images/gateway-agent
             image_name: gateway-agent
+          - image_dir: sensors/rust-sensor
+            image_name: rust-sensor
 
     steps:
       - name: Checkout repository

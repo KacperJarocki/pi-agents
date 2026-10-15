@@ -78,7 +78,9 @@ spec:
       # the detection job (task 5.4).
       smokeJob: true
     sensor:
-      enabled: true
+      # Paused: the image crash-loops while wlan0 is down, which blocks the
+      # release; re-enable with the image from the wait-for-interface fix.
+      enabled: false
       image:
         # docker-build.yml on main, linux/arm64 + amd64.
         tag: sha-1b613f8a

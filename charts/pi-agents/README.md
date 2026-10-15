@@ -107,6 +107,17 @@ installed by Flux from `k8s/flux/cnpg-operator-helmrelease.yaml` into
 `cnpg-system`; the plugin needs cert-manager. The `pi-agents` HelmRelease
 waits for the plugin before installing.
 
+On a first install Helm creates the `Cluster` before the `ObjectStore`
+(custom kinds are applied in alphabetical order). The Barman Cloud plugin then
+stops the cluster's reconciliation and CNPG does not retry on its own, so the
+cluster stays without pods or status. Trigger one more reconciliation once the
+`ObjectStore` exists:
+
+```sh
+kubectl -n iot-security annotate cluster.postgresql.cnpg.io pi-agents-pg \
+  pi-agents/reconcile="$(date +%s)" --overwrite
+```
+
 ```sh
 helm lint charts/pi-agents -f charts/pi-agents/values-postgres.yaml
 helm template pi-agents charts/pi-agents -n iot-security \

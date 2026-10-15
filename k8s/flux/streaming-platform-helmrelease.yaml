@@ -74,15 +74,28 @@ spec:
         limits:
           cpu: "2"
           memory: 1536Mi
-      # Stateful example job used to verify checkpoint recovery; replaced by
-      # the detection job (task 5.4).
-      smokeJob: true
+      smokeJob: false
+      detectionJob:
+        enabled: true
+        image:
+          tag: sha-d22b5c59
+        # One-time: the smoke job's savepoint holds state this job does not
+        # have. Set back to false after the first successful rollout.
+        allowNonRestoredState: true
     sensor:
       enabled: true
       image:
         # docker-build.yml on main (#42: waits for wlan0 instead of exiting).
         tag: sha-dbadf2fc
       interface: wlan0
+    incidents:
+      enabled: true
+      projector:
+        image:
+          tag: sha-3e602d3d
+      api:
+        image:
+          tag: sha-3e602d3d
     postgres:
       enabled: true
       resources:

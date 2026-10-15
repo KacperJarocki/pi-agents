@@ -13,8 +13,9 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 
 /**
- * Keeps each device's rolling views and emits a {@link DeviceWindows.View} per
- * horizon whenever its aggregates change.
+ * Keeps each device's rolling views and emits a {@link DeviceWindows.ViewSet}
+ * (every horizon) whenever any horizon's aggregates change, so downstream
+ * rules evaluate once per change.
  *
  * <p>The device clock is the maximum event time seen. When the device is
  * silent, a processing-time timer (1 s after the last change, then every
@@ -22,7 +23,7 @@ import org.apache.flink.util.Collector;
  * the last event, so evidence expires without waiting for new packets or a
  * global watermark. State is cleared once every horizon is empty.
  */
-public class RollingViews extends KeyedProcessFunction<String, FlowRecord, DeviceWindows.View> {
+public class RollingViews extends KeyedProcessFunction<String, FlowRecord, DeviceWindows.ViewSet> {
 
   static final long FIRST_TICK_MS = 1_000;
   static final long TICK_MS = 5_000;
@@ -61,7 +62,7 @@ public class RollingViews extends KeyedProcessFunction<String, FlowRecord, Devic
   }
 
   @Override
-  public void processElement(FlowRecord record, Context ctx, Collector<DeviceWindows.View> out)
+  public void processElement(FlowRecord record, Context ctx, Collector<DeviceWindows.ViewSet> out)
       throws Exception {
     DeviceWindows w = windows.value();
     if (w == null) {
@@ -79,7 +80,7 @@ public class RollingViews extends KeyedProcessFunction<String, FlowRecord, Devic
   }
 
   @Override
-  public void onTimer(long timestamp, OnTimerContext ctx, Collector<DeviceWindows.View> out)
+  public void onTimer(long timestamp, OnTimerContext ctx, Collector<DeviceWindows.ViewSet> out)
       throws Exception {
     pendingTimer.clear();
     DeviceWindows w = windows.value();
@@ -115,15 +116,20 @@ public class RollingViews extends KeyedProcessFunction<String, FlowRecord, Devic
     return latest == Long.MIN_VALUE ? w.clockMs() : latest;
   }
 
-  private void emitChanged(DeviceWindows w, String key, Collector<DeviceWindows.View> out)
+  private void emitChanged(DeviceWindows w, String key, Collector<DeviceWindows.ViewSet> out)
       throws Exception {
     List<DeviceWindows.View> previous = lastViews.value();
     List<DeviceWindows.View> current = w.views(key);
-    for (int i = 0; i < current.size(); i++) {
-      DeviceWindows.View v = current.get(i);
-      if (previous == null || i >= previous.size() || !v.sameCounts(previous.get(i))) {
-        out.collect(v);
-      }
+    boolean changed = previous == null || previous.size() != current.size();
+    for (int i = 0; !changed && i < current.size(); i++) {
+      changed = !current.get(i).sameCounts(previous.get(i));
+    }
+    if (changed) {
+      DeviceWindows.ViewSet set = new DeviceWindows.ViewSet();
+      set.deviceKey = key;
+      set.windowEndMs = w.clockMs();
+      set.views = current.toArray(new DeviceWindows.View[0]);
+      out.collect(set);
     }
     lastViews.update(new ArrayList<>(current));
   }

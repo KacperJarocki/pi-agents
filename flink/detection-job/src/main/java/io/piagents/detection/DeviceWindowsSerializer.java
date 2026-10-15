@@ -17,7 +17,7 @@ import org.apache.flink.core.memory.DataOutputView;
  *
  * <p>Format v1: horizon count, horizon lengths, clock, then per horizon the
  * contribution count and each contribution (time, remote IP, target, bytes,
- * failed).
+ * failed, event ID, ingest time).
  */
 public final class DeviceWindowsSerializer extends TypeSerializerSingleton<DeviceWindows> {
   private static final long serialVersionUID = 1L;
@@ -74,6 +74,8 @@ public final class DeviceWindowsSerializer extends TypeSerializerSingleton<Devic
         out.writeUTF(c.target);
         out.writeLong(c.bytes);
         out.writeBoolean(c.failed);
+        out.writeUTF(c.eventId);
+        out.writeLong(c.ingestTimeMs);
       }
     }
   }
@@ -93,7 +95,13 @@ public final class DeviceWindowsSerializer extends TypeSerializerSingleton<Devic
       for (int i = 0; i < count; i++) {
         horizon.add(
             new DeviceWindows.Contribution(
-                in.readLong(), in.readUTF(), in.readUTF(), in.readLong(), in.readBoolean()));
+                in.readLong(),
+                in.readUTF(),
+                in.readUTF(),
+                in.readLong(),
+                in.readBoolean(),
+                in.readUTF(),
+                in.readLong()));
       }
       all.add(horizon);
     }

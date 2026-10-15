@@ -168,11 +168,12 @@ impl Sink {
     }
 
     /// Periodic work: health events for counters that moved, spool fsync.
-    fn housekeeping(&mut self, _sensor: &Sensor) -> io::Result<()> {
+    /// `detail` goes into the heartbeat (e.g. why capture is not running).
+    fn housekeeping(&mut self, _sensor: &Sensor, _detail: &str) -> io::Result<()> {
         match self {
             Sink::Stdout => Ok(()),
             #[cfg(feature = "kafka")]
-            Sink::Kafka(k) => k.housekeeping(_sensor),
+            Sink::Kafka(k) => k.housekeeping(_sensor, _detail),
         }
     }
 
@@ -243,7 +244,7 @@ mod kafka_sink {
             self.forwarder.pump(5_000)
         }
 
-        pub fn housekeeping(&mut self, sensor: &Sensor) -> io::Result<()> {
+        pub fn housekeeping(&mut self, sensor: &Sensor, detail: &str) -> io::Result<()> {
             let now = now_ms();
             let stats = sensor.stats();
             let window = (self.window_start_ms, now);
@@ -279,7 +280,7 @@ mod kafka_sink {
                 stats.frames,
                 (0, 0),
                 window,
-                "",
+                detail,
                 now,
             )?;
             self.window_start_ms = now;
@@ -330,7 +331,7 @@ fn replay(path: &str, mut sensor: Sensor, mut sink: Sink) -> io::Result<()> {
     }
     sensor.flush_all(&mut out);
     sink.emit(&mut out)?;
-    sink.housekeeping(&sensor)?;
+    sink.housekeeping(&sensor, "")?;
     sink.finish()?;
     report(&sensor, &sink, None);
     Ok(())
@@ -347,15 +348,37 @@ fn capture(
     use std::time::{Duration, Instant};
 
     let modified = |path: &str| std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    let mut capture = pcap::Capture::from_device(interface)
-        .and_then(|c| {
+    let open = || {
+        pcap::Capture::from_device(interface).and_then(|c| {
             c.snaplen(512)
                 .immediate_mode(true)
                 .timeout(20)
                 .buffer_size(8 << 20)
                 .open()
         })
-        .map_err(|err| io::Error::other(format!("cannot capture on {interface}: {err}")))?;
+    };
+    // The AP interface may be down (AP disabled or restarting). Keep the
+    // sensor alive, report why in heartbeats and the status file, and retry.
+    let mut capture = {
+        let mut last_report = Instant::now() - Duration::from_secs(10);
+        loop {
+            match open() {
+                Ok(capture) => break capture,
+                Err(err) => {
+                    sink.pump()?;
+                    if last_report.elapsed() >= Duration::from_secs(10) {
+                        let detail = format!("waiting for {interface}: {err}");
+                        eprintln!("warning: {detail}");
+                        sink.housekeeping(&sensor, &detail)?;
+                        report(&sensor, &sink, status_file);
+                        last_report = Instant::now();
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    };
+    eprintln!("capturing on {interface}");
 
     let mut out = Vec::new();
     let mut leases_mtime = modified(leases);
@@ -375,7 +398,7 @@ fn capture(
             Err(err) => {
                 sensor.flush_all(&mut out);
                 sink.emit(&mut out)?;
-                sink.housekeeping(&sensor)?;
+                sink.housekeeping(&sensor, &format!("capture on {interface} failed: {err}"))?;
                 return Err(io::Error::other(format!(
                     "capture on {interface} failed: {err}"
                 )));
@@ -393,7 +416,7 @@ fn capture(
                 sensor.set_clients(load_clients(leases));
                 leases_mtime = mtime;
             }
-            sink.housekeeping(&sensor)?;
+            sink.housekeeping(&sensor, "")?;
             report(&sensor, &sink, status_file);
             last_housekeeping = Instant::now();
         }

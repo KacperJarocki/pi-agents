@@ -167,6 +167,19 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn('LATE_TOPIC = "traffic.late.v2"', (source / "DetectionJob.java").read_text())
         self.assertIn("enableTimeToLive", (source / "DedupeAndLateness.java").read_text())
 
+    def test_detection_job_is_deployable_from_the_chart(self):
+        chart = ROOT / "charts" / "pi-agents"
+        flink = (chart / "templates" / "flink.yaml").read_text()
+        values = (chart / "values.yaml").read_text()
+        docs = (ROOT / "docs" / "STREAMING-DETECTION.md").read_text()
+        self.assertIn("local:///opt/flink/usrlib/detection-job.jar", flink)
+        self.assertIn("upgradeMode: savepoint", flink)
+        self.assertIn("detectionJob:", values)
+        self.assertIn("openThreshold60s: 20", values)
+        self.assertIn("openThreshold900s: 40", values)
+        for heading in ("## Rolling views", "## Port-scan rule v1", "## Observability", "## Delivery guarantees"):
+            self.assertIn(heading, docs)
+
     def test_strimzi_operator_is_a_pinned_separate_chart_dependency(self):
         chart = (ROOT / "charts" / "strimzi-operator" / "Chart.yaml").read_text()
         values = (ROOT / "charts" / "strimzi-operator" / "values.yaml").read_text()

@@ -23,6 +23,8 @@ public final class DetectionJob {
   public static final String FLOWS_TOPIC = "traffic.flows.v2";
   public static final String LATE_TOPIC = "traffic.late.v2";
   public static final String DETECTIONS_TOPIC = "traffic.detections.v2";
+  public static final String FEATURES_TOPIC = "traffic.features.v2";
+  public static final long FEATURE_INTERVAL_MS = 1_000;
   public static final Duration DEFAULT_LATENESS = Duration.ofSeconds(30);
   public static final Duration SHORT_HORIZON = Duration.ofSeconds(60);
   public static final Duration LONGEST_HORIZON = Duration.ofSeconds(900);
@@ -84,6 +86,15 @@ public final class DetectionJob {
         .uid("port-scan-rule");
   }
 
+  /** At most one feature view per device and horizon per interval. */
+  public static DataStream<DeviceWindows.View> features(DataStream<DeviceWindows.ViewSet> views) {
+    return views
+        .keyBy(v -> v.deviceKey)
+        .process(new FeatureThrottle(FEATURE_INTERVAL_MS))
+        .name("feature-throttle")
+        .uid("feature-throttle");
+  }
+
   static PortScanRule.Config ruleConfig(ParameterTool params) {
     PortScanRule.Config c = new PortScanRule.Config();
     c.openThresholds[0] = params.getDouble("open-threshold-60s", c.openThresholds[0]);
@@ -126,7 +137,17 @@ public final class DetectionJob {
             .build();
     ingest.late().sinkTo(lateSink).name("traffic.late.v2").uid("late-sink");
 
-    DataStream<Transition> transitions = detect(views(ingest.accepted()), ruleConfig(params));
+    DataStream<DeviceWindows.ViewSet> views = views(ingest.accepted());
+    DataStream<Transition> transitions = detect(views, ruleConfig(params));
+
+    // Observability only: at-least-once, throttled, outside the rule path.
+    KafkaSink<DeviceWindows.View> featuresSink =
+        KafkaSink.<DeviceWindows.View>builder()
+            .setBootstrapServers(bootstrap)
+            .setRecordSerializer(new FeatureUpdateSerializer(FEATURES_TOPIC))
+            .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+            .build();
+    features(views).sinkTo(featuresSink).name(FEATURES_TOPIC).uid("features-sink");
 
     // Exactly-once: transitions are committed with Flink checkpoints. The
     // incident projector reads read_uncommitted and dedupes by transition ID,

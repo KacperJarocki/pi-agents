@@ -34,7 +34,12 @@ metadata:
   labels:
     {{- include "pi-agents.labels" . | nindent 4 }}
 spec:
+  {{- $job := .Values.flink.detectionJob }}
+  {{- if $job.enabled }}
+  image: "{{ $job.image.repository }}:{{ required "flink.detectionJob.image.tag is required" $job.image.tag }}"
+  {{- else }}
   image: {{ .Values.flink.image | quote }}
+  {{- end }}
   flinkVersion: {{ .Values.flink.version }}
   serviceAccount: flink
   flinkConfiguration:
@@ -95,7 +100,29 @@ spec:
     replicas: {{ .Values.flink.taskManagerReplicas }}
     resources:
       {{- toYaml .Values.flink.taskManager | nindent 6 }}
-  {{- if .Values.flink.smokeJob }}
+  {{- if $job.enabled }}
+  job:
+    jarURI: local:///opt/flink/usrlib/detection-job.jar
+    entryClass: io.piagents.detection.DetectionJob
+    parallelism: {{ $job.parallelism }}
+    # Take a savepoint on upgrade and restore from it.
+    upgradeMode: savepoint
+    allowNonRestoredState: {{ $job.allowNonRestoredState }}
+    state: running
+    args:
+      - --bootstrap
+      - {{ $job.kafkaBootstrap | default .Values.kafka.bootstrapServers | default (printf "%s-kafka-bootstrap:9092" .Values.kafka.name) | quote }}
+      - --open-threshold-60s
+      - {{ $job.rule.openThreshold60s | quote }}
+      - --open-threshold-900s
+      - {{ $job.rule.openThreshold900s | quote }}
+      - --clear-fraction
+      - {{ $job.rule.clearFraction | quote }}
+      - --hold-ms
+      - {{ $job.rule.holdMs | int64 | quote }}
+      - --cooldown-ms
+      - {{ $job.rule.cooldownMs | int64 | quote }}
+  {{- else if .Values.flink.smokeJob }}
   job:
     jarURI: local:///opt/flink/examples/streaming/StateMachineExample.jar
     parallelism: 1

@@ -71,6 +71,25 @@ flink:
       prefix: flink
       credentialsSecret: rustfs-credentials
   smokeJob: false
+  # Detection job (flink/detection-job); replaces the smoke job when enabled.
+  detectionJob:
+    enabled: false
+    image:
+      repository: ghcr.io/kacperjarocki/flink-detection-job
+      # A sha-<8 chars> tag from docker-build.yml.
+      tag: ""
+    parallelism: 2
+    # Only for the first switch from the smoke job (its savepoint has state
+    # this job does not use) or after removing an operator on purpose.
+    allowNonRestoredState: false
+    # Empty means kafka.bootstrapServers, then the in-chart Strimzi bootstrap.
+    kafkaBootstrap: ""
+    rule:
+      openThreshold60s: 20
+      openThreshold900s: 40
+      clearFraction: 0.5
+      holdMs: 60000
+      cooldownMs: 300000
   jobManager:
     requests:
       cpu: 250m

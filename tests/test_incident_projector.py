@@ -131,7 +131,9 @@ class IncidentProjectorTests(unittest.TestCase):
         self.conn = psycopg.connect(DSN, autocommit=True)
         self.conn.execute("DROP SCHEMA public CASCADE")
         self.conn.execute("CREATE SCHEMA public")
-        self.assertEqual(db.migrate(self.conn), ["0001_incidents.sql"])
+        self.assertEqual(
+            db.migrate(self.conn), ["0001_incidents.sql", "0002_gateway_health.sql"]
+        )
 
     def tearDown(self):
         self.conn.close()
@@ -218,6 +220,34 @@ class IncidentProjectorTests(unittest.TestCase):
             cursor = db.apply_transition(self.conn, transition())
             notes = list(listener.notifies(timeout=5, stop_after=1))
         self.assertEqual([n.payload for n in notes], [str(cursor)])
+
+    def test_health_keeps_the_latest_event_per_kind_and_notifies(self):
+        import psycopg
+
+        def health(kind, count, last_ms, detail=""):
+            h = events_pb2.HealthEvent()
+            h.envelope.gateway_id = "gw"
+            h.component = "sensor-spool" if kind == 2 else "sensor"
+            h.kind = kind
+            h.count = count
+            h.first_sequence = 10
+            h.last_sequence = 20
+            h.first_event_time_unix_millis = last_ms - 1000
+            h.last_event_time_unix_millis = last_ms
+            h.detail = detail
+            return h
+
+        with psycopg.connect(DSN, autocommit=True) as listener:
+            listener.execute(f"LISTEN {db.HEALTH_CHANNEL}")
+            self.assertTrue(db.apply_health(self.conn, health(2, 5, 2_000, "spool full")))
+            notes = list(listener.notifies(timeout=5, stop_after=1))
+        self.assertEqual([n.payload for n in notes], ["gw"])
+        self.assertFalse(db.apply_health(self.conn, health(2, 3, 1_000)), "older event ignored")
+        self.assertTrue(db.apply_health(self.conn, health(1, 99, 3_000, "waiting for wlan0")))
+        rows = self.conn.execute(
+            "SELECT kind, count, detail FROM gateway_health ORDER BY kind"
+        ).fetchall()
+        self.assertEqual(rows, [("HEARTBEAT", 99, "waiting for wlan0"), ("SPOOL_LOSS", 5, "spool full")])
 
     def test_feed_payload_carries_latency_fields(self):
         db.apply_transition(self.conn, transition())

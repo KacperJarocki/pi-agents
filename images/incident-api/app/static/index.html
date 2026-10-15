@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live incidents</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+    --high: #b42318; --medium: #b54708; --low: #3e6b34; --warn-bg: #fff4e5; --warn-line: #f2c48d;
+    --err-bg: #fdecea; --err-line: #f1a9a0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --text: #ecebe6; --muted: #a2a19a; --line: #34332f;
+      --high: #ff8a7a; --medium: #f7b267; --low: #9ccf8f; --warn-bg: #3a2c16; --warn-line: #7a5a26;
+      --err-bg: #3d1c19; --err-line: #7d342c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  #status { color: var(--muted); font-size: 13px; }
+  .banner { border: 1px solid; border-radius: 6px; padding: 8px 12px; margin: 0 0 10px; }
+  .banner.connection { background: var(--err-bg); border-color: var(--err-line); }
+  .banner.ingestion { background: var(--warn-bg); border-color: var(--warn-line); }
+  .banner ul { margin: 4px 0 0; padding-left: 18px; }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tr:last-child td { border-bottom: 0; }
+  tr.resolved td { color: var(--muted); }
+  .sev { font-weight: 600; }
+  .sev-HIGH { color: var(--high); } .sev-MEDIUM { color: var(--medium); } .sev-LOW { color: var(--low); }
+  .over { font-weight: 600; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  #empty { color: var(--muted); padding: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Live incidents</h1>
+    <span id="status" data-testid="status">connecting…</span>
+  </header>
+  <div id="connection-banner" class="banner connection" data-testid="connection-banner" role="alert" hidden></div>
+  <div id="ingestion-banner" class="banner ingestion" data-testid="ingestion-banner" role="status" hidden></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Severity</th><th>Status</th><th>Device</th><th>60 s</th><th>900 s</th>
+          <th>Started</th><th>Updated</th><th>Delay</th><th>Rev</th>
+        </tr>
+      </thead>
+      <tbody id="incidents" data-testid="incidents"></tbody>
+    </table>
+    <div id="empty" data-testid="empty">No incidents.</div>
+  </div>
+</main>
+<script>
+"use strict";
+// Live view over /ws/v2/incidents. One row per incident; a transition is
+// applied only if its revision is newer than the row's. The last cursor is
+// kept so a reconnect resumes with ?after=<cursor> instead of a full reload.
+const state = { incidents: new Map(), cursor: null, retryMs: 1000, socket: null, health: [] };
+const MAX_RETRY_MS = 30000;
+
+const $ = (id) => document.getElementById(id);
+const time = (ms) => (ms ? new Date(ms).toLocaleTimeString() : "–");
+
+function horizon(t, seconds) {
+  const h = (t.horizons || []).find((x) => x.horizon_seconds === seconds);
+  if (!h) return "–";
+  const text = `${h.value} / ${h.open_threshold}`;
+  return h.over_threshold ? `<span class="over">${text}</span>` : text;
+}
+
+function delay(t) {
+  if (!t.committed_at_ms || !t.evidence_event_time_ms) return "–";
+  const ms = t.committed_at_ms - t.evidence_event_time_ms;
+  return ms < 10000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function render() {
+  const rows = [...state.incidents.values()].sort((a, b) => {
+    const ra = a.status === "RESOLVE" ? 1 : 0, rb = b.status === "RESOLVE" ? 1 : 0;
+    return ra - rb || (b.detected_at_ms || 0) - (a.detected_at_ms || 0);
+  });
+  $("incidents").innerHTML = rows.map((t) => `
+    <tr data-incident="${escapeHtml(t.incident_id)}" class="${t.status === "RESOLVE" ? "resolved" : ""}">
+      <td class="sev sev-${escapeHtml(t.severity)}">${escapeHtml(t.severity)}</td>
+      <td>${escapeHtml(t.status)}</td>
+      <td class="mono">${escapeHtml(t.device_key)}</td>
+      <td>${horizon(t, 60)}</td>
+      <td>${horizon(t, 900)}</td>
+      <td>${time(t.episode_start_ms)}</td>
+      <td>${time(t.detected_at_ms)}</td>
+      <td data-testid="delay">${delay(t)}</td>
+      <td data-testid="revision">${t.revision}</td>
+    </tr>`).join("");
+  $("empty").hidden = rows.length > 0;
+}
+
+function apply(transition, committedAtMs) {
+  const current = state.incidents.get(transition.incident_id);
+  if (current && current.revision >= transition.revision) return;
+  state.incidents.set(transition.incident_id, { ...transition, committed_at_ms: committedAtMs ?? transition.committed_at_ms });
+}
+
+function renderHealth() {
+  const problems = [];
+  for (const g of state.health) {
+    if (g.kind === "SPOOL_LOSS" && g.count > 0) {
+      problems.push(`Gateway ${g.gateway_id} lost ${g.count} events (sequences ${g.first_sequence}–${g.last_sequence}, ${time(g.first_event_time_ms)}–${time(g.last_event_time_ms)}); detection may be incomplete.`);
+    } else if (g.kind === "UNATTRIBUTED" && g.count > 0) {
+      problems.push(`Gateway ${g.gateway_id}: ${g.count} frames from devices without a DHCP lease (${time(g.first_event_time_ms)}–${time(g.last_event_time_ms)}).`);
+    } else if (g.kind === "FLOW_TABLE_EVICTION" && g.count > 0) {
+      problems.push(`Gateway ${g.gateway_id}: flow table full, ${g.count} flows flushed early.`);
+    } else if (g.kind === "HEARTBEAT" && g.detail) {
+      problems.push(`Gateway ${g.gateway_id}: ${g.detail}.`);
+    }
+  }
+  const banner = $("ingestion-banner");
+  banner.hidden = problems.length === 0;
+  banner.innerHTML = problems.length ? `<strong>Ingestion degraded</strong><ul>${problems.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : "";
+}
+
+function setConnected(connected, message) {
+  const banner = $("connection-banner");
+  banner.hidden = connected;
+  banner.textContent = connected ? "" : message;
+  $("status").textContent = connected ? `live · cursor ${state.cursor}` : "disconnected";
+}
+
+function connect() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const query = state.cursor === null ? "" : `?after=${state.cursor}`;
+  const socket = new WebSocket(`${scheme}://${location.host}/ws/v2/incidents${query}`);
+  state.socket = socket;
+
+  socket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    switch (msg.type) {
+      case "snapshot":
+        state.incidents.clear();
+        for (const t of msg.incidents) apply(t, t.committed_at_ms);
+        state.cursor = msg.cursor;
+        render();
+        break;
+      case "reset":
+        state.incidents.clear();
+        render();
+        break;
+      case "change":
+        apply(msg.transition, msg.committed_at_ms);
+        state.cursor = msg.cursor;
+        render();
+        break;
+      case "health":
+        state.health = msg.gateways || [];
+        renderHealth();
+        break;
+      case "live":
+      case "ping":
+        state.cursor = msg.cursor;
+        state.retryMs = 1000;
+        setConnected(true);
+        break;
+    }
+  };
+
+  socket.onclose = () => {
+    const wait = state.retryMs;
+    state.retryMs = Math.min(state.retryMs * 2, MAX_RETRY_MS);
+    setConnected(false, `Live connection lost — reconnecting in ${Math.round(wait / 1000)} s. Incidents shown may be out of date.`);
+    setTimeout(connect, wait);
+  };
+}
+
+render();
+connect();
+</script>
+</body>
+</html>

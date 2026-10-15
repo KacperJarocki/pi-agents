@@ -39,6 +39,8 @@ jobs:
           - image_dir: images/incident-projector
             image_name: incident-projector
             context: .
+          - image_dir: images/incident-api
+            image_name: incident-api
 
     steps:
       - name: Checkout repository

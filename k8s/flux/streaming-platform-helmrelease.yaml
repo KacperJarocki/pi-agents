@@ -77,6 +77,12 @@ spec:
       # Stateful example job used to verify checkpoint recovery; replaced by
       # the detection job (task 5.4).
       smokeJob: true
+    sensor:
+      enabled: true
+      image:
+        # docker-build.yml on main, linux/arm64 + amd64.
+        tag: sha-1b613f8a
+      interface: wlan0
     postgres:
       enabled: true
       resources:

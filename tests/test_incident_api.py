@@ -89,6 +89,36 @@ class IncidentApiTests(unittest.TestCase):
         self.assertIn(root.status_code, (302, 307))
         self.assertEqual(root.headers["location"], "/live/")
 
+    def test_websocket_works_through_a_real_uvicorn_server(self):
+        """TestClient does not need a WebSocket library; uvicorn does."""
+        import socket
+
+        import uvicorn
+        from websockets.sync.client import connect
+
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        server = uvicorn.Server(
+            uvicorn.Config(api_main.create_app(DSN), host="127.0.0.1", port=port, log_level="warning")
+        )
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            for _ in range(100):
+                if server.started:
+                    break
+                time.sleep(0.05)
+            self.apply("a", 1)
+            with connect(f"ws://127.0.0.1:{port}/ws/v2/incidents?after=0", open_timeout=5) as ws:
+                import json
+
+                kinds = [json.loads(ws.recv(timeout=5))["type"] for _ in range(3)]
+            self.assertEqual(kinds, ["health", "change", "live"])
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
+
     def receive_until(self, ws, kind):
         while True:
             msg = ws.receive_json()

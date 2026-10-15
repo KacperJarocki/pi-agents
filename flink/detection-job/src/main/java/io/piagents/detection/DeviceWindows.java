@@ -33,13 +33,24 @@ public class DeviceWindows implements Serializable {
     final String target;
     final long bytes;
     final boolean failed;
+    final String eventId;
+    final long ingestTimeMs;
 
-    public Contribution(long eventTimeMs, String remoteIp, String target, long bytes, boolean failed) {
+    public Contribution(
+        long eventTimeMs,
+        String remoteIp,
+        String target,
+        long bytes,
+        boolean failed,
+        String eventId,
+        long ingestTimeMs) {
       this.eventTimeMs = eventTimeMs;
       this.remoteIp = remoteIp;
       this.target = target;
       this.bytes = bytes;
       this.failed = failed;
+      this.eventId = eventId;
+      this.ingestTimeMs = ingestTimeMs;
     }
 
     static Contribution of(FlowRecord r) {
@@ -47,7 +58,13 @@ public class DeviceWindows implements Serializable {
           r.attemptOutcome == OUTCOME_REJECTED || r.attemptOutcome == OUTCOME_UNANSWERED;
       String target = r.protocol + "/" + r.remoteIp + "/" + r.remotePort;
       return new Contribution(
-          r.eventTimeMs, r.remoteIp, target, r.bytesFromDevice + r.bytesToDevice, failed);
+          r.eventTimeMs,
+          r.remoteIp,
+          target,
+          r.bytesFromDevice + r.bytesToDevice,
+          failed,
+          r.eventId,
+          r.ingestTimeMs);
     }
   }
 
@@ -130,6 +147,20 @@ public class DeviceWindows implements Serializable {
       v.distinctRemoteIps = remoteIps.size();
       v.distinctTargets = targets.size();
       v.failedTargets = failedTargets;
+      Contribution latest = contributions.peekLast();
+      if (latest != null) {
+        v.latestEventId = latest.eventId;
+        v.latestIngestTimeMs = latest.ingestTimeMs;
+      }
+      List<String> sample = new ArrayList<>(SAMPLE_SIZE);
+      Iterator<Contribution> it = contributions.descendingIterator();
+      while (it.hasNext() && sample.size() < SAMPLE_SIZE) {
+        Contribution c = it.next();
+        if (c.failed) {
+          sample.add(c.eventId);
+        }
+      }
+      v.sampleEventIds = sample.toArray(new String[0]);
       return v;
     }
   }
@@ -145,6 +176,10 @@ public class DeviceWindows implements Serializable {
     public int distinctTargets;
     /** Distinct targets whose latest attempt was rejected or unanswered. */
     public int failedTargets;
+    public String latestEventId = "";
+    public long latestIngestTimeMs;
+    /** Up to {@link #SAMPLE_SIZE} IDs of the most recent failed attempts, newest first. */
+    public String[] sampleEventIds = new String[0];
 
     public View() {}
 
@@ -164,6 +199,23 @@ public class DeviceWindows implements Serializable {
           + " remoteIps=" + distinctRemoteIps + " end=" + windowEndMs + "}";
     }
   }
+
+  /** All horizons' views of one device at one device clock value. */
+  public static class ViewSet {
+    public String deviceKey = "";
+    public long windowEndMs;
+    /** One view per horizon, shortest first. */
+    public View[] views = new View[0];
+
+    public ViewSet() {}
+
+    @Override
+    public String toString() {
+      return "ViewSet" + java.util.Arrays.toString(views);
+    }
+  }
+
+  static final int SAMPLE_SIZE = 20;
 
   private final List<Horizon> horizons = new ArrayList<>();
   private long clockMs = Long.MIN_VALUE;

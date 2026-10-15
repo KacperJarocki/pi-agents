@@ -1,0 +1,17 @@
+streaming:
+  enabled: true
+
+rustfs:
+  enabled: true
+
+postgres:
+  enabled: true
+
+incidents:
+  enabled: true
+  projector:
+    image:
+      tag: sha-00000000
+  api:
+    image:
+      tag: sha-00000000

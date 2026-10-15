@@ -51,10 +51,13 @@ jobs:
           pip install -r images/incident-projector/requirements.txt
           pip install -r images/incident-projector/requirements-build.txt
 
-      - name: Projector tests against PostgreSQL
+      - name: Install incident API dependencies
+        run: pip install -r images/incident-api/requirements.txt -r images/incident-api/requirements-dev.txt
+
+      - name: Projector and incident API tests against PostgreSQL
         env:
           PROJECTOR_TEST_DSN: postgresql://postgres:test@localhost:5432/postgres
-        run: python -m unittest tests.test_incident_projector -v
+        run: python -m unittest tests.test_incident_projector tests.test_incident_api -v
 
   k8s:
     runs-on: ubuntu-latest
@@ -75,6 +78,11 @@ jobs:
         run: |
           helm lint charts/pi-agents -f charts/pi-agents/values-detection-job.yaml
           helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-detection-job.yaml > /tmp/detection-job.yaml
+
+      - name: Validate incidents profile
+        run: |
+          helm lint charts/pi-agents -f charts/pi-agents/values-incidents.yaml
+          helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-incidents.yaml > /tmp/incidents.yaml
 
       - name: Validate sensor profile
         run: |

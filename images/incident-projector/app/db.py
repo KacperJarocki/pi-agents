@@ -9,11 +9,19 @@ import pathlib
 import psycopg
 
 FEED_CHANNEL = "incident_feed"
+HEALTH_CHANNEL = "gateway_health"
 FEED_RETENTION = dt.timedelta(days=7)
 
 _STATUS = {1: "OPEN", 2: "UPDATE", 3: "REOPEN", 4: "RESOLVE"}
 _SEVERITY = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
 _FAMILY = {1: "PORT_SCAN"}
+_HEALTH_KIND = {
+    1: "HEARTBEAT",
+    2: "SPOOL_LOSS",
+    3: "UNATTRIBUTED",
+    4: "LATE_EVENTS",
+    5: "FLOW_TABLE_EVICTION",
+}
 
 
 def migrate(conn: psycopg.Connection) -> list[str]:
@@ -147,3 +155,47 @@ def prune_feed(conn: psycopg.Connection, older_than: dt.timedelta = FEED_RETENTI
             "DELETE FROM incident_feed WHERE committed_at < now() - %s", (older_than,)
         )
         return cur.rowcount
+
+
+def apply_health(conn: psycopg.Connection, h) -> bool:
+    """Stores a HealthEvent as the latest for its gateway, component and kind.
+
+    Older events (by event time) do not replace newer ones, so redelivery and
+    reordering are harmless. Returns whether the row changed.
+    """
+    kind = _HEALTH_KIND.get(h.kind, "UNSPECIFIED")
+    with conn.transaction():
+        changed = conn.execute(
+            """
+            INSERT INTO gateway_health (
+                gateway_id, component, kind, count, first_sequence, last_sequence,
+                first_event_time, last_event_time, detail)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (gateway_id, component, kind) DO UPDATE SET
+                count = EXCLUDED.count,
+                first_sequence = EXCLUDED.first_sequence,
+                last_sequence = EXCLUDED.last_sequence,
+                first_event_time = EXCLUDED.first_event_time,
+                last_event_time = EXCLUDED.last_event_time,
+                detail = EXCLUDED.detail,
+                received_at = now()
+            WHERE gateway_health.last_event_time IS NULL
+               OR gateway_health.last_event_time <= EXCLUDED.last_event_time
+            RETURNING gateway_id
+            """,
+            (
+                h.envelope.gateway_id,
+                h.component,
+                kind,
+                h.count,
+                h.first_sequence,
+                h.last_sequence,
+                _ts(h.first_event_time_unix_millis),
+                _ts(h.last_event_time_unix_millis),
+                h.detail,
+            ),
+        ).fetchone()
+        if changed is not None:
+            conn.execute("SELECT pg_notify(%s, %s)", (HEALTH_CHANNEL, h.envelope.gateway_id))
+    return changed is not None
+

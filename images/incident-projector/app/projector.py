@@ -1,4 +1,4 @@
-"""Projects traffic.detections.v2 into PostgreSQL.
+"""Projects traffic.detections.v2 (and traffic.health.v2) into PostgreSQL.
 
 For every transition: one database transaction (dedupe, revision-guarded
 upsert, feed row, NOTIFY), then the Kafka offset commit. A crash between the
@@ -8,6 +8,7 @@ Environment:
   KAFKA_BOOTSTRAP     Kafka bootstrap servers (default pi-agents-kafka-bootstrap:9092)
   DATABASE_URL        PostgreSQL connection URI (required)
   DETECTIONS_TOPIC    default traffic.detections.v2
+  HEALTH_TOPIC        default traffic.health.v2 (latest per gateway/component/kind)
   GROUP_ID            default incident-projector
   HEARTBEAT_FILE      rewritten every loop iteration for the liveness probe
 """
@@ -26,7 +27,9 @@ import psycopg
 from google.protobuf.message import DecodeError
 
 from app import db
-from app.events_pb2 import DetectionTransition
+from app.events_pb2 import DetectionTransition, HealthEvent
+
+HEALTH_TOPIC = os.environ.get("HEALTH_TOPIC", "traffic.health.v2")
 
 log = logging.getLogger("incident-projector")
 
@@ -62,30 +65,30 @@ class Projector:
         self.clock = clock
         self.last_prune = clock()
         self.heartbeat = heartbeat
-        self.stats = {"applied": 0, "duplicates": 0, "malformed": 0, "db_retries": 0}
+        self.stats = {"applied": 0, "duplicates": 0, "malformed": 0, "db_retries": 0, "health": 0}
 
     def _db(self) -> psycopg.Connection:
         if self.conn is None or self.conn.closed:
             self.conn = self.connect()
         return self.conn
 
-    def apply(self, msg: Message) -> int | None:
-        """Decodes and applies one message; retries database errors until it succeeds."""
+    def _health(self, msg: Message) -> None:
         try:
-            transition = DetectionTransition.FromString(msg.value() or b"")
+            event = HealthEvent.FromString(msg.value() or b"")
         except DecodeError:
-            transition = None
-        if transition is None or not transition.transition_id or not transition.incident_id:
+            event = None
+        if event is None or not event.envelope.gateway_id:
             self.stats["malformed"] += 1
-            log.warning(
-                "skipping malformed transition at %s[%d]@%d", msg.topic(), msg.partition(), msg.offset()
-            )
-            return None
+            return
+        self._with_retry(lambda conn: db.apply_health(conn, event))
+        self.stats["health"] += 1
+
+    def _with_retry(self, operation):
+        """Runs a database operation, reconnecting and retrying on connection loss."""
         delay = 0.5
         while True:
             try:
-                cursor = db.apply_transition(self._db(), transition)
-                break
+                return operation(self._db())
             except psycopg.OperationalError as err:
                 # Connection lost (e.g. primary failover): reconnect and retry
                 # the same transition; the offset is not committed meanwhile.
@@ -96,6 +99,23 @@ class Projector:
                 self.conn = None
                 time.sleep(delay)
                 delay = min(delay * 2, 10)
+
+    def apply(self, msg: Message) -> int | None:
+        """Decodes and applies one message; retries database errors until it succeeds."""
+        if msg.topic() == HEALTH_TOPIC:
+            self._health(msg)
+            return None
+        try:
+            transition = DetectionTransition.FromString(msg.value() or b"")
+        except DecodeError:
+            transition = None
+        if transition is None or not transition.transition_id or not transition.incident_id:
+            self.stats["malformed"] += 1
+            log.warning(
+                "skipping malformed transition at %s[%d]@%d", msg.topic(), msg.partition(), msg.offset()
+            )
+            return None
+        cursor = self._with_retry(lambda conn: db.apply_transition(conn, transition))
         self.stats["applied" if cursor is not None else "duplicates"] += 1
         return cursor
 
@@ -143,7 +163,7 @@ def main() -> None:  # pragma: no cover - wiring only
             "isolation.level": "read_uncommitted",
         }
     )
-    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2")])
+    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2"), HEALTH_TOPIC])
     heartbeat = os.environ.get("HEARTBEAT_FILE")
     projector = Projector(
         consumer,

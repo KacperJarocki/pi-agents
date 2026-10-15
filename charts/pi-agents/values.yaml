@@ -183,6 +183,40 @@ postgres:
         cpu: 500m
         memory: 256Mi
 
+# Incident projector (traffic.detections.v2 -> PostgreSQL) and incident API
+# (REST + WebSocket + /live page). Needs postgres.enabled or an external DB.
+incidents:
+  enabled: false
+  # Secret with key `uri`; empty means the CNPG app secret <release>-pg-app.
+  databaseSecret: ""
+  projector:
+    image:
+      repository: ghcr.io/kacperjarocki/incident-projector
+      tag: ""
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  api:
+    image:
+      repository: ghcr.io/kacperjarocki/incident-api
+      tag: ""
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    ingress:
+      enabled: true
+      host: iot-dashboard.homelab.kacperjarocki.dev
+      clusterIssuer: letsencrypt-http-prod
+
 clickhouse:
   database: analytics
 

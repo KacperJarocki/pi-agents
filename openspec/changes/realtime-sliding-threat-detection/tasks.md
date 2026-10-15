@@ -16,7 +16,7 @@
 
 ## 3. Platform
 
-- [ ] 3.1 Replace the single-node Kafka with a 3-node combined KRaft `KafkaNodePool` (RF3, min ISR 2, `local-path`, anti-affinity, off gateway, 1.5 GiB limit) and add `KafkaTopic` CRs for the v2 topics. Verify with `helm lint` / `helm template` and, in K3s, by producing to a topic with one broker pod deleted.
+- [x] 3.1 Replace the single-node Kafka with a 3-node combined KRaft `KafkaNodePool` (RF3, min ISR 2, `local-path`, anti-affinity, off gateway, 1.5 GiB limit) and add `KafkaTopic` CRs for the v2 topics. Verify with `helm lint` / `helm template` and, in K3s, by producing to a topic with one broker pod deleted.
 - [ ] 3.2 Add a RustFS deployment (`local-path`, resource limits, bucket bootstrap, credentials Secret reference only). Make the S3 checkpoint profile the default Flink profile, with TM 2 GiB / 2 slots ×2 and JM 1.5 GiB. Verify with `helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml` and a running smoke job that restores from checkpoint after its TaskManager is deleted.
 - [ ] 3.3 Add the CloudNativePG operator HelmRelease to `k8s/flux` and a 2-instance `Cluster` with barman-cloud backups to RustFS. Verify with `kubectl kustomize k8s/flux`, `helm template`, and in K3s a primary failover plus a completed backup.
 

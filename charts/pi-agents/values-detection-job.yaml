@@ -1,0 +1,16 @@
+streaming:
+  enabled: true
+
+kafka:
+  enabled: true
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+
+rustfs:
+  enabled: true
+
+flink:
+  enabled: true
+  detectionJob:
+    enabled: true
+    image:
+      tag: sha-00000000

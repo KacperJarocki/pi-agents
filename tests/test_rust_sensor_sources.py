@@ -6,14 +6,31 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class RustSensorSourceTests(unittest.TestCase):
-    def test_sensor_core_is_dependency_free_and_bounded(self):
+    def test_sensor_core_needs_libpcap_only_for_live_capture(self):
         cargo = (ROOT / "sensors" / "rust-sensor" / "Cargo.toml").read_text()
         source = (ROOT / "sensors" / "rust-sensor" / "src" / "lib.rs").read_text()
         self.assertIn('edition = "2021"', cargo)
-        self.assertNotIn("[dependencies]", cargo)
+        self.assertIn('live = ["dep:pcap"]', cargo)
+        self.assertIn("optional = true", cargo)
         self.assertIn("pub struct FlowTable", source)
-        self.assertIn("pub fn expire_before", source)
+        self.assertIn("pub fn flush_due", source)
         self.assertIn("UpsertResult::Evicted", source)
+        self.assertIn("DEFAULT_IDLE_US: i64 = 1_000_000", source)
+        self.assertIn("DEFAULT_ACTIVE_US: i64 = 1_000_000", source)
+
+    def test_sensor_has_pcap_fixtures_for_each_scenario(self):
+        fixtures = ROOT / "sensors" / "rust-sensor" / "tests" / "fixtures"
+        for name in (
+            "tcp_established.pcap",
+            "tcp_rejected.pcap",
+            "tcp_unanswered.pcap",
+            "udp_dns.pcap",
+            "icmp.pcap",
+            "unattributed.pcap",
+            "leases.txt",
+            "generate.py",
+        ):
+            self.assertTrue((fixtures / name).exists(), name)
 
     def test_sensor_core_does_not_hide_overflow(self):
         readme = (ROOT / "sensors" / "rust-sensor" / "README.md").read_text()
@@ -25,6 +42,7 @@ class RustSensorSourceTests(unittest.TestCase):
         self.assertIn("cargo fmt", workflow)
         self.assertIn("cargo test", workflow)
         self.assertIn("cargo check", workflow)
+        self.assertIn("--features live", workflow)
 
 
 if __name__ == "__main__":

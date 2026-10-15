@@ -2,8 +2,19 @@
 name = "pi-agents-sensor"
 version = "0.1.0"
 edition = "2021"
-description = "Bounded flow state core for the pi-agents gateway sensor"
+description = "Gateway capture sensor: device-attributed micro-flows for pi-agents"
 license = "MIT"
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "pi-agents-sensor"
+path = "src/main.rs"
+
+[features]
+# Live capture through libpcap. The core and offline replay need no libraries.
+live = ["dep:pcap"]
+
+[dependencies]
+pcap = { version = "2.5.0", optional = true }

@@ -6,7 +6,6 @@ metadata:
   labels:
     app.kubernetes.io/part-of: pi-agents
 spec:
-  suspend: true
   interval: 10m
   chart:
     spec:

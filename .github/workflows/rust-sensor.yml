@@ -24,5 +24,6 @@ jobs:
       - run: cargo fmt --manifest-path sensors/rust-sensor/Cargo.toml -- --check
       - run: cargo test --manifest-path sensors/rust-sensor/Cargo.toml
       - run: cargo clippy --manifest-path sensors/rust-sensor/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path sensors/rust-sensor/Cargo.toml --all-targets --features kafka,live -- -D warnings
       - run: cargo check --manifest-path sensors/rust-sensor/Cargo.toml --target aarch64-unknown-linux-gnu
       - run: cargo check --manifest-path sensors/rust-sensor/Cargo.toml --target aarch64-unknown-linux-gnu --features live

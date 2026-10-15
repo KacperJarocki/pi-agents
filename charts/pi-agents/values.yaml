@@ -106,6 +106,30 @@ rustfs:
       cpu: "1"
       memory: 1Gi
 
+# Capture sensor (sensors/rust-sensor) on the Wi-Fi gateway node.
+sensor:
+  enabled: false
+  image:
+    repository: ghcr.io/kacperjarocki/rust-sensor
+    # Pin to a sha-<8 chars> tag from docker-build.yml in deployed values.
+    tag: latest
+  interface: wlan0
+  # Empty means kafka.bootstrapServers, then the in-chart Strimzi bootstrap.
+  kafkaBootstrap: ""
+  leasesHostPath: /var/lib/gateway-agent
+  flowTableCapacity: 65536
+  spool:
+    hostPath: /var/lib/pi-agents-sensor/spool
+    bytes: 2147483648       # 2 GiB
+    segmentBytes: 67108864  # 64 MiB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
 # CloudNativePG cluster for incidents; needs the CNPG operator and the
 # Barman Cloud plugin (k8s/flux/cnpg-operator-helmrelease.yaml).
 postgres:

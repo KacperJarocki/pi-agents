@@ -95,7 +95,8 @@ spec:
           tag: sha-3e602d3d
       api:
         image:
-          tag: sha-3e602d3d
+          # #50: WebSocket support for the live page.
+          tag: sha-acd831ef
     postgres:
       enabled: true
       resources:

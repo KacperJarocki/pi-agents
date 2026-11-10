@@ -118,7 +118,8 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("kind: KafkaTopic", kafka)
         self.assertIn("excludeNodeLabel: node-role.kubernetes.io/gateway", values)
         self.assertIn("operator: NotIn", kafka)
-        self.assertIn("min.insync.replicas: 2", kafka)
+        self.assertIn("min.insync.replicas: {{ $.Values.kafka.minInsyncReplicas }}", kafka)
+        self.assertIn("minInsyncReplicas: 2", values)
         self.assertIn("eventSchemaVersion: v2", values)
 
     def test_flink_defaults_to_rustfs_checkpoints(self):
@@ -196,12 +197,27 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         operator = (argocd / "strimzi-operator.yaml").read_text()
         platform = (argocd / "pi-agents.yaml").read_text()
         self.assertIn("path: charts/strimzi-operator", operator)
+        self.assertIn("kind: ApplicationSet", platform)
         self.assertIn("path: charts/pi-agents", platform)
-        self.assertIn("../../k8s/values/pi-agents.yaml", platform)
+        self.assertIn("../../k8s/envs/{{ .env }}/images.yaml", platform)
         self.assertIn('sync-wave: "0"', operator)
         self.assertIn('sync-wave: "2"', platform)
         for app in argocd.glob("*.yaml"):
             self.assertIn("project: pi-agents", app.read_text(), app.name)
+
+    def test_environments_share_base_values_and_promote_image_tags(self):
+        envs = ROOT / "k8s" / "envs"
+        base = (envs / "base.yaml").read_text()
+        dev = (envs / "dev" / "values.yaml").read_text()
+        self.assertIn("streaming:\n  enabled: true", base)
+        self.assertNotIn("tag:", base)
+        self.assertIn("minInsyncReplicas: 1", dev)
+        self.assertIn("backend: longhorn", dev)
+        for env in ("dev", "prod"):
+            images = (envs / env / "images.yaml").read_text()
+            for key in ("detectionJob", "sensor", "projector", "api"):
+                self.assertIn(key, images, env)
+            self.assertNotIn("tag: latest", images, env)
 
 
 if __name__ == "__main__":

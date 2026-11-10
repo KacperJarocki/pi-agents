@@ -124,14 +124,20 @@ jobs:
           helm lint charts/pi-agents -f charts/pi-agents/values-postgres.yaml
           helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-postgres.yaml > /tmp/postgres.yaml
 
-      - name: Validate Argo CD values
+      - name: Validate Argo CD values (operators)
         run: |
-          helm template pi-agents charts/pi-agents -n iot-security -f k8s/values/pi-agents.yaml > /tmp/argocd-pi-agents.yaml
           helm dependency build charts/strimzi-operator
           helm template strimzi-operator charts/strimzi-operator -n strimzi-system -f k8s/values/strimzi-operator.yaml > /tmp/argocd-strimzi.yaml
           helm template cnpg-operator cloudnative-pg --repo https://cloudnative-pg.github.io/charts --version 0.29.1 -n cnpg-system -f k8s/values/cnpg-operator.yaml > /tmp/argocd-cnpg.yaml
           helm template barman-cloud plugin-barman-cloud --repo https://cloudnative-pg.github.io/charts --version 0.8.0 -n cnpg-system -f k8s/values/barman-cloud.yaml > /tmp/argocd-barman.yaml
           helm template flink-operator flink-kubernetes-operator --repo https://downloads.apache.org/flink/flink-kubernetes-operator-1.16.1/ --version 1.16.1 -n iot-security -f k8s/values/flink-operator.yaml > /tmp/argocd-flink.yaml
+
+      - name: Validate every environment of the platform chart
+        run: |
+          for env in dev prod; do
+            helm template pi-agents charts/pi-agents -n "iot-security-$env" \
+              -f k8s/envs/base.yaml -f "k8s/envs/$env/values.yaml" -f "k8s/envs/$env/images.yaml" > "/tmp/env-$env.yaml"
+          done
 
       - name: Setup kind
         uses: helm/kind-action@v1.10.0

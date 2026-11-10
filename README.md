@@ -34,7 +34,9 @@ Planned components are described in `design.md` of the active change. What exist
 | `sensors/rust-sensor/` | Rust capture sensor (bounded `FlowTable` core so far) |
 | `schemas/events/v2/` | Protobuf event contract (`v1` is frozen) |
 | `charts/pi-agents/` | Helm chart: streaming config, Strimzi Kafka, Flink |
-| `k8s/argocd/`, `k8s/values/` | Argo CD Applications (operators, the chart, gateway-agent) and their Helm values |
+| `k8s/argocd/` | Argo CD Applications for the operators and `gateway-agent`, plus the `pi-agents` ApplicationSet (one Application per environment) |
+| `k8s/envs/` | Environment values: `base.yaml`, `<env>/values.yaml` (sizing), `<env>/images.yaml` (promotable image tags) |
+| `k8s/values/` | Helm values of the operator Applications |
 | `k8s/base`, `k8s/gateway`, `k8s/overlays/gateway-prod` | Namespace, streaming ConfigMap and `gateway-agent` |
 | `scripts/` | Event contract validator, capture benchmark, traffic generators |
 
@@ -55,7 +57,20 @@ kubectl apply -k k8s/gateway                 # namespace, streaming config, gate
 kubectl apply -k k8s/overlays/gateway-prod   # same, with ENABLE_APPLY=true so the SSID comes up
 ```
 
-The whole deployment is driven by Argo CD from `k8s/argocd/`: Applications for the Strimzi, Flink and CloudNativePG operators (sync wave 0/1), the `pi-agents` chart (wave 2) and `gateway-agent`. The homelab repo's Argo CD picks this directory up as a nested app-of-apps in the `pi-agents` AppProject, so a merge to `main` is a deployment. Helm values for each Application live in `k8s/values/`. See `charts/pi-agents/README.md` for chart values and checkpoint profiles.
+The whole deployment is driven by Argo CD from `k8s/argocd/`: Applications for the Strimzi, Flink and CloudNativePG operators (sync wave 0/1), `gateway-agent`, and an ApplicationSet that renders the `pi-agents` chart once per environment (wave 2). The homelab repo's Argo CD picks this directory up as a nested app-of-apps in the `pi-agents` AppProject. See `charts/pi-agents/README.md` for chart values and checkpoint profiles.
+
+### Environments and promotion
+
+| env | namespace | Application | values | deploys when |
+|-----|-----------|-------------|--------|--------------|
+| dev | `iot-security-dev` | `pi-agents-dev` | `k8s/envs/base.yaml` + `dev/values.yaml` + `dev/images.yaml` | every image build on `main` (`docker-build.yml` pins the new `sha-*` tags in `dev/images.yaml`) |
+| prod | `iot-security` | `pi-agents` | `k8s/envs/base.yaml` + `prod/values.yaml` + `prod/images.yaml` | a promotion PR is merged |
+
+Dev is a scaled-down copy on the same cluster (one broker, one TaskManager, one Postgres instance, Longhorn checkpoints, no backups, no capture sensor); drive it with `scripts/iot-device-emulator.sh` or `scripts/port-sweep.sh` against `pi-agents-kafka-bootstrap.iot-security-dev:9092`. Its dashboard is `https://iot-dashboard-dev.homelab.kacperjarocki.dev`.
+
+To promote: run the **Promote to prod** workflow (Actions tab or `gh workflow run promote.yml`). It copies `dev/images.yaml` to `prod/images.yaml`, renders the prod profile and opens a PR with the tag diff; review, merge, and Argo CD rolls prod. Set a `PROMOTE_TOKEN` repository secret (a PAT with `repo` scope) if you want the Validate workflow to run on those PRs; with the default token GitHub does not trigger workflows on bot-created PRs.
+
+Anything that is not an image tag (sizing, feature switches, rules) is a normal PR against `k8s/envs/`; `base.yaml` changes hit both environments.
 
 ### Wi-Fi access point
 
@@ -72,7 +87,7 @@ python -m unittest discover -v
 python scripts/validate_event_contract.py
 cargo test --manifest-path sensors/rust-sensor/Cargo.toml
 helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
-helm template pi-agents charts/pi-agents -n iot-security -f k8s/values/pi-agents.yaml
+helm template pi-agents charts/pi-agents -n iot-security-dev -f k8s/envs/base.yaml -f k8s/envs/dev/values.yaml -f k8s/envs/dev/images.yaml
 ```
 
 `docker-compose --profile gateway up --build` runs `gateway-agent` locally (Linux only; host network and privileged).

@@ -1,3 +1,4 @@
 strimzi:
   watchNamespaces:
     - iot-security
+    - iot-security-dev

@@ -23,7 +23,9 @@ helm template pi-agents charts/pi-agents \
 
 Kafka is installed through the Strimzi operator. Argo CD installs the operator
 (`k8s/argocd/strimzi-operator.yaml`, sync wave 0) before this chart
-(`k8s/argocd/pi-agents.yaml`, wave 2).
+(`k8s/argocd/pi-agents.yaml`, an ApplicationSet at wave 2 with one Application
+per environment; values under `k8s/envs/`). `kafka.minInsyncReplicas` must not
+exceed `kafka.replicas` (dev runs 1/1).
 
 The Kafka profile uses three KRaft dual-role nodes (replication factor 3,
 `min.insync.replicas=2`), local-path storage, a 2GiB volume per node, a
@@ -96,6 +98,9 @@ instance on the gateway node. WAL archiving and a daily `ScheduledBackup` go to
 `s3://pi-agents/postgres` on RustFS through the Barman Cloud plugin
 (`ObjectStore` `<release>-pg-backups`, 14-day retention), using the same
 `rustfs-credentials` Secret as Flink.
+
+`postgres.backup.enabled: false` drops the `ObjectStore`, WAL archiving and the
+`ScheduledBackup` (the dev environment has no object store).
 
 The CNPG operator (chart 0.29.1) and the Barman Cloud plugin (chart 0.8.0) are
 installed by the `cnpg-operator` and `barman-cloud` Applications in

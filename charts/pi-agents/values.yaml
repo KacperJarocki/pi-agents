@@ -17,6 +17,8 @@ kafka:
   metadataVersion: "4.3-IV0"
   bootstrapServers: ""
   replicas: 3
+  # Must be <= replicas; a single-broker dev cluster needs 1.
+  minInsyncReplicas: 2
   storage:
     type: persistent-claim
     class: local-path
@@ -167,6 +169,9 @@ postgres:
       cpu: "1"
       memory: 2Gi
   backup:
+    # false skips the ObjectStore, WAL archiving and the ScheduledBackup
+    # (dev environments without an S3 store).
+    enabled: true
     # Empty endpoint means the in-chart RustFS service.
     endpoint: ""
     bucket: pi-agents

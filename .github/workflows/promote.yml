@@ -1,0 +1,65 @@
+name: Promote to prod
+
+# Copies the image tags currently running in dev (k8s/envs/dev/images.yaml) to
+# prod (k8s/envs/prod/images.yaml) and opens a pull request. Merging that PR is
+# the production deployment: Argo CD syncs the pi-agents Application from main.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Diff dev -> prod
+        id: diff
+        run: |
+          if diff -u k8s/envs/prod/images.yaml k8s/envs/dev/images.yaml > /tmp/images.diff; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "prod already runs the dev tags; nothing to promote"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            cat /tmp/images.diff
+          fi
+
+      - name: Render prod with the promoted tags
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          cp k8s/envs/dev/images.yaml k8s/envs/prod/images.yaml
+          sed -i 's/^# Image tags running in dev.*/# Image tags running in prod. Changed only by the "Promote to prod" workflow/; s/^# every image build on main.*/# (copies dev\/images.yaml here in a PR); never edit by hand./; /^# Bumped automatically/d' k8s/envs/prod/images.yaml
+          helm template pi-agents charts/pi-agents -n iot-security \
+            -f k8s/envs/base.yaml -f k8s/envs/prod/values.yaml -f k8s/envs/prod/images.yaml > /dev/null
+
+      - name: Open promotion PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          # A PAT in PROMOTE_TOKEN lets the Validate workflow run on the PR;
+          # with the default token GitHub skips workflows on bot-created PRs.
+          GH_TOKEN: ${{ secrets.PROMOTE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          branch="promote/prod-$(date -u +%Y%m%d-%H%M%S)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add k8s/envs/prod/images.yaml
+          git commit -m "chore(prod): promote image tags from dev"
+          git push origin "$branch"
+          {
+            echo "Promotes the image tags currently running in \`iot-security-dev\` to prod."
+            echo
+            echo "Merging this PR deploys to \`iot-security\` through Argo CD (Application \`pi-agents\`)."
+            echo
+            echo '```diff'; cat /tmp/images.diff; echo '```'
+            echo
+            echo "Triggered by @${{ github.actor }} from run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+          } > /tmp/body.md
+          gh pr create --base main --head "$branch" \
+            --title "chore(prod): promote image tags from dev" \
+            --body-file /tmp/body.md

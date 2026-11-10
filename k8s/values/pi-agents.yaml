@@ -1,0 +1,72 @@
+streaming:
+  enabled: true
+# Small profile for 5x 8 GB Pis that also run monitoring: the chart
+# defaults (design sizing) took two nodes NotReady under memory load.
+kafka:
+  enabled: true
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+  jvmOptions:
+    -Xms: 512m
+    -Xmx: 512m
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+# Needs the rustfs-credentials Secret (AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY) in iot-security, created outside Git.
+rustfs:
+  enabled: true
+flink:
+  enabled: true
+  taskManagerReplicas: 1
+  jobManager:
+    requests:
+      cpu: 250m
+      memory: 1024Mi
+    limits:
+      cpu: "1"
+      memory: 1024Mi
+  taskManager:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  smokeJob: false
+  detectionJob:
+    enabled: true
+    image:
+      tag: sha-d22b5c59
+    # Restores must keep all operator state; true only for deliberate
+    # operator removals (it was true once for the switch from the smoke job).
+    allowNonRestoredState: false
+sensor:
+  enabled: true
+  image:
+    # docker-build.yml on main (#42: waits for wlan0 instead of exiting).
+    tag: sha-dbadf2fc
+  interface: wlan0
+incidents:
+  enabled: true
+  projector:
+    image:
+      tag: sha-3e602d3d
+  api:
+    image:
+      # #50: WebSocket support for the live page.
+      tag: sha-acd831ef
+postgres:
+  enabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+externalServices:
+  existingSecret: iot-security-external-services

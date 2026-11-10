@@ -1,8 +1,8 @@
 # Strimzi Operator Chart
 
 This chart wraps the pinned Strimzi OCI chart as a dependency. It is deployed
-as a separate Flux `HelmRelease` so the Kafka custom resources can explicitly
-depend on the operator and its CRDs.
+as a separate Argo CD Application (`k8s/argocd/strimzi-operator.yaml`, sync
+wave 0) so the Kafka custom resources can depend on the operator and its CRDs.
 
 Build the dependency locally:
 
@@ -12,4 +12,4 @@ helm lint charts/strimzi-operator
 ```
 
 The generated dependency archive is ignored. `Chart.lock` is committed so CI
-and Flux use the pinned dependency digest.
+and Argo CD use the pinned dependency digest.

@@ -21,13 +21,9 @@ helm template pi-agents charts/pi-agents \
 
 ## Kafka Cluster
 
-Kafka is installed through the Strimzi operator. Apply the Flux bootstrap
-resources once; Flux installs the operator first and then this chart:
-
-```sh
-kubectl apply -f k8s/flux/streaming-source.yaml
-kubectl apply -f k8s/flux/streaming-kustomization.yaml
-```
+Kafka is installed through the Strimzi operator. Argo CD installs the operator
+(`k8s/argocd/strimzi-operator.yaml`, sync wave 0) before this chart
+(`k8s/argocd/pi-agents.yaml`, wave 2).
 
 The Kafka profile uses three KRaft dual-role nodes (replication factor 3,
 `min.insync.replicas=2`), local-path storage, a 2GiB volume per node, a
@@ -49,10 +45,9 @@ database credentials, S3 credentials, or ClickHouse credentials in values.
 ## Flink and checkpoint storage
 
 Flink is opt-in (`flink.enabled=false`). The Flink Kubernetes Operator is
-installed separately from the pinned Apache 1.16.1 chart; its Flux
-HelmRepository and suspended HelmRelease live under `k8s/flux/`. Unsuspend
-the operator release and wait for the `FlinkDeployment` CRD and operator to
-be ready before enabling the Flink profile in this chart. The Flink 1.20.5
+installed separately from the pinned Apache 1.16.1 chart by the
+`flink-operator` Application in `k8s/argocd/`. Wait for the `FlinkDeployment`
+CRD and operator to be ready before enabling the Flink profile in this chart. The Flink 1.20.5
 runtime image includes `linux/arm64`. JobManager and TaskManagers cannot be
 scheduled on the gateway-labeled node, and both have CPU/memory limits.
 
@@ -103,9 +98,9 @@ instance on the gateway node. WAL archiving and a daily `ScheduledBackup` go to
 `rustfs-credentials` Secret as Flink.
 
 The CNPG operator (chart 0.29.1) and the Barman Cloud plugin (chart 0.8.0) are
-installed by Flux from `k8s/flux/cnpg-operator-helmrelease.yaml` into
-`cnpg-system`; the plugin needs cert-manager. The `pi-agents` HelmRelease
-waits for the plugin before installing.
+installed by the `cnpg-operator` and `barman-cloud` Applications in
+`k8s/argocd/` into `cnpg-system`; the plugin needs cert-manager. Sync waves
+make the `pi-agents` Application wait for both.
 
 On a first install Helm creates the `Cluster` before the `ObjectStore`
 (custom kinds are applied in alphabetical order). The Barman Cloud plugin then

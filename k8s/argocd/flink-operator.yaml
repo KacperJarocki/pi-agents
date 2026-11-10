@@ -1,0 +1,39 @@
+# Flink Kubernetes Operator, watching iot-security only.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flink-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pi-agents
+  sources:
+    - repoURL: https://downloads.apache.org/flink/flink-kubernetes-operator-1.16.1/
+      chart: flink-kubernetes-operator
+      targetRevision: 1.16.1
+      helm:
+        releaseName: flink-operator
+        valueFiles:
+          - $values/k8s/values/flink-operator.yaml
+    - repoURL: https://github.com/KacperJarocki/pi-agents.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iot-security
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

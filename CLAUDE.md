@@ -27,4 +27,4 @@ The thesis-era batch pipeline is gone (tag `thesis-final`); do not reintroduce S
   helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
   helm template pi-agents charts/pi-agents -n iot-security -f charts/pi-agents/values-external.yaml
   ```
-- **Flux** — `k8s/flux/` installs the Strimzi (and Flink) operators via HelmRelease, then the `pi-agents` chart. Manifests there must stay renderable with `kubectl kustomize k8s/flux`.
+- **Argo CD** — `k8s/argocd/` holds one Application per deployable (cnpg-operator, barman-cloud, flink-operator, strimzi-operator at waves 0/1, the `pi-agents` chart at wave 2, `gateway-agent`); `k8s/values/` holds their Helm values. The homelab repo's Argo CD syncs this directory (nested app-of-apps, AppProject `pi-agents`), so merging to `main` deploys. Chart versions are the `targetRevision` next to `chart:`; keep every values file renderable with `helm template`.

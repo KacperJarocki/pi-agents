@@ -1,0 +1,38 @@
+# The platform itself: Kafka, Flink job, PostgreSQL, RustFS, sensor, incidents.
+# Needs the rustfs-credentials and iot-security-external-services Secrets created outside Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pi-agents
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pi-agents
+  source:
+    repoURL: https://github.com/KacperJarocki/pi-agents.git
+    targetRevision: main
+    path: charts/pi-agents
+    helm:
+      releaseName: pi-agents
+      valueFiles:
+        - ../../k8s/values/pi-agents.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iot-security
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

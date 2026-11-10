@@ -1,0 +1,36 @@
+# Wrapper chart in this repo; Argo CD runs 'helm dependency build' (OCI quay.io/strimzi-helm).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: strimzi-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pi-agents
+  source:
+    repoURL: https://github.com/KacperJarocki/pi-agents.git
+    targetRevision: main
+    path: charts/strimzi-operator
+    helm:
+      releaseName: strimzi-operator
+      valueFiles:
+        - ../../k8s/values/strimzi-operator.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: strimzi-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

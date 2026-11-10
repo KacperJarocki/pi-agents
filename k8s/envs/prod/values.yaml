@@ -43,3 +43,6 @@ incidents:
   api:
     # Hostnames and IPs on the device overview come from the AP's DHCP leases.
     gatewayAgentUrl: http://gateway-agent:7000
+    # Block/unblock devices from the device panel. The dashboard is reachable
+    # from the home LAN only (no route from outside), so no auth in front.
+    deviceBlocking: true

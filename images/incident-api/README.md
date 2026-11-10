@@ -47,7 +47,7 @@ Each change carries the transition JSON (`status`, `revision`, horizons,
 `DATABASE_URL` (required), `PORT` (default 8080), `STATIC_DIR`,
 `GATEWAY_AGENT_URL` (optional, e.g. `http://gateway-agent:7000`; chart value
 `incidents.api.gatewayAgentUrl`, set in prod only), `DEVICE_BLOCKING` (chart
-value `incidents.api.deviceBlocking`, default `false`). The API has no
+value `incidents.api.deviceBlocking`, default `false`, on in prod). The API has no
 authentication, so enable blocking only when the dashboard is reachable by
 trusted users alone. A block is an iptables rule on the gateway and lasts until
 the gateway's firewall is reset.

@@ -3,14 +3,14 @@
 flink:
   detectionJob:
     image:
-      tag: sha-4d8bb9db
+      tag: sha-aeff9aa3
 sensor:
   image:
-    tag: sha-4d8bb9db
+    tag: sha-aeff9aa3
 incidents:
   projector:
     image:
-      tag: sha-4d8bb9db
+      tag: sha-aeff9aa3
   api:
     image:
-      tag: sha-4d8bb9db
+      tag: sha-aeff9aa3

@@ -77,8 +77,8 @@ CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s
 - `flink-job.yml`: `./mvnw verify` for `flink/detection-job` (MiniCluster and operator-harness tests).
 - `rust-sensor.yml`: fmt, test and an aarch64 check for the sensor.
 - `streaming-contracts.yml`: event contract validator and its tests.
-- `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`). Every build is scanned with Trivy (`scripts/trivy-scan.sh`, fixable MEDIUM+ vulnerabilities): the job summary lists findings, and on `main` the arm64 image's SARIF goes to code scanning (Security tab). Report-only; accepted CVEs go in `.trivyignore` with a reason.
-- `image-scan.yml`: weekly Trivy scan of the images prod runs (`k8s/envs/prod/images.yaml`, `gateway-agent:latest`) into code scanning.
+- `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`). Every build is scanned with Trivy (`scripts/trivy-scan.sh`, fixable MEDIUM+ vulnerabilities): the job summary lists findings, and on `main` the arm64 image's SARIF goes to code scanning (Security tab). A fixable CRITICAL fails the build (and the dev deploy); fix it by bumping the base image (Dependabot proposes weekly bumps) or accept it in `.trivyignore` with a reason.
+- `image-scan.yml`: weekly Trivy scan of the images prod runs (`k8s/envs/prod/images.yaml`, `gateway-agent:latest`) into code scanning; fails (and notifies) on a fixable CRITICAL.
 - `validate.yml` job `pre-commit`: runs the pre-commit hooks on all files (minus cargo fmt and the UI hooks, which run in their own jobs).
 
 ### Web UI

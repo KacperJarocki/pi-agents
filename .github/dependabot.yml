@@ -10,3 +10,27 @@ updates:
       ui-tooling:
         patterns: ["*"]
         update-types: [minor, patch]
+
+  # Base images: patch releases carry the Debian security fixes Trivy flags.
+  - package-ecosystem: docker
+    directories:
+      - /images/gateway-agent
+      - /images/incident-api
+      - /images/incident-projector
+      - /sensors/rust-sensor
+      - /flink/detection-job
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    directory: /flink/detection-job
+    schedule:
+      interval: weekly
+    groups:
+      flink-job:
+        patterns: ["*"]
+        update-types: [minor, patch]

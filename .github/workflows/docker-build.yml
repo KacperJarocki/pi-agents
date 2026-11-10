@@ -112,11 +112,13 @@ jobs:
           fi
 
       # Second line of defence after npm audit and Dependabot: known
-      # vulnerabilities in the built image (OS packages and app deps). Report
-      # only: findings go to the job summary and, on main, to code scanning
-      # (Security tab). Set TRIVY_FAIL_ON to make it blocking.
+      # vulnerabilities in the built image (OS packages and app deps). Findings
+      # go to the job summary and, on main, to code scanning (Security tab).
+      # A fixable CRITICAL fails the build (and so blocks the dev deploy):
+      # bump the base image, or accept it in .trivyignore with a reason.
       - name: Scan image (Trivy)
         env:
+          TRIVY_FAIL_ON: CRITICAL
           OWNER: ${{ github.repository_owner }}
           IMAGE: ${{ matrix.image_name }}
           EVENT: ${{ github.event_name }}
@@ -135,7 +137,7 @@ jobs:
           scripts/trivy-scan.sh "$ref" trivy-out >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Trivy results to code scanning
-        if: github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && hashFiles('trivy-out/trivy.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-out/trivy.sarif

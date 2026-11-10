@@ -4,16 +4,18 @@ Katalog `k8s/` zawiera manifesty deploymentu systemu.
 
 ## Struktura
 
-- `argocd/` - Argo CD Applications: operatory (CNPG, Barman, Flink, Strimzi), chart `pi-agents`, `gateway-agent`
-- `values/` - Helm values dla tych Applications
+- `argocd/` - Argo CD: Applications operatorów (CNPG, Barman, Flink, Strimzi), `gateway-agent` oraz ApplicationSet `pi-agents` (dev + prod)
+- `envs/` - wartości per środowisko: `base.yaml` (wspólne), `<env>/values.yaml` (rozmiary), `<env>/images.yaml` (tagi obrazów, promowane)
+- `values/` - Helm values Applications operatorów
 - `base/` - namespace i ConfigMap streamingu
 - `gateway/` - workloady systemu
 - `overlays/gateway-prod/` - overlay włączający realne apply Wi-Fi
 
 Katalog `argocd/` jest synchronizowany przez Argo CD z repo homelab (nested app-of-apps,
-AppProject `pi-agents`). Merge do `main` = deploy. Application `gateway-agent` wskazuje
-na `gateway/` (safe mode); żeby włączyć realne apply, przestaw `path` na
-`overlays/gateway-prod`.
+AppProject `pi-agents`). Dev (`iot-security-dev`) dostaje każdy build obrazów z `main`
+automatycznie; prod (`iot-security`) zmienia się tylko przez PR z workflow
+"Promote to prod". Application `gateway-agent` wskazuje na `gateway/` (safe mode);
+żeby włączyć realne apply, przestaw `path` na `overlays/gateway-prod`.
 
 ## Tryby wdrożenia
 

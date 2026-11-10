@@ -1,0 +1,35 @@
+# Shared by every environment. Sizing lives in <env>/values.yaml, image tags in
+# <env>/images.yaml (the only file the promotion workflow touches).
+streaming:
+  enabled: true
+
+kafka:
+  enabled: true
+  bootstrapServers: pi-agents-kafka-bootstrap:9092
+
+# Needs the rustfs-credentials Secret (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+# in the namespace, created outside Git.
+rustfs:
+  enabled: true
+
+flink:
+  enabled: true
+  smokeJob: false
+  detectionJob:
+    enabled: true
+    # Restores must keep all operator state; true only for deliberate
+    # operator removals (it was true once for the switch from the smoke job).
+    allowNonRestoredState: false
+
+sensor:
+  enabled: true
+  interface: wlan0
+
+incidents:
+  enabled: true
+
+postgres:
+  enabled: true
+
+externalServices:
+  existingSecret: iot-security-external-services

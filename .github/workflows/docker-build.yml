@@ -23,6 +23,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      tag: sha-${{ steps.tag.outputs.short }}
 
     strategy:
       fail-fast: false
@@ -58,6 +60,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: tag
+        run: echo "short=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
 
       - name: Determine image name
         id: image_name
@@ -109,3 +115,45 @@ jobs:
           echo "Image: ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}:latest"
           echo "Image: ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME}:sha-${SHA_SHORT:0:8}"
           echo "Platforms: linux/amd64, linux/arm64"
+
+  # Continuous deployment to dev: pin the freshly built tags in
+  # k8s/envs/dev/images.yaml. Argo CD then rolls iot-security-dev. Prod is
+  # untouched until the "Promote to prod" workflow opens a PR.
+  bump-dev:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pin the new tags in dev
+        run: |
+          f=k8s/envs/dev/images.yaml
+          yq -i '
+            .flink.detectionJob.image.tag = strenv(TAG) |
+            .sensor.image.tag = strenv(TAG) |
+            .incidents.projector.image.tag = strenv(TAG) |
+            .incidents.api.image.tag = strenv(TAG)
+          ' "$f"
+          helm template pi-agents charts/pi-agents -n iot-security-dev \
+            -f k8s/envs/base.yaml -f k8s/envs/dev/values.yaml -f "$f" > /dev/null
+          git diff --stat
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/envs/dev/images.yaml
+          git diff --cached --quiet && { echo "dev already on $TAG"; exit 0; }
+          git commit -m "chore(dev): deploy $TAG"
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1

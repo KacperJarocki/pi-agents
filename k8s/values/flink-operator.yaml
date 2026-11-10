@@ -1,5 +1,6 @@
 watchNamespaces:
   - iot-security
+  - iot-security-dev
 image:
   tag: 1.16.1
 operatorPod:

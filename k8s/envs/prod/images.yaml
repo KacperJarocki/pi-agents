@@ -1,0 +1,16 @@
+# Image tags running in prod. Changed only by the "Promote to prod" workflow
+# (copies dev/images.yaml here in a PR); never edit by hand.
+flink:
+  detectionJob:
+    image:
+      tag: sha-d22b5c59
+sensor:
+  image:
+    tag: sha-dbadf2fc
+incidents:
+  projector:
+    image:
+      tag: sha-3e602d3d
+  api:
+    image:
+      tag: sha-acd831ef

@@ -1,0 +1,40 @@
+# Production: namespace iot-security, the real gateway sensor, backups on.
+# Small profile for 5x 8 GB Pis that also run monitoring: the chart
+# defaults (design sizing) took two nodes NotReady under memory load.
+kafka:
+  jvmOptions:
+    -Xms: 512m
+    -Xmx: 512m
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+flink:
+  taskManagerReplicas: 1
+  jobManager:
+    requests:
+      cpu: 250m
+      memory: 1024Mi
+    limits:
+      cpu: "1"
+      memory: 1024Mi
+  taskManager:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+
+postgres:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 1Gi

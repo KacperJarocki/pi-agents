@@ -12,9 +12,9 @@ spec:
     config:
       offsets.topic.replication.factor: {{ .Values.kafka.replicas }}
       transaction.state.log.replication.factor: {{ .Values.kafka.replicas }}
-      transaction.state.log.min.isr: 2
+      transaction.state.log.min.isr: {{ .Values.kafka.minInsyncReplicas }}
       default.replication.factor: {{ .Values.kafka.replicas }}
-      min.insync.replicas: 2
+      min.insync.replicas: {{ .Values.kafka.minInsyncReplicas }}
     listeners:
       - name: plain
         port: 9092
@@ -79,7 +79,7 @@ spec:
   replicas: {{ $.Values.kafka.replicas }}
   config:
     retention.ms: {{ .retentionMs | int64 | quote }}
-    min.insync.replicas: 2
+    min.insync.replicas: {{ $.Values.kafka.minInsyncReplicas }}
     cleanup.policy: delete
 {{- end }}
 {{- end }}

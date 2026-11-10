@@ -1,0 +1,16 @@
+# Image tags running in dev. Bumped automatically by docker-build.yml after
+# every image build on main; promoted to prod with the "Promote to prod" workflow.
+flink:
+  detectionJob:
+    image:
+      tag: sha-d22b5c59
+sensor:
+  image:
+    tag: sha-dbadf2fc
+incidents:
+  projector:
+    image:
+      tag: sha-3e602d3d
+  api:
+    image:
+      tag: sha-acd831ef

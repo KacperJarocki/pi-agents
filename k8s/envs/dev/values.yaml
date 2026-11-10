@@ -1,0 +1,86 @@
+# Development: namespace iot-security-dev on the same cluster, sized to fit next
+# to prod (about 3.5 GiB in total). One broker, one TaskManager, one Postgres
+# instance, no backups, no object store, no capture sensor (there is only one
+# Wi-Fi gateway); feed it with scripts/iot-device-emulator.sh or port-sweep.sh.
+kafka:
+  replicas: 1
+  minInsyncReplicas: 1
+  storage:
+    size: 1Gi
+  jvmOptions:
+    -Xms: 384m
+    -Xmx: 384m
+  resources:
+    requests:
+      cpu: 100m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  topics:
+    - name: traffic.flows.v2
+      partitions: 2
+      retentionMs: 86400000     # 1 day
+    - name: traffic.features.v2
+      partitions: 2
+      retentionMs: 86400000
+    - name: traffic.detections.v2
+      partitions: 1
+      retentionMs: 259200000    # 3 days
+    - name: traffic.health.v2
+      partitions: 1
+      retentionMs: 86400000
+    - name: traffic.late.v2
+      partitions: 1
+      retentionMs: 86400000
+
+# No RustFS in dev: Flink checkpoints go to a Longhorn RWX volume and
+# Postgres runs without WAL archiving, so no S3 credentials are needed.
+rustfs:
+  enabled: false
+
+flink:
+  taskSlots: 1
+  taskManagerReplicas: 1
+  checkpoint:
+    backend: longhorn
+    longhorn:
+      size: 2Gi
+  detectionJob:
+    parallelism: 1
+  jobManager:
+    requests:
+      cpu: 100m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  taskManager:
+    requests:
+      cpu: 250m
+      memory: 1024Mi
+    limits:
+      cpu: "1"
+      memory: 1024Mi
+
+sensor:
+  enabled: false
+
+postgres:
+  instances: 1
+  storage:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  backup:
+    enabled: false
+
+incidents:
+  api:
+    ingress:
+      host: iot-dashboard-dev.homelab.kacperjarocki.dev

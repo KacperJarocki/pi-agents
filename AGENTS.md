@@ -16,8 +16,9 @@ charts/pi-agents/       # Helm chart: streaming config, Strimzi Kafka, Flink
 k8s/base/               # Namespace + streaming ConfigMap
 k8s/gateway/            # gateway-agent Deployment/Service
 k8s/overlays/gateway-prod/  # Sets ENABLE_APPLY=true (activates the AP)
-k8s/argocd/             # Argo CD Applications: operators, the chart, gateway-agent
-k8s/values/             # Helm values referenced by those Applications
+k8s/argocd/             # Argo CD: operator Applications, gateway-agent, pi-agents ApplicationSet (dev+prod)
+k8s/envs/               # base.yaml + <env>/values.yaml (sizing) + <env>/images.yaml (promotable tags)
+k8s/values/             # Helm values of the operator Applications
 scripts/                # Contract validator, capture benchmark, traffic generators
 openspec/               # Spec-driven changes; the active plan lives here
 tests/                  # Flat unittest directory at repo root
@@ -50,7 +51,7 @@ cargo check --manifest-path sensors/rust-sensor/Cargo.toml --target aarch64-unkn
 helm lint charts/pi-agents -f charts/pi-agents/values-flink-longhorn.yaml
 helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
 kubectl kustomize k8s/gateway
-helm template pi-agents charts/pi-agents -n iot-security -f k8s/values/pi-agents.yaml
+for env in dev prod; do helm template pi-agents charts/pi-agents -n iot-security-$env -f k8s/envs/base.yaml -f k8s/envs/$env/values.yaml -f k8s/envs/$env/images.yaml > /dev/null; done
 helm dependency build charts/strimzi-operator && helm template strimzi-operator charts/strimzi-operator -n strimzi-system -f k8s/values/strimzi-operator.yaml
 ```
 

@@ -2,8 +2,8 @@ name: Image scan
 
 # Weekly Trivy scan of the images prod actually runs (k8s/envs/prod/images.yaml
 # and gateway-agent:latest): new CVEs appear without a new build. Results land
-# in code scanning (Security tab) per image; the run itself never fails on
-# findings. Builds are scanned in docker-build.yml.
+# in code scanning (Security tab) per image, and a fixable CRITICAL fails the
+# run so GitHub notifies. Builds are scanned in docker-build.yml.
 
 on:
   schedule:
@@ -40,6 +40,7 @@ jobs:
           IMAGE: ${{ matrix.image }}
           TAG_PATH: ${{ matrix.tag_path }}
           TRIVY_PLATFORM: linux/arm64
+          TRIVY_FAIL_ON: CRITICAL
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -49,6 +50,7 @@ jobs:
           scripts/trivy-scan.sh "ghcr.io/${owner}/${IMAGE}:${tag}" trivy-out >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Trivy results to code scanning
+        if: always() && hashFiles('trivy-out/trivy.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-out/trivy.sarif

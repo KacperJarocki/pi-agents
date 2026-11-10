@@ -123,3 +123,12 @@ helm lint charts/pi-agents -f charts/pi-agents/values-postgres.yaml
 helm template pi-agents charts/pi-agents -n iot-security \
   -f charts/pi-agents/values-postgres.yaml
 ```
+
+## Prod -> dev flow replay
+
+`flowReplay.enabled` (only in `k8s/envs/dev/values.yaml`) adds the CronJob
+`pi-agents-flow-replay`: daily at 05:00 Europe/Warsaw it copies the last 24 h of
+`traffic.flows.v2` from the prod Kafka (`flowReplay.sourceBootstrapServers`)
+into this release's Kafka, byte for byte and at most `maxRate` records/s, so
+dev runs the detection job and projector on real traffic. Prod is only read.
+Details and a manual run: `images/flow-replay/README.md`.

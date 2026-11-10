@@ -222,6 +222,36 @@ incidents:
       host: iot-dashboard.homelab.kacperjarocki.dev
       clusterIssuer: letsencrypt-http-prod
 
+# Daily replay of traffic.flows.v2 from another environment's Kafka (prod) into
+# this release's Kafka, so dev has real traffic to test against. Only for dev:
+# never enable it in the environment named as the source.
+flowReplay:
+  enabled: false
+  image:
+    repository: ghcr.io/kacperjarocki/flow-replay
+    tag: ""
+  # Five-field cron in timeZone: daily at 05:00.
+  schedule: "0 5 * * *"
+  timeZone: Europe/Warsaw
+  # Kafka to read from, e.g. pi-agents-kafka-bootstrap.iot-security.svc:9092.
+  sourceBootstrapServers: ""
+  # Empty means kafka.bootstrapServers of this release.
+  targetBootstrapServers: ""
+  sourceLabel: prod
+  # Copies records with a Kafka timestamp in the last windowHours.
+  windowHours: 24
+  # Records per second (0 = unlimited) and per run (0 = whole window).
+  maxRate: 2000
+  maxMessages: 0
+  activeDeadlineSeconds: 10800
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 clickhouse:
   database: analytics
 

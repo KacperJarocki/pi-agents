@@ -84,3 +84,9 @@ incidents:
   api:
     ingress:
       host: iot-dashboard-dev.homelab.kacperjarocki.dev
+
+# Real traffic for dev: copies the last 24 h of prod traffic.flows.v2 into this
+# namespace's Kafka daily at 05:00 Europe/Warsaw (images/flow-replay).
+flowReplay:
+  enabled: true
+  sourceBootstrapServers: pi-agents-kafka-bootstrap.iot-security.svc:9092

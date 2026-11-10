@@ -14,3 +14,6 @@ incidents:
   api:
     image:
       tag: sha-7db3f365
+flowReplay:
+  image:
+    tag: sha-7db3f365

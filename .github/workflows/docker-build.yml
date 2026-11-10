@@ -43,6 +43,8 @@ jobs:
             context: .
           - image_dir: images/incident-api
             image_name: incident-api
+          - image_dir: images/flow-replay
+            image_name: flow-replay
 
     steps:
       - name: Checkout repository
@@ -139,7 +141,8 @@ jobs:
             .flink.detectionJob.image.tag = strenv(TAG) |
             .sensor.image.tag = strenv(TAG) |
             .incidents.projector.image.tag = strenv(TAG) |
-            .incidents.api.image.tag = strenv(TAG)
+            .incidents.api.image.tag = strenv(TAG) |
+            .flowReplay.image.tag = strenv(TAG)
           ' "$f"
           helm template pi-agents charts/pi-agents -n iot-security-dev \
             -f k8s/envs/base.yaml -f k8s/envs/dev/values.yaml -f "$f" > /dev/null

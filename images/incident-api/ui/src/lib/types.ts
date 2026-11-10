@@ -17,6 +17,9 @@ export interface Transition {
   status: TransitionStatus | string;
   severity: Severity | string;
   device_key: string;
+  threat_family?: string;
+  rule_id?: string;
+  rule_version?: string;
   horizons?: Horizon[];
   episode_start_ms?: number | null;
   evidence_event_time_ms?: number | null;
@@ -55,12 +58,22 @@ export interface Device {
   last_seen_ms: number | null;
   features: Partial<Record<'60' | '900', WindowStats>>;
   incidents: { active?: number; total?: number; last_detected_ms?: number | null; severity?: Severity | null };
+  /** Forwarding blocked on the gateway (only reported when blocking is enabled). */
+  blocked?: boolean;
 }
 
 export interface DevicesResponse {
   devices: Device[];
   leases?: { available: boolean; error: string | null };
+  /** Actions this server allows from the UI. */
+  actions?: { block?: boolean };
   generated_at_ms?: number;
+}
+
+/** One minute of a device's 60 s window (GET /api/v2/devices/{key}/history). */
+export interface HistoryPoint extends WindowStats {
+  minute_ms: number;
+  window_end_ms: number;
 }
 
 export type FeedMessage =

@@ -155,7 +155,9 @@
                 {:else}
                   <span class="name" data-testid="name">{deviceName(d)}</span>
                 {/if}
-                <div class="mono muted">{d.mac}</div>
+                <div class="mono muted">
+                  {d.mac}{#if d.blocked}<span class="blocked" data-testid="blocked">Blocked</span>{/if}
+                </div>
               </td>
               <td class="mono" data-testid="ip">{d.ip || '–'}</td>
               <td title={dateTime(d.last_seen_ms)} class="muted">{ago(d.last_seen_ms, clock.now)}</td>
@@ -234,5 +236,15 @@
   }
   .reset {
     margin-top: 12px;
+  }
+  .blocked {
+    margin-left: 8px;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-contrast);
+    background: var(--high);
   }
 </style>

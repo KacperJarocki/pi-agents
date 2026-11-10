@@ -10,13 +10,13 @@
   import HorizonMeter from './HorizonMeter.svelte';
   import Icon from './Icon.svelte';
   import SeverityBadge from './SeverityBadge.svelte';
+  import { explain, ruleInfo } from '../lib/rules';
 
   // One device's incidents (newest first); expanding one loads every
   // transition it went through.
-  let { deviceKey }: { deviceKey: string } = $props();
+  let { deviceKey, incidents = $bindable(null) }: { deviceKey: string; incidents?: Transition[] | null } = $props();
 
   const POLL_MS = 5000;
-  let incidents = $state<Transition[] | null>(null);
   let error = $state<string | null>(null);
   let openId = $state<string | null>(null);
   const timelines = new SvelteMap<string, Transition[] | 'error'>();
@@ -83,6 +83,10 @@
         >
           <span class="chev"><Icon name="chevron" /></span>
           <span class="main">
+            <span class="threat">
+              <strong data-testid="threat">{ruleInfo(t).title}</strong>
+              <span class="why" data-testid="why">{explain(t)}</span>
+            </span>
             <span class="row1">
               <SeverityBadge severity={t.severity} muted={resolved} />
               {#if resolved}
@@ -112,6 +116,11 @@
             {:else if steps === 'error'}
               <p class="muted">Could not load the transitions.</p>
             {:else}
+              {@const rule = ruleInfo(t)}
+              <div class="rule" data-testid="rule-info">
+                <p><strong>{rule.title}</strong> counts {rule.signal}. {rule.escalation} {rule.resolution}</p>
+                <p class="advice">{rule.advice}</p>
+              </div>
               <ol>
                 {#each steps as s (s.revision)}
                   <li class="step step-{s.status.toLowerCase()}">
@@ -190,6 +199,35 @@
     min-width: 0;
     display: grid;
     gap: 4px;
+  }
+  .threat {
+    display: grid;
+    gap: 1px;
+  }
+  .threat strong {
+    font-size: 14px;
+  }
+  .why {
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .resolved .threat strong {
+    color: var(--muted);
+  }
+  .rule {
+    margin: 10px 0 4px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .rule p {
+    margin: 0;
+  }
+  .rule .advice {
+    margin-top: 6px;
+    color: var(--muted);
   }
   .row1,
   .row2 {

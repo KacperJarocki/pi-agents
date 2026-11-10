@@ -143,7 +143,8 @@ class Projector:
     def tick(self) -> None:
         if self.clock() - self.last_prune >= self.prune_every_s:
             removed = db.prune_feed(self._db())
-            log.info("pruned %d feed rows", removed)
+            history = db.prune_feature_history(self._db())
+            log.info("pruned %d feed rows and %d device history rows", removed, history)
             self.last_prune = self.clock()
         if self.heartbeat is not None:
             self.heartbeat.write_text(f"{time.time():.0f} {self.stats}\n")

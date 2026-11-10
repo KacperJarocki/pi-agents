@@ -9,6 +9,7 @@ const POLL_MS = 5000;
 class DeviceStore {
   devices = $state<Device[]>([]);
   leases = $state<DevicesResponse['leases']>({ available: true, error: null });
+  canBlock = $state(false);
   loaded = $state(false);
   error = $state<string | null>(null);
   updatedAt = $state<number | null>(null);
@@ -31,11 +32,19 @@ class DeviceStore {
     void this.#poll();
   }
 
+  /** Blocks or unblocks a device on the gateway and updates the list right away. */
+  async setBlocked(mac: string, blocked: boolean) {
+    const result = await api.setBlocked(mac, blocked);
+    this.devices = this.devices.map((d) => (d.mac === result.mac ? { ...d, blocked: result.blocked } : d));
+    return result;
+  }
+
   async #poll() {
     try {
       const body = await api.devices();
       this.devices = body.devices ?? [];
       this.leases = body.leases ?? { available: true, error: null };
+      this.canBlock = Boolean(body.actions?.block);
       this.error = null;
       this.updatedAt = Date.now();
     } catch (err) {

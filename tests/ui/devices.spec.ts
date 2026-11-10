@@ -32,6 +32,7 @@ function incident(id: string, status: string, extra: Record<string, unknown> = {
     revision: 3,
     status,
     severity: 'LOW',
+    rule_id: 'port-scan',
     device_key: 'gw:02:00:00:00:00:0a',
     horizons: [
       { horizon_seconds: 60, value: 25, open_threshold: 20, over_threshold: true },
@@ -43,9 +44,14 @@ function incident(id: string, status: string, extra: Record<string, unknown> = {
   };
 }
 
-async function open(page: Page, devices: unknown[], leases = { available: true, error: null as string | null }) {
+async function open(
+  page: Page,
+  devices: unknown[],
+  leases = { available: true, error: null as string | null },
+  actions: { block?: boolean } = {},
+) {
   await mockFeed(page);
-  await mockDevices(page, devices, leases);
+  await mockDevices(page, devices, leases, actions);
   await page.route('**/api/v2/incidents?**', (route) =>
     route.fulfill({
       json: { cursor: 3, incidents: [incident('i-open', 'UPDATE'), incident('i-old', 'RESOLVE', { severity: 'HIGH' })] },
@@ -175,4 +181,84 @@ test('without leases devices are listed by MAC with a note', async ({ page }) =>
 test('an empty network shows a friendly empty state', async ({ page }) => {
   await open(page, []);
   await expect(page.getByTestId('devices-empty')).toBeVisible();
+});
+
+test('the device panel charts its traffic with the threshold and a tooltip', async ({ page }) => {
+  const minute = Math.floor(NOW / 60_000) * 60_000;
+  const points = Array.from({ length: 30 }, (_, i) => ({
+    minute_ms: minute - (29 - i) * 60_000,
+    window_end_ms: minute - (29 - i) * 60_000 + 30_000,
+    flows: 10 + i,
+    distinct_targets: i,
+    failed_targets: i < 20 ? 0 : 40,
+    bytes: 1000,
+  }));
+  await open(page, [device()]);
+  await page.route('**/api/v2/devices/*/history?**', (route) => route.fulfill({ json: { points } }));
+  await page.locator('tr[data-device="gw:02:00:00:00:00:0a"]').click();
+
+  const chart = page.getByTestId('traffic-chart');
+  await expect(chart.getByRole('slider')).toHaveAttribute('aria-label', /failed targets peaked at 40/);
+  await expect(chart).toContainText('opens at 20');
+  const plot = chart.getByRole('slider');
+  const box = (await plot.boundingBox())!;
+  await plot.hover({ position: { x: box.width - 30, y: 60 } });
+  await expect(page.getByTestId('traffic-tooltip')).toContainText('Failed targets');
+  await plot.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(plot).toHaveAttribute('aria-valuetext', /40 failed targets/);
+
+  await chart.getByRole('radio', { name: '24 h' }).click();
+  await expect(chart.getByRole('radio', { name: '24 h' })).toHaveAttribute('aria-checked', 'true');
+  await chart.getByText('Show as table').click();
+  await expect(chart.locator('details tbody tr')).toHaveCount(30);
+});
+
+test('explains incidents and the rule behind them', async ({ page }) => {
+  await open(page, [device()]);
+  await page.locator('tr[data-device="gw:02:00:00:00:00:0a"]').click();
+  const first = page.getByTestId('history-rows').locator('li[data-incident]').first();
+  await expect(first.getByTestId('threat')).toHaveText('Port scan');
+  await expect(first.getByTestId('why')).toContainText('25 refused or unanswered targets in 60 s (opens at 20)');
+  const old = page.locator('li[data-incident="i-old"]');
+  await old.getByRole('button').click();
+  await expect(old.getByTestId('rule-info')).toContainText('Resolves once both windows');
+});
+
+test('blocking a device asks first, then calls the API and marks it', async ({ page }) => {
+  const calls: string[] = [];
+  await open(page, [device()], undefined, { block: true });
+  await page.route('**/api/v2/devices/*/block', (route) => {
+    calls.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    const blocked = route.request().method() === 'POST';
+    return route.fulfill({ json: { mac: '02:00:00:00:00:0a', blocked, message: blocked ? 'blocked' : 'unblocked' } });
+  });
+  await page.locator('tr[data-device="gw:02:00:00:00:00:0a"]').click();
+  const control = page.getByTestId('block-control');
+  await control.getByRole('button', { name: 'Block…' }).click();
+  await expect(control.getByRole('alertdialog')).toContainText('Block zero?');
+  await control.getByRole('button', { name: 'Cancel' }).click();
+  expect(calls).toEqual([]);
+
+  await control.getByRole('button', { name: 'Block…' }).click();
+  await control.getByRole('button', { name: 'Block device' }).click();
+  await expect(control).toContainText('Blocked');
+  await expect(page.getByTestId('blocked-badge')).toBeVisible();
+  expect(calls).toEqual(['POST /api/v2/devices/02%3A00%3A00%3A00%3A00%3A0a/block']);
+
+  await control.getByRole('button', { name: 'Unblock' }).click();
+  await expect(control).toContainText('Allowed');
+  expect(calls[1]).toBe('DELETE /api/v2/devices/02%3A00%3A00%3A00%3A00%3A0a/block');
+});
+
+test('without blocking enabled the panel says how to turn it on', async ({ page }) => {
+  await open(page, [device({ blocked: false })]);
+  await page.locator('tr[data-device="gw:02:00:00:00:00:0a"]').click();
+  await expect(page.getByTestId('block-control')).toContainText('Blocking is turned off');
+  await expect(page.getByTestId('block-control').getByRole('button')).toHaveCount(0);
+});
+
+test('blocked devices are marked in the list', async ({ page }) => {
+  await open(page, [device({ blocked: true })], undefined, { block: true });
+  await expect(page.locator('tr[data-device="gw:02:00:00:00:00:0a"]').getByTestId('blocked')).toHaveText('Blocked');
 });

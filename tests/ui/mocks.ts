@@ -20,13 +20,15 @@ export async function mockFeed(
   return server;
 }
 
-/** Mocks GET /api/v2/devices (empty unless given). */
+/** Mocks GET /api/v2/devices (empty unless given) and an empty device history. */
 export async function mockDevices(
   page: Page,
   devices: unknown[] = [],
   leases = { available: true, error: null as string | null },
+  actions: { block?: boolean } = {},
 ) {
   await page.route('**/api/v2/devices', (route) =>
-    route.fulfill({ json: { devices, leases, generated_at_ms: Date.now() } }),
+    route.fulfill({ json: { devices, leases, actions, generated_at_ms: Date.now() } }),
   );
+  await page.route('**/api/v2/devices/*/history?**', (route) => route.fulfill({ json: { points: [] } }));
 }

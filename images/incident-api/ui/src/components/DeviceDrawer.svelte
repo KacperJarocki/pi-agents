@@ -7,13 +7,19 @@
   import type { WindowStats } from '../lib/types';
   import Badge from './Badge.svelte';
   import Icon from './Icon.svelte';
+  import BlockControl from './BlockControl.svelte';
   import IncidentHistory from './IncidentHistory.svelte';
+  import TrafficChart from './TrafficChart.svelte';
+  import { horizon } from '../lib/format';
+  import type { Transition } from '../lib/types';
 
   // Slide-over with one device's details and incident history. A modal
   // <dialog> gives focus trapping, Esc to close and an inert background.
   let { deviceKey }: { deviceKey: string } = $props();
 
   let dialog: HTMLDialogElement;
+  let incidents = $state<Transition[] | null>(null);
+  const threshold = $derived((incidents ?? []).map((t) => horizon(t, 60)?.open_threshold).find((v) => v != null) ?? 20);
   const device = $derived(devices.byKey.get(deviceKey));
   const st = $derived(device ? deviceState(device, clock.now) : null);
 
@@ -65,6 +71,7 @@
       {#if st}
         <div class="state-line">
           <Badge tone={st.tone} dot pulse={st.kind === 'alert'}>{st.label}</Badge>
+          {#if device?.blocked}<Badge tone="high" solid testid="blocked-badge">Blocked</Badge>{/if}
           <span class="muted">last seen {ago(device?.last_seen_ms, clock.now)}</span>
         </div>
       {/if}
@@ -87,8 +94,12 @@
         {@render windowCard('Last 15 min', device?.features['900'])}
       </div>
 
+      <TrafficChart {deviceKey} incidents={incidents ?? []} {threshold} />
+
       <h3>Incident history</h3>
-      <IncidentHistory {deviceKey} />
+      <IncidentHistory {deviceKey} bind:incidents />
+
+      {#if device}<BlockControl {device} />{/if}
     </div>
   </div>
 </dialog>
@@ -99,7 +110,7 @@
     inset: 0 0 0 auto;
     margin: 0;
     padding: 0;
-    width: min(560px, 100vw);
+    width: min(620px, 100vw);
     max-width: 100vw;
     height: 100dvh;
     max-height: 100dvh;
@@ -235,6 +246,9 @@
   h3 {
     font-size: 15px;
     margin-bottom: 10px;
+  }
+  .content > :global(ol) {
+    margin-bottom: 24px;
   }
   @media (max-width: 520px) {
     .windows {

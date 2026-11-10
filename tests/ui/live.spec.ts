@@ -10,6 +10,8 @@ function transition(id: string, revision: number, extra: Record<string, unknown>
     revision,
     status: revision === 1 ? 'OPEN' : 'UPDATE',
     severity: 'LOW',
+    rule_id: 'port-scan',
+    threat_family: 'PORT_SCAN',
     device_key: 'gw:02:00:00:00:00:0a',
     horizons: [
       { horizon_seconds: 60, value: 20, open_threshold: 20, over_threshold: true },
@@ -282,4 +284,14 @@ test('a healthy gateway shows no ingestion banner', async ({ page }) => {
   });
   await expect(page.getByTestId('status')).toHaveText('Live');
   await expect(page.getByTestId('ingestion-banner')).toBeHidden();
+});
+
+test('explains each incident in plain words', async ({ page }) => {
+  await open(page, (ws) => {
+    send(ws, { type: 'snapshot', cursor: 1, incidents: [transition('a', 1)] });
+    send(ws, { type: 'live', cursor: 1 });
+  });
+  const row = page.locator('tr[data-incident="a"]');
+  await expect(row.getByTestId('threat')).toHaveText('Port scan');
+  await expect(row.getByTestId('why')).toHaveText('20 refused or unanswered targets in 60 s (opens at 20)');
 });

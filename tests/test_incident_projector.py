@@ -9,6 +9,7 @@ import datetime as dt
 import os
 import pathlib
 import sys
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -146,7 +147,12 @@ class IncidentProjectorTests(unittest.TestCase):
         self.conn.execute("CREATE SCHEMA public")
         self.assertEqual(
             db.migrate(self.conn),
-            ["0001_incidents.sql", "0002_gateway_health.sql", "0003_device_features.sql"],
+            [
+                "0001_incidents.sql",
+                "0002_gateway_health.sql",
+                "0003_device_features.sql",
+                "0004_device_feature_history.sql",
+            ],
         )
 
     def tearDown(self):
@@ -270,6 +276,26 @@ class IncidentProjectorTests(unittest.TestCase):
             "SELECT horizon_seconds, features->>'flows' FROM device_features ORDER BY horizon_seconds"
         ).fetchall()
         self.assertEqual(rows, [(60, "7.0"), (900, "50.0")])
+
+    def test_60s_windows_build_a_per_minute_history(self):
+        minute = 1_760_486_400_000  # a whole minute
+        db.apply_features(self.conn, feature_update(window_end=minute + 5_000, flows=1))
+        db.apply_features(self.conn, feature_update(window_end=minute + 50_000, flows=2))
+        db.apply_features(self.conn, feature_update(window_end=minute + 20_000, flows=9))  # older, same minute
+        db.apply_features(self.conn, feature_update(window_end=minute + 65_000, flows=3))
+        db.apply_features(self.conn, feature_update(horizon=900, window_end=minute + 70_000, flows=99))
+        rows = self.conn.execute(
+            "SELECT extract(epoch FROM minute)::bigint * 1000, features->>'flows'"
+            " FROM device_feature_history ORDER BY minute"
+        ).fetchall()
+        self.assertEqual(rows, [(minute, "2.0"), (minute + 60_000, "3.0")], "latest window per minute, 60 s only")
+
+    def test_history_pruning_keeps_the_last_day(self):
+        now = int(time.time() * 1000)
+        db.apply_features(self.conn, feature_update(window_end=now - 25 * 3_600_000))
+        db.apply_features(self.conn, feature_update(window_end=now - 60_000))
+        self.assertEqual(db.prune_feature_history(self.conn), 1)
+        self.assertEqual(self.count("device_feature_history"), 1)
 
     def test_projector_routes_feature_updates_and_commits_them(self):
         import psycopg

@@ -145,6 +145,72 @@ class IncidentApiTests(unittest.TestCase):
         self.assertIsNone(phone["device_key"], "leased but never seen by the sensor")
         self.assertIsNone(by_mac["02:00:00:00:00:0c"]["hostname"], "seen but no lease")
 
+    def test_device_history_returns_minutes_in_order(self):
+        now = int(time.time() * 1000)
+        for i, flows in enumerate([4, 6]):
+            proj.db.apply_features(self.conn, proj.feature_update(window_end=now - (2 - i) * 60_000, flows=flows))
+        proj.db.apply_features(self.conn, proj.feature_update(window_end=now - 3 * 3_600_000, flows=1))  # too old
+        key = "gw:02:00:00:00:00:0a"
+        body = self.client.get(f"/api/v2/devices/{key}/history", params={"minutes": 60}).json()
+        self.assertEqual([p["flows"] for p in body["points"]], [4, 6])
+        self.assertLess(body["points"][0]["minute_ms"], body["points"][1]["minute_ms"])
+        self.assertEqual(self.client.get(f"/api/v2/devices/{key}/history", params={"minutes": 1}).status_code, 422)
+
+    def test_blocking_is_off_by_default(self):
+        body = self.client.get("/api/v2/devices").json()
+        self.assertEqual(body["actions"], {"block": False})
+        resp = self.client.post("/api/v2/devices/02:00:00:00:00:0a/block")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_blocking_goes_through_the_gateway_agent(self):
+        import httpx
+
+        calls = []
+        blocked = set()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append((request.method, request.url.path))
+            if request.url.path == "/blocked":
+                return httpx.Response(200, json={"blocked": sorted(blocked)})
+            if request.method == "POST":
+                blocked.add("02:00:00:00:00:0a")
+                return httpx.Response(
+                    200, json={"ok": True, "mac": "02:00:00:00:00:0a", "blocked": True, "message": "blocked"}
+                )
+            blocked.clear()
+            return httpx.Response(
+                200, json={"ok": True, "mac": "02:00:00:00:00:0a", "blocked": False, "message": "unblocked"}
+            )
+
+        agent = api_main.GatewayAgent("http://gateway-agent:7000", True, transport=httpx.MockTransport(handler))
+        with TestClient(api_main.create_app(DSN, leases=self.lease_source, agent=agent)) as client:
+            body = client.get("/api/v2/devices").json()
+            self.assertEqual(body["actions"], {"block": True})
+            self.assertFalse(next(d for d in body["devices"] if d["mac"] == "02:00:00:00:00:0a")["blocked"])
+
+            resp = client.post("/api/v2/devices/02:00:00:00:00:0A/block")
+            self.assertEqual(resp.json(), {"mac": "02:00:00:00:00:0a", "blocked": True, "message": "blocked"})
+            devices = client.get("/api/v2/devices").json()["devices"]
+            self.assertTrue(next(d for d in devices if d["mac"] == "02:00:00:00:00:0a")["blocked"])
+
+            self.assertFalse(client.delete("/api/v2/devices/02:00:00:00:00:0a/block").json()["blocked"])
+            self.assertEqual(client.post("/api/v2/devices/not-a-mac/block").status_code, 400)
+        self.assertIn(("POST", "/block"), calls)
+        self.assertIn(("DELETE", "/block/02:00:00:00:00:0a"), calls)
+
+    def test_blocking_reports_an_unreachable_gateway_agent(self):
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        agent = api_main.GatewayAgent("http://gateway-agent:7000", True, transport=httpx.MockTransport(handler))
+        with TestClient(api_main.create_app(DSN, leases=self.lease_source, agent=agent)) as client:
+            self.assertEqual(client.get("/api/v2/devices").status_code, 200)
+            resp = client.post("/api/v2/devices/02:00:00:00:00:0a/block")
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("unavailable", resp.json()["detail"])
+
     def test_devices_still_listed_when_the_gateway_agent_is_down(self):
         self.leases = None
         proj.db.apply_features(self.conn, proj.feature_update())

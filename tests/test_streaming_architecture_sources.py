@@ -101,7 +101,7 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn('metadataVersion: "4.3-IV0"', values)
         self.assertIn("type: persistent-claim", values)
         self.assertIn("enabled: true", profile)
-        self.assertIn("streaming-kustomization.yaml", readme)
+        self.assertIn("k8s/argocd/strimzi-operator.yaml", readme)
 
     def test_kafka_chart_defines_v2_topics_off_the_gateway(self):
         chart = ROOT / "charts" / "pi-agents"
@@ -141,19 +141,22 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         chart = ROOT / "charts" / "pi-agents"
         values = (chart / "values.yaml").read_text()
         postgres = (chart / "templates" / "postgres.yaml").read_text()
-        flux = (ROOT / "k8s" / "flux" / "kustomization.yaml").read_text()
-        operator = (ROOT / "k8s" / "flux" / "cnpg-operator-helmrelease.yaml").read_text()
-        platform = (ROOT / "k8s" / "flux" / "streaming-platform-helmrelease.yaml").read_text()
+        argocd = ROOT / "k8s" / "argocd"
+        operator = (argocd / "cnpg-operator.yaml").read_text()
+        plugin = (argocd / "barman-cloud.yaml").read_text()
+        platform = (argocd / "pi-agents.yaml").read_text()
         self.assertIn("instances: 2", values)
         self.assertIn("kind: Cluster", postgres)
         self.assertIn("kind: ObjectStore", postgres)
         self.assertIn("kind: ScheduledBackup", postgres)
         self.assertIn("barman-cloud.cloudnative-pg.io", postgres)
         self.assertIn("isWALArchiver: true", postgres)
-        self.assertIn("cnpg-operator-helmrelease.yaml", flux)
         self.assertIn("chart: cloudnative-pg", operator)
-        self.assertIn("chart: plugin-barman-cloud", operator)
-        self.assertIn("name: barman-cloud", platform)
+        self.assertIn("chart: plugin-barman-cloud", plugin)
+        # Sync waves: operator (0) -> plugin (1) -> platform (2).
+        self.assertIn('sync-wave: "0"', operator)
+        self.assertIn('sync-wave: "1"', plugin)
+        self.assertIn('sync-wave: "2"', platform)
 
     def test_flink_job_builds_from_the_shared_v2_contract(self):
         job = ROOT / "flink" / "detection-job"
@@ -188,17 +191,17 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("repository: oci://quay.io/strimzi-helm", chart)
         self.assertIn("watchNamespaces", values)
 
-    def test_flux_orders_operator_before_platform(self):
-        operator = (ROOT / "k8s" / "flux" / "streaming-operator-helmrelease.yaml").read_text()
-        platform = (ROOT / "k8s" / "flux" / "streaming-platform-helmrelease.yaml").read_text()
-        source = (ROOT / "k8s" / "flux" / "streaming-source.yaml").read_text()
-        kustomization = (ROOT / "k8s" / "flux" / "streaming-kustomization.yaml").read_text()
-        self.assertIn("chart: ./charts/strimzi-operator", operator)
-        self.assertIn("chart: ./charts/pi-agents", platform)
-        self.assertIn("name: strimzi-operator", platform)
-        self.assertIn("name: pi-agents", source)
-        self.assertIn("path: ./k8s/flux", kustomization)
-        self.assertIn("name: pi-agents", kustomization)
+    def test_argocd_orders_operator_before_platform(self):
+        argocd = ROOT / "k8s" / "argocd"
+        operator = (argocd / "strimzi-operator.yaml").read_text()
+        platform = (argocd / "pi-agents.yaml").read_text()
+        self.assertIn("path: charts/strimzi-operator", operator)
+        self.assertIn("path: charts/pi-agents", platform)
+        self.assertIn("../../k8s/values/pi-agents.yaml", platform)
+        self.assertIn('sync-wave: "0"', operator)
+        self.assertIn('sync-wave: "2"', platform)
+        for app in argocd.glob("*.yaml"):
+            self.assertIn("project: pi-agents", app.read_text(), app.name)
 
 
 if __name__ == "__main__":

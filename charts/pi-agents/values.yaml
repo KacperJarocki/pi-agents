@@ -150,7 +150,7 @@ sensor:
       memory: 512Mi
 
 # CloudNativePG cluster for incidents; needs the CNPG operator and the
-# Barman Cloud plugin (k8s/flux/cnpg-operator-helmrelease.yaml).
+# Barman Cloud plugin (k8s/argocd/cnpg-operator.yaml, k8s/argocd/barman-cloud.yaml).
 postgres:
   enabled: false
   instances: 2

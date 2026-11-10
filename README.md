@@ -34,7 +34,7 @@ Planned components are described in `design.md` of the active change. What exist
 | `sensors/rust-sensor/` | Rust capture sensor (bounded `FlowTable` core so far) |
 | `schemas/events/v2/` | Protobuf event contract (`v1` is frozen) |
 | `charts/pi-agents/` | Helm chart: streaming config, Strimzi Kafka, Flink |
-| `k8s/flux/` | Flux sources and HelmReleases for operators and the chart |
+| `k8s/argocd/`, `k8s/values/` | Argo CD Applications (operators, the chart, gateway-agent) and their Helm values |
 | `k8s/base`, `k8s/gateway`, `k8s/overlays/gateway-prod` | Namespace, streaming ConfigMap and `gateway-agent` |
 | `scripts/` | Event contract validator, capture benchmark, traffic generators |
 
@@ -55,7 +55,7 @@ kubectl apply -k k8s/gateway                 # namespace, streaming config, gate
 kubectl apply -k k8s/overlays/gateway-prod   # same, with ENABLE_APPLY=true so the SSID comes up
 ```
 
-The streaming platform is deployed by Flux from `k8s/flux` (Strimzi and Flink operators, then the `pi-agents` chart). See `charts/pi-agents/README.md` for values and checkpoint profiles.
+The whole deployment is driven by Argo CD from `k8s/argocd/`: Applications for the Strimzi, Flink and CloudNativePG operators (sync wave 0/1), the `pi-agents` chart (wave 2) and `gateway-agent`. The homelab repo's Argo CD picks this directory up as a nested app-of-apps in the `pi-agents` AppProject, so a merge to `main` is a deployment. Helm values for each Application live in `k8s/values/`. See `charts/pi-agents/README.md` for chart values and checkpoint profiles.
 
 ### Wi-Fi access point
 
@@ -63,7 +63,7 @@ The streaming platform is deployed by Flux from `k8s/flux` (Strimzi and Flink op
 
 Default Wi-Fi config: SSID `IoT-Security`, PSK `change-me-please`.
 
-Troubleshooting a missing SSID: make sure `k8s/overlays/gateway-prod` is applied and `GET /status` reports `apply_enabled: true` and `hostapd.running: true`.
+Troubleshooting a missing SSID: make sure the `gateway-agent` Application in `k8s/argocd/` points at `k8s/overlays/gateway-prod` and `GET /status` reports `apply_enabled: true` and `hostapd.running: true`.
 
 ## Development
 
@@ -72,7 +72,7 @@ python -m unittest discover -v
 python scripts/validate_event_contract.py
 cargo test --manifest-path sensors/rust-sensor/Cargo.toml
 helm lint charts/pi-agents -f charts/pi-agents/values-flink-s3.yaml
-kubectl kustomize k8s/flux
+helm template pi-agents charts/pi-agents -n iot-security -f k8s/values/pi-agents.yaml
 ```
 
 `docker-compose --profile gateway up --build` runs `gateway-agent` locally (Linux only; host network and privileged).

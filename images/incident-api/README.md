@@ -1,14 +1,21 @@
 # Incident API
 
 FastAPI service over the incident projector's tables
-(`images/incident-projector`). Serves two pages from `app/static`:
+(`images/incident-projector`). It also serves the web UI built from `ui/`
+(Svelte 5 + TypeScript + Vite; the Dockerfile builds it into `app/static`):
 
-- `/`: device overview (`devices.html`). One row per device with hostname, IP,
-  state (alert, clean, idle, no traffic), the latest 60 s and 15 min window
-  stats, and incident counts. Click a device to see its incident history; click
-  an incident to see each transition it went through.
-- `/live`: live incidents over the WebSocket (`index.html`). Devices are shown
-  by hostname and link to their history on `/`.
+- `/`: device overview. Summary tiles, search and state filters, one row per
+  device with hostname, IP, state (alert, clean, idle, no traffic), the latest
+  60 s and 15 min window stats, and incident counts. Clicking a device opens a
+  side panel (`/?device=<key>`) with its details and incident history; expanding
+  an incident shows a timeline of its transitions.
+- `/live/`: live incidents over the WebSocket, with severity filters, a
+  resolved toggle, threshold meters and highlighted changes. Devices are shown
+  by hostname and open their history in the app.
+
+Both pages share one live connection: the header shows its state and the
+number of open incidents, and the device list refreshes when an incident
+changes. The theme follows the OS or a manual light/dark choice.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -43,4 +50,8 @@ pip install -r images/incident-api/requirements.txt -r images/incident-api/requi
 PROJECTOR_TEST_DSN=postgresql://postgres:test@localhost:55432/postgres \
   python -m unittest tests.test_incident_projector tests.test_incident_api -v
 docker build images/incident-api
+
+# UI (proxies /api and /ws to an incident-api on :8080)
+cd images/incident-api/ui && npm ci && npm run dev
+npm run format:check && npm run lint && npm run check && npm test
 ```

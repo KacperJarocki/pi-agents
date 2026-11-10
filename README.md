@@ -68,7 +68,7 @@ The whole deployment is driven by Argo CD from `k8s/argocd/`: Applications for t
 
 Dev is a scaled-down copy on the same cluster (one broker, one TaskManager, one Postgres instance, Longhorn checkpoints, no backups, no capture sensor); drive it with `scripts/iot-device-emulator.sh` or `scripts/port-sweep.sh` against `pi-agents-kafka-bootstrap.iot-security-dev:9092`. Its dashboard is `https://iot-dashboard-dev.homelab.kacperjarocki.dev`.
 
-To promote: run the **Promote to prod** workflow (Actions tab or `gh workflow run promote.yml`). It copies `dev/images.yaml` to `prod/images.yaml`, renders the prod profile and opens a PR with the tag diff; review, merge, and Argo CD rolls prod. Set a `PROMOTE_TOKEN` repository secret (a PAT with `repo` scope) if you want the Validate workflow to run on those PRs; with the default token GitHub does not trigger workflows on bot-created PRs.
+To promote: run the **Promote to prod** workflow (Actions tab or `gh workflow run promote.yml`). It copies `dev/images.yaml` to `prod/images.yaml`, renders the prod profile and opens a PR with the tag diff; review, merge, and Argo CD rolls prod. Repository setting required: *Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests* (otherwise `gh pr create` fails with "GitHub Actions is not permitted to create or approve pull requests"). Set a `PROMOTE_TOKEN` repository secret (a PAT with `repo` scope) if you want the Validate workflow to run on those PRs; with the default token GitHub does not trigger workflows on bot-created PRs.
 
 Anything that is not an image tag (sizing, feature switches, rules) is a normal PR against `k8s/envs/`; `base.yaml` changes hit both environments.
 

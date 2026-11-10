@@ -204,6 +204,9 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn('sync-wave: "2"', platform)
         for app in argocd.glob("*.yaml"):
             self.assertIn("project: pi-agents", app.read_text(), app.name)
+        namespaces = (argocd / "namespaces.yaml").read_text()
+        self.assertIn('sync-wave: "-1"', namespaces)
+        self.assertIn("name: iot-security-dev", (ROOT / "k8s" / "namespaces" / "iot-security-dev.yaml").read_text())
 
     def test_environments_share_base_values_and_promote_image_tags(self):
         envs = ROOT / "k8s" / "envs"

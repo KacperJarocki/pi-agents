@@ -5,6 +5,7 @@ Katalog `k8s/` zawiera manifesty deploymentu systemu.
 ## Struktura
 
 - `argocd/` - Argo CD: Applications operatorów (CNPG, Barman, Flink, Strimzi), `gateway-agent` oraz ApplicationSet `pi-agents` (dev + prod)
+- `namespaces/` - namespace `iot-security-dev` (Application `pi-agents-namespaces`, fala -1, bo Strimzi tworzy w nim RoleBindingi zanim powstanie dev)
 - `envs/` - wartości per środowisko: `base.yaml` (wspólne), `<env>/values.yaml` (rozmiary), `<env>/images.yaml` (tagi obrazów, promowane)
 - `values/` - Helm values Applications operatorów
 - `base/` - namespace i ConfigMap streamingu

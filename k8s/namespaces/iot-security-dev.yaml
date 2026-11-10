@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iot-security-dev
+  labels:
+    app.kubernetes.io/part-of: pi-agents
+    environment: dev

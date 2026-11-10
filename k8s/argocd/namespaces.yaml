@@ -1,0 +1,26 @@
+# Namespaces the operators must see before anything else exists in them: the
+# Strimzi chart creates RoleBindings in every watched namespace, so
+# iot-security-dev has to exist before the strimzi-operator Application syncs.
+# iot-security itself comes from k8s/base (gateway-agent Application).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pi-agents-namespaces
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: pi-agents
+  source:
+    repoURL: https://github.com/KacperJarocki/pi-agents.git
+    targetRevision: main
+    path: k8s/namespaces
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

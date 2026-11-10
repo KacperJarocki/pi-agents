@@ -1,0 +1,78 @@
+# Pre-commit hooks: `pre-commit install` once, then they run on every commit
+# (staged files only). `pre-commit run --all-files` checks the whole repo; CI
+# runs the same (job `pre-commit` in validate.yml) except the hooks that need
+# local toolchains (cargo, the UI's node_modules), which have their own jobs.
+default_install_hook_types: [pre-commit]
+exclude: ^(openspec/changes/archive/|.*/node_modules/|.*/dist/|.*/target/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: \.cmd$ # Windows scripts keep CRLF
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^charts/[^/]+/templates/ # Go templates, linted by helm lint
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint # GitHub workflows (pre-commit fetches Go itself)
+
+  - repo: local
+    hooks:
+      - id: event-contract
+        name: event contract (schemas/events)
+        entry: python3 scripts/validate_event_contract.py
+        language: system
+        files: ^schemas/events/
+        pass_filenames: false
+
+      - id: cargo-fmt
+        name: cargo fmt (rust-sensor)
+        entry: cargo fmt --manifest-path sensors/rust-sensor/Cargo.toml --
+        language: system
+        files: ^sensors/rust-sensor/.*\.rs$
+        pass_filenames: false
+
+      - id: ui-prettier
+        name: prettier (incident-api UI)
+        # Runs inside the UI package so Prettier finds its plugins.
+        entry: bash -c 'cd images/incident-api/ui && node_modules/.bin/prettier --write --ignore-unknown "${@#images/incident-api/ui/}"' --
+        language: system
+        files: ^images/incident-api/ui/
+        exclude: ^images/incident-api/ui/package-lock\.json$
+
+      - id: ui-eslint
+        name: eslint (incident-api UI)
+        entry: bash -c 'cd images/incident-api/ui && node_modules/.bin/eslint --max-warnings 0 --fix .'
+        language: system
+        files: ^images/incident-api/ui/.*\.(ts|js|svelte)$
+        pass_filenames: false

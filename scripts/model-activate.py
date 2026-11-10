@@ -13,9 +13,15 @@ from pathlib import Path
 
 def current_model_path(model_root: str, device_id: int | None, model_type: str) -> str:
     if model_type == "isolation_forest":
-        name = f"isolation_forest_model_device_{device_id}.joblib" if device_id is not None else "isolation_forest_model.joblib"
+        name = (
+            f"isolation_forest_model_device_{device_id}.joblib"
+            if device_id is not None
+            else "isolation_forest_model.joblib"
+        )
     else:
-        name = f"{model_type}_model_device_{device_id}.joblib" if device_id is not None else f"{model_type}_model.joblib"
+        name = (
+            f"{model_type}_model_device_{device_id}.joblib" if device_id is not None else f"{model_type}_model.joblib"
+        )
     return str(Path(model_root) / name)
 
 

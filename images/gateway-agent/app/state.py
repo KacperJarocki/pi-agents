@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import shutil
 import time
 from dataclasses import dataclass
-import ipaddress
 from pathlib import Path
 
 import structlog
 
+from . import iptables
 from .models import WifiConfig
 from .render import render_dnsmasq, render_hostapd
-from . import iptables
 
 log = structlog.get_logger()
 

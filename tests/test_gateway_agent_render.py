@@ -15,7 +15,7 @@ class TestGatewayAgentRender(unittest.TestCase):
                 del sys.modules[k]
 
         from app.models import WifiConfig
-        from app.render import render_hostapd, render_dnsmasq
+        from app.render import render_dnsmasq, render_hostapd
 
         cfg = WifiConfig(ssid="IoT-Security", psk="supersecretpassword")
         h = render_hostapd(cfg)
@@ -36,7 +36,7 @@ class TestGatewayAgentRender(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "gateway-agent" / "app" / "state.py").read_text()
 
-        self.assertIn('def build_dnsmasq_command(config_path: Path)', src)
+        self.assertIn("def build_dnsmasq_command(config_path: Path)", src)
         self.assertIn('f"--conf-file={config_path}"', src)
 
     def test_hostapd_command_does_not_use_invalid_s_flag(self):
@@ -45,7 +45,7 @@ class TestGatewayAgentRender(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "images" / "gateway-agent" / "app" / "state.py").read_text()
 
-        self.assertIn('def build_hostapd_command(config_path: Path)', src)
+        self.assertIn("def build_hostapd_command(config_path: Path)", src)
         self.assertNotIn('"-s"', src)
 
 

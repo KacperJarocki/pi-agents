@@ -15,7 +15,7 @@ class TestModelRegistrySources(unittest.TestCase):
         self.assertIn("model_registry_id", src)
         self.assertIn("model_artifact_sha256", src)
         self.assertIn('model_type = model_info["model_type"]', src)
-        self.assertIn('scores-{suffix}.jsonl', src)
+        self.assertIn("scores-{suffix}.jsonl", src)
         self.assertIn("TP", src)
         self.assertIn("FN", src)
         self.assertIn("FP", src)

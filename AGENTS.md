@@ -10,6 +10,7 @@ The thesis-era batch pipeline (collector → SQLite → ml-trainer/ml-inference 
 
 ```
 images/gateway-agent/   # Wi-Fi AP controller (hostapd/dnsmasq), FastAPI on port 7000
+images/incident-api/    # Incident API (FastAPI) + ui/ (Svelte 5 web UI)
 sensors/rust-sensor/    # Rust capture sensor (Cargo crate)
 schemas/events/         # Protobuf event contracts; v2 is current, v1 frozen
 charts/pi-agents/       # Helm chart: streaming config, Strimzi Kafka, Flink
@@ -64,14 +65,23 @@ CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s
 ```
 
 ### CI
-- `validate.yml`: `compileall images`, unit tests, Helm lint/template of every values profile, `kubectl kustomize k8s/gateway` + client dry run; `projector` job runs the incident projector and API tests against a `postgres:17.6` service (`PROJECTOR_TEST_DSN`); `ui` job runs the Playwright `/live` tests.
+- `validate.yml`: `compileall images`, unit tests, Helm lint/template of every values profile, `kubectl kustomize k8s/gateway` + client dry run; `projector` job runs the incident projector and API tests against a `postgres:17.6` service (`PROJECTOR_TEST_DSN`); `ui` job runs `npm audit`, Prettier, ESLint, `svelte-check` and Vitest for `images/incident-api/ui`, then the Playwright tests.
 - `flink-job.yml`: `./mvnw verify` for `flink/detection-job` (MiniCluster and operator-harness tests).
 - `rust-sensor.yml`: fmt, test and an aarch64 check for the sensor.
 - `streaming-contracts.yml`: event contract validator and its tests.
 - `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`).
 
+### Web UI
+`images/incident-api/ui/` is the browser UI: Svelte 5 + TypeScript built by Vite 8 into static files (`/` device overview, `/live/` live incidents, one shared bundle). The incident-api Dockerfile builds it in a Node stage and copies `dist/` into `app/static`, which is not in git. Tooling: ESLint 10 (flat config, typescript-eslint, eslint-plugin-svelte), Prettier 3 with the Svelte plugin, `svelte-check`, Vitest. CI fails on `npm audit` findings of moderate or higher.
+```bash
+cd images/incident-api/ui && npm ci
+npm run dev           # proxies /api and /ws to an incident-api on :8080 (API_URL to override)
+npm run format:check && npm run lint && npm run check && npm test && npm run build
+npm audit --audit-level=moderate
+```
+
 ### Playwright
-`tests/ui/live.spec.ts` tests the `/live` page (`images/incident-api/app/static/index.html`) and `tests/ui/devices.spec.ts` the device overview at `/` (`devices.html`, JSON API mocked with `page.route`) with the page served from disk and the incident WebSocket mocked through `page.routeWebSocket`, so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts devices.spec.ts --project=chromium`.
+`tests/ui/live.spec.ts` (live incidents at `/live/`) and `tests/ui/devices.spec.ts` (device overview at `/`) run against the built UI served by `vite preview` (Playwright `webServer` builds it), with the JSON API mocked through `page.route` and the incident WebSocket through `page.routeWebSocket` (`tests/ui/mocks.ts`), so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts devices.spec.ts --project=chromium`.
 
 ---
 

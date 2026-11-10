@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -252,7 +252,9 @@ def build_devices(features, incidents, leases) -> list[dict[str, Any]]:
     )
 
 
-def create_app(dsn: str | None = None, leases: Leases | None = None) -> FastAPI:
+def create_app(
+    dsn: str | None = None, leases: Leases | None = None, static_dir: pathlib.Path | None = None
+) -> FastAPI:
     store = Store(dsn or os.environ["DATABASE_URL"])
     leases = leases or Leases(os.environ.get("GATEWAY_AGENT_URL"))
 
@@ -353,12 +355,12 @@ def create_app(dsn: str | None = None, leases: Leases | None = None) -> FastAPI:
             except (WebSocketDisconnect, RuntimeError):
                 return
 
-    if STATIC_DIR.is_dir() and any(STATIC_DIR.iterdir()):
-        app.mount("/live", StaticFiles(directory=STATIC_DIR, html=True), name="live")
-
-        @app.get("/", include_in_schema=False)
-        async def root():
-            return FileResponse(STATIC_DIR / "devices.html", media_type="text/html")
+    # The built UI (images/incident-api/ui): `/` is the device overview and
+    # `/live/` the live incidents page; both load the same bundle from
+    # /assets. Mounted last so the API routes above take precedence.
+    pages = static_dir or STATIC_DIR
+    if pages.is_dir() and any(pages.iterdir()):
+        app.mount("/", StaticFiles(directory=pages, html=True), name="ui")
 
     return app
 

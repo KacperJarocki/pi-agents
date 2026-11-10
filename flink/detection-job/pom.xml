@@ -18,10 +18,26 @@
     <flink.kafka.version>3.4.0-1.20</flink.kafka.version>
     <protobuf.version>4.36.2</protobuf.version>
     <junit.version>5.13.4</junit.version>
+    <!-- flink-connector-kafka 3.4.0-1.20 bundles jackson 2.15 and guava 32,
+         which Trivy flags (HIGH) in the job jar; pin patched versions. -->
+    <jackson.version>2.18.12</jackson.version>
+    <guava.version>33.8.0-jre</guava.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>${jackson.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
       <!-- flink-test-utils pulls an older junit-vintage; keep JUnit aligned. -->
       <dependency>
         <groupId>org.junit</groupId>

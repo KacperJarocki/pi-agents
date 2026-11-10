@@ -13,19 +13,24 @@ Per transition, one transaction:
 4. `NOTIFY incident_feed, '<cursor>'`.
 
 The Kafka offset is committed only after the database commit, so a crash in
-between replays the message as a no-op. It reads `read_uncommitted` (the Flink
-sink is transactional) and relies on the transition primary key instead of
-waiting for Flink checkpoints. Database errors (e.g. a CNPG failover) are
+between replays the message as a no-op. The Flink detections sink is
+at-least-once; the transition primary key removes duplicates. Database errors (e.g. a CNPG failover) are
 retried on a new connection without committing the offset. Undecodable messages
 are logged, counted and skipped. Feed rows older than 7 days are pruned hourly;
 older cursors fall back to a snapshot in the incident API.
+
+It also keeps the latest `HealthEvent` per gateway, component and kind
+(`gateway_health`, from `traffic.health.v2`) and the latest `FeatureUpdate`
+per device and horizon (`device_features`, from `traffic.features.v2`) for the
+device overview. In both, an older event never replaces a newer one.
 
 Migrations live in `app/migrations` and run at start (advisory-locked).
 
 ## Configuration
 
 `DATABASE_URL` (required; the CNPG `pi-agents-pg-app` Secret's `uri`),
-`KAFKA_BOOTSTRAP`, `DETECTIONS_TOPIC`, `GROUP_ID`, `HEARTBEAT_FILE`.
+`KAFKA_BOOTSTRAP`, `DETECTIONS_TOPIC`, `HEALTH_TOPIC`, `FEATURES_TOPIC`,
+`GROUP_ID`, `HEARTBEAT_FILE`.
 
 ## Development
 

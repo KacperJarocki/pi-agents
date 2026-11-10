@@ -38,10 +38,15 @@
   .over { font-weight: 600; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   #empty { color: var(--muted); padding: 16px; }
+  nav a { color: var(--muted); margin-right: 12px; text-decoration: none; }
+  nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+  td a { color: inherit; }
+  .sub { color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
 <main>
+  <nav><a href="/">Devices</a><a href="/live/" aria-current="page">Live incidents</a></nav>
   <header>
     <h1>Live incidents</h1>
     <span id="status" data-testid="status">connecting…</span>
@@ -66,8 +71,14 @@
 // Live view over /ws/v2/incidents. One row per incident; a transition is
 // applied only if its revision is newer than the row's. The last cursor is
 // kept so a reconnect resumes with ?after=<cursor> instead of a full reload.
-const state = { incidents: new Map(), cursor: null, retryMs: 1000, socket: null, health: [] };
+const state = { incidents: new Map(), cursor: null, retryMs: 1000, socket: null, health: [], devices: new Map() };
 const MAX_RETRY_MS = 30000;
+const DEVICES_POLL_MS = 15000;
+// A few frames without a DHCP lease are normal (a client before DHCP, a
+// randomised MAC); only a burst means attribution is really failing. Count
+// problems age out once the sensor stops reporting them.
+const UNATTRIBUTED_MIN_FRAMES = 20;
+const HEALTH_STALE_MS = 15 * 60 * 1000;
 
 const $ = (id) => document.getElementById(id);
 const time = (ms) => (ms ? new Date(ms).toLocaleTimeString() : "–");
@@ -89,6 +100,26 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+function device(t) {
+  const d = state.devices.get(t.device_key);
+  const name = d?.hostname || t.device_key;
+  const sub = d ? [d.ip, d.mac].filter(Boolean).join(" · ") : "";
+  return `<a href="/?device=${encodeURIComponent(t.device_key)}" title="${escapeHtml(t.device_key)}" data-testid="device">${escapeHtml(name)}</a>`
+    + (sub ? `<div class="mono sub">${escapeHtml(sub)}</div>` : "");
+}
+
+async function loadDevices() {
+  try {
+    const resp = await fetch("/api/v2/devices", { headers: { accept: "application/json" } });
+    if (resp.ok) {
+      const body = await resp.json();
+      state.devices = new Map((body.devices || []).filter((d) => d.device_key).map((d) => [d.device_key, d]));
+      render();
+    }
+  } catch (err) { /* names are optional; keep the device keys */ }
+  setTimeout(loadDevices, DEVICES_POLL_MS);
+}
+
 function render() {
   const rows = [...state.incidents.values()].sort((a, b) => {
     const ra = a.status === "RESOLVE" ? 1 : 0, rb = b.status === "RESOLVE" ? 1 : 0;
@@ -98,7 +129,7 @@ function render() {
     <tr data-incident="${escapeHtml(t.incident_id)}" class="${t.status === "RESOLVE" ? "resolved" : ""}">
       <td class="sev sev-${escapeHtml(t.severity)}">${escapeHtml(t.severity)}</td>
       <td>${escapeHtml(t.status)}</td>
-      <td class="mono">${escapeHtml(t.device_key)}</td>
+      <td>${device(t)}</td>
       <td>${horizon(t, 60)}</td>
       <td>${horizon(t, 900)}</td>
       <td>${time(t.episode_start_ms)}</td>
@@ -117,12 +148,13 @@ function apply(transition, committedAtMs) {
 
 function renderHealth() {
   const problems = [];
+  const fresh = (g) => !g.last_event_time_ms || Date.now() - g.last_event_time_ms < HEALTH_STALE_MS;
   for (const g of state.health) {
     if (g.kind === "SPOOL_LOSS" && g.count > 0) {
       problems.push(`Gateway ${g.gateway_id} lost ${g.count} events (sequences ${g.first_sequence}–${g.last_sequence}, ${time(g.first_event_time_ms)}–${time(g.last_event_time_ms)}); detection may be incomplete.`);
-    } else if (g.kind === "UNATTRIBUTED" && g.count > 0) {
+    } else if (g.kind === "UNATTRIBUTED" && g.count >= UNATTRIBUTED_MIN_FRAMES && fresh(g)) {
       problems.push(`Gateway ${g.gateway_id}: ${g.count} frames from devices without a DHCP lease (${time(g.first_event_time_ms)}–${time(g.last_event_time_ms)}).`);
-    } else if (g.kind === "FLOW_TABLE_EVICTION" && g.count > 0) {
+    } else if (g.kind === "FLOW_TABLE_EVICTION" && g.count > 0 && fresh(g)) {
       problems.push(`Gateway ${g.gateway_id}: flow table full, ${g.count} flows flushed early.`);
     } else if (g.kind === "HEARTBEAT" && g.detail) {
       problems.push(`Gateway ${g.gateway_id}: ${g.detail}.`);
@@ -187,6 +219,7 @@ function connect() {
 
 render();
 connect();
+loadDevices();
 </script>
 </body>
 </html>

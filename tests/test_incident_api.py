@@ -41,7 +41,18 @@ class IncidentApiTests(unittest.TestCase):
         self.conn.execute("DROP SCHEMA public CASCADE")
         self.conn.execute("CREATE SCHEMA public")
         proj.db.migrate(self.conn)
-        self.client_cm = TestClient(api_main.create_app(DSN))
+        self.leases = [
+            {"mac_address": "02:00:00:00:00:0A", "ip_address": "192.168.50.134", "hostname": "zero", "lease_expires_at": "1794379528"},
+            {"mac_address": "02:00:00:00:00:0b", "ip_address": "192.168.50.137", "hostname": "iPhone", "lease_expires_at": "1794378166"},
+        ]
+
+        async def fetch():
+            if self.leases is None:
+                raise OSError("unreachable")
+            return self.leases
+
+        self.lease_source = api_main.Leases("http://gateway-agent:7000", fetch=fetch)
+        self.client_cm = TestClient(api_main.create_app(DSN, leases=self.lease_source))
         self.client = self.client_cm.__enter__()
 
     def tearDown(self):
@@ -81,13 +92,54 @@ class IncidentApiTests(unittest.TestCase):
         ok = self.client.get("/api/v2/incidents/changes", params={"after": 2})
         self.assertEqual(ok.status_code, 200)
 
-    def test_live_page_is_served_and_root_redirects(self):
+    def test_live_page_is_served_and_root_shows_devices(self):
         page = self.client.get("/live/")
         self.assertEqual(page.status_code, 200)
         self.assertIn("Live incidents", page.text)
         root = self.client.get("/", follow_redirects=False)
-        self.assertIn(root.status_code, (302, 307))
-        self.assertEqual(root.headers["location"], "/live/")
+        self.assertEqual(root.status_code, 200)
+        self.assertIn("<title>Devices</title>", root.text)
+
+    def test_devices_join_features_incidents_and_leases_by_mac(self):
+        proj.db.apply_features(self.conn, proj.feature_update(window_end=5_000, flows=4))
+        proj.db.apply_features(self.conn, proj.feature_update(horizon=900, window_end=6_000, flows=40))
+        self.apply("a", 1)  # active, device gw:02:00:00:00:00:0a
+        self.apply("b", 1)
+        self.apply("b", 2, status=4)  # resolved
+        proj.db.apply_features(self.conn, proj.feature_update(device="gw:02:00:00:00:00:0c", window_end=1_000))
+        body = self.client.get("/api/v2/devices").json()
+        self.assertTrue(body["leases"]["available"])
+        by_mac = {d["mac"]: d for d in body["devices"]}
+        self.assertEqual(set(by_mac), {"02:00:00:00:00:0a", "02:00:00:00:00:0b", "02:00:00:00:00:0c"})
+        zero = by_mac["02:00:00:00:00:0a"]
+        self.assertEqual(body["devices"][0]["mac"], "02:00:00:00:00:0a", "devices with active incidents first")
+        self.assertEqual((zero["hostname"], zero["ip"], zero["device_key"]), ("zero", "192.168.50.134", "gw:02:00:00:00:00:0a"))
+        self.assertEqual(zero["features"]["60"]["flows"], 4)
+        self.assertEqual(zero["features"]["900"]["flows"], 40)
+        self.assertEqual(zero["last_seen_ms"], 6_000)
+        self.assertEqual(zero["incidents"], {"active": 1, "total": 2, "last_detected_ms": zero["incidents"]["last_detected_ms"], "severity": "LOW"})
+        self.assertEqual(zero["lease_expires_at_ms"], 1_794_379_528_000)
+        phone = by_mac["02:00:00:00:00:0b"]
+        self.assertIsNone(phone["device_key"], "leased but never seen by the sensor")
+        self.assertIsNone(by_mac["02:00:00:00:00:0c"]["hostname"], "seen but no lease")
+
+    def test_devices_still_listed_when_the_gateway_agent_is_down(self):
+        self.leases = None
+        proj.db.apply_features(self.conn, proj.feature_update())
+        body = self.client.get("/api/v2/devices").json()
+        self.assertFalse(body["leases"]["available"])
+        self.assertIn("unavailable", body["leases"]["error"])
+        self.assertEqual([d["device_key"] for d in body["devices"]], ["gw:02:00:00:00:00:0a"])
+
+    def test_incident_history_per_device_and_transitions(self):
+        self.apply("a", 1)
+        self.apply("a", 2, status=4)
+        proj.db.apply_transition(self.conn, proj.transition(incident="other", device="gw:02:00:00:00:00:0b"))
+        body = self.client.get("/api/v2/incidents", params={"active": "false", "device": "gw:02:00:00:00:00:0a"}).json()
+        self.assertEqual([i["incident_id"] for i in body["incidents"]], ["a"])
+        steps = self.client.get("/api/v2/incidents/a/transitions").json()["transitions"]
+        self.assertEqual([(s["revision"], s["status"]) for s in steps], [(1, "OPEN"), (2, "RESOLVE")])
+        self.assertEqual(self.client.get("/api/v2/incidents/nope/transitions").status_code, 404)
 
     def test_websocket_works_through_a_real_uvicorn_server(self):
         """TestClient does not need a WebSocket library; uvicorn does."""

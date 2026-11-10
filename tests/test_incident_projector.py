@@ -83,9 +83,22 @@ def transition(incident="inc-1", revision=1, status=1, severity=1, device="gw:02
     return t
 
 
+def feature_update(device="gw:02:00:00:00:00:0a", horizon=60, window_end=1_760_486_400_000, flows=3.0):
+    f = events_pb2.FeatureUpdate()
+    f.envelope.gateway_id = "gw"
+    f.envelope.device_key = device
+    f.envelope.event_id = f"{device}/{horizon}/{window_end}"
+    f.horizon_seconds = horizon
+    f.window_end_unix_millis = window_end
+    f.feature_version = "rolling-views/v1"
+    f.features["flows"] = flows
+    f.features["distinct_targets"] = 2.0
+    return f
+
+
 class FakeMessage:
-    def __init__(self, value, offset):
-        self._value, self._offset = value, offset
+    def __init__(self, value, offset, topic="traffic.detections.v2"):
+        self._value, self._offset, self._topic = value, offset, topic
 
     def value(self):
         return self._value
@@ -94,7 +107,7 @@ class FakeMessage:
         return None
 
     def topic(self):
-        return "traffic.detections.v2"
+        return self._topic
 
     def partition(self):
         return 0
@@ -132,7 +145,8 @@ class IncidentProjectorTests(unittest.TestCase):
         self.conn.execute("DROP SCHEMA public CASCADE")
         self.conn.execute("CREATE SCHEMA public")
         self.assertEqual(
-            db.migrate(self.conn), ["0001_incidents.sql", "0002_gateway_health.sql"]
+            db.migrate(self.conn),
+            ["0001_incidents.sql", "0002_gateway_health.sql", "0003_device_features.sql"],
         )
 
     def tearDown(self):
@@ -248,6 +262,28 @@ class IncidentProjectorTests(unittest.TestCase):
             "SELECT kind, count, detail FROM gateway_health ORDER BY kind"
         ).fetchall()
         self.assertEqual(rows, [("HEARTBEAT", 99, "waiting for wlan0"), ("SPOOL_LOSS", 5, "spool full")])
+
+    def test_features_keep_the_latest_window_per_device_and_horizon(self):
+        self.assertTrue(db.apply_features(self.conn, feature_update(window_end=2_000, flows=5)))
+        self.assertTrue(db.apply_features(self.conn, feature_update(horizon=900, window_end=2_000, flows=50)))
+        self.assertFalse(db.apply_features(self.conn, feature_update(window_end=1_000, flows=1)), "older window ignored")
+        self.assertTrue(db.apply_features(self.conn, feature_update(window_end=3_000, flows=7)))
+        rows = self.conn.execute(
+            "SELECT horizon_seconds, features->>'flows' FROM device_features ORDER BY horizon_seconds"
+        ).fetchall()
+        self.assertEqual(rows, [(60, "7.0"), (900, "50.0")])
+
+    def test_projector_routes_feature_updates_and_commits_them(self):
+        import psycopg
+
+        consumer = FakeConsumer()
+        p = projector_module.Projector(consumer, lambda: psycopg.connect(DSN, autocommit=True))
+        msg = FakeMessage(feature_update().SerializeToString(), offset=7, topic="traffic.features.v2")
+        self.assertIsNone(p.handle(msg))
+        self.assertEqual(consumer.committed, [7])
+        self.assertEqual(p.stats["features"], 1)
+        self.assertEqual(self.count("device_features"), 1)
+        self.assertEqual(self.count("incident_transitions"), 0)
 
     def test_feed_payload_carries_latency_fields(self):
         db.apply_transition(self.conn, transition())

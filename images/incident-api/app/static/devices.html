@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Devices</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e2dd;
+    --high: #b42318; --medium: #b54708; --low: #3e6b34; --ok: #3e6b34; --idle: #8a8983;
+    --warn-bg: #fff4e5; --warn-line: #f2c48d; --sel: #eef3fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #1f1f1c; --text: #ecebe6; --muted: #a2a19a; --line: #34332f;
+      --high: #ff8a7a; --medium: #f7b267; --low: #9ccf8f; --ok: #9ccf8f; --idle: #77766f;
+      --warn-bg: #3a2c16; --warn-line: #7a5a26; --sel: #232a36;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 16px; margin: 20px 0 8px; }
+  nav a { color: var(--muted); margin-right: 12px; text-decoration: none; }
+  nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+  #status { color: var(--muted); font-size: 13px; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 6px; padding: 8px 12px; margin: 0 0 10px; }
+  .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover, tbody tr.selected { background: var(--sel); }
+  .state { font-weight: 600; }
+  .state-alert-HIGH { color: var(--high); } .state-alert-MEDIUM { color: var(--medium); } .state-alert-LOW { color: var(--low); }
+  .state-clean { color: var(--ok); } .state-idle, .state-unseen { color: var(--idle); }
+  .sev-HIGH { color: var(--high); font-weight: 600; } .sev-MEDIUM { color: var(--medium); font-weight: 600; } .sev-LOW { color: var(--low); font-weight: 600; }
+  .over { font-weight: 600; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 16px; }
+  tr.timeline > td { padding: 0 10px 10px 28px; background: var(--bg); }
+  tr.timeline table { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <nav><a href="/" aria-current="page">Devices</a><a href="/live/">Live incidents</a></nav>
+  <header>
+    <h1>Devices</h1>
+    <span id="status" data-testid="status">loading…</span>
+  </header>
+  <div id="lease-note" class="note" data-testid="lease-note" hidden></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>State</th><th>Device</th><th>IP</th><th>Last seen</th>
+          <th class="num">Flows 60 s</th><th class="num">Targets 60 s</th><th class="num">Failed 60 s</th>
+          <th class="num">Flows 15 min</th><th class="num">Traffic 15 min</th><th class="num">Incidents</th>
+        </tr>
+      </thead>
+      <tbody id="devices" data-testid="devices"></tbody>
+    </table>
+    <div id="devices-empty" class="empty" data-testid="devices-empty" hidden>No devices seen yet.</div>
+  </div>
+
+  <section id="history" data-testid="history" hidden>
+    <h2 id="history-title">Incident history</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Severity</th><th>Status</th><th>Started</th><th>Last change</th><th>Duration</th><th>60 s</th><th>15 min</th><th class="num">Changes</th></tr>
+        </thead>
+        <tbody id="history-rows" data-testid="history-rows"></tbody>
+      </table>
+      <div id="history-empty" class="empty" data-testid="history-empty" hidden>No incidents for this device.</div>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+// Device overview: polls /api/v2/devices (latest rolling views, incident
+// counts and DHCP leases). Clicking a device lists its incidents; clicking an
+// incident shows every transition it went through.
+const POLL_MS = 5000;
+const IDLE_MS = 120000;
+const state = { devices: [], selected: new URLSearchParams(location.search).get("device"), openIncident: null, history: [], timeline: new Map() };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const time = (ms) => (ms ? new Date(ms).toLocaleTimeString() : "–");
+const dateTime = (ms) => (ms ? new Date(ms).toLocaleString() : "–");
+
+function ago(ms) {
+  if (!ms) return "never";
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return dateTime(ms);
+}
+
+function duration(ms) {
+  if (ms == null || ms < 0) return "–";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+  return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+}
+
+function bytes(n) {
+  if (n == null) return "–";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+
+const num = (v) => (v == null ? "–" : Math.round(v));
+
+function deviceState(d) {
+  if (d.incidents.active > 0) return { cls: `alert-${d.incidents.severity || "LOW"}`, text: `Alert · ${d.incidents.severity || "LOW"}` };
+  if (!d.last_seen_ms) return { cls: "unseen", text: "No traffic" };
+  if (Date.now() - d.last_seen_ms > IDLE_MS) return { cls: "idle", text: "Idle" };
+  return { cls: "clean", text: "Clean" };
+}
+
+function renderDevices() {
+  $("devices").innerHTML = state.devices.map((d) => {
+    const st = deviceState(d);
+    const f60 = d.features["60"] || {}, f900 = d.features["900"] || {};
+    const selectable = Boolean(d.device_key);
+    return `
+    <tr data-device="${esc(d.device_key || d.mac)}" class="${selectable ? "clickable" : ""} ${state.selected && state.selected === d.device_key ? "selected" : ""}">
+      <td class="state state-${esc(st.cls)}" data-testid="state">${esc(st.text)}</td>
+      <td><div data-testid="name">${esc(d.hostname || "unknown")}</div><div class="mono sub">${esc(d.mac)}</div></td>
+      <td class="mono" data-testid="ip">${esc(d.ip || "–")}</td>
+      <td title="${esc(dateTime(d.last_seen_ms))}">${esc(ago(d.last_seen_ms))}</td>
+      <td class="num">${num(f60.flows)}</td>
+      <td class="num">${num(f60.distinct_targets)}</td>
+      <td class="num">${num(f60.failed_targets)}</td>
+      <td class="num">${num(f900.flows)}</td>
+      <td class="num">${bytes(f900.bytes)}</td>
+      <td class="num" data-testid="incident-count">${d.incidents.active ? `<strong>${d.incidents.active}</strong> / ` : ""}${d.incidents.total}</td>
+    </tr>`;
+  }).join("");
+  $("devices-empty").hidden = state.devices.length > 0;
+  for (const row of $("devices").querySelectorAll("tr.clickable")) {
+    row.onclick = () => select(row.dataset.device);
+  }
+}
+
+function horizon(t, seconds) {
+  const h = (t.horizons || []).find((x) => x.horizon_seconds === seconds);
+  if (!h) return "–";
+  const text = `${h.value} / ${h.open_threshold}`;
+  return h.over_threshold ? `<span class="over">${text}</span>` : text;
+}
+
+function renderHistory() {
+  const device = state.devices.find((d) => d.device_key === state.selected);
+  $("history").hidden = !state.selected;
+  if (!state.selected) return;
+  $("history-title").textContent = `Incident history · ${device?.hostname || state.selected}`;
+  $("history-rows").innerHTML = state.history.map((t) => {
+    const resolved = t.status === "RESOLVE";
+    const end = resolved ? t.detected_at_ms : Date.now();
+    const open = state.openIncident === t.incident_id;
+    const timeline = open ? renderTimeline(state.timeline.get(t.incident_id)) : "";
+    return `
+    <tr class="clickable ${open ? "selected" : ""}" data-incident="${esc(t.incident_id)}">
+      <td class="sev-${esc(t.severity)}">${esc(t.severity)}</td>
+      <td>${resolved ? "Resolved" : esc(t.status)}</td>
+      <td>${esc(dateTime(t.episode_start_ms))}</td>
+      <td>${esc(dateTime(t.detected_at_ms))}</td>
+      <td>${resolved ? duration(end - t.episode_start_ms) : `${duration(end - t.episode_start_ms)} (ongoing)`}</td>
+      <td>${horizon(t, 60)}</td>
+      <td>${horizon(t, 900)}</td>
+      <td class="num">${t.revision}</td>
+    </tr>${timeline}`;
+  }).join("");
+  $("history-empty").hidden = state.history.length > 0;
+  for (const row of $("history-rows").querySelectorAll("tr[data-incident]")) {
+    row.onclick = () => toggleIncident(row.dataset.incident);
+  }
+}
+
+function renderTimeline(transitions) {
+  const body = transitions === undefined
+    ? `<tr><td colspan="5" class="sub">loading…</td></tr>`
+    : transitions.map((t) => `
+      <tr><td>${esc(time(t.detected_at_ms))}</td><td>${esc(t.status)}</td><td class="sev-${esc(t.severity)}">${esc(t.severity)}</td><td>${horizon(t, 60)}</td><td>${horizon(t, 900)}</td></tr>`).join("");
+  return `<tr class="timeline" data-testid="timeline"><td colspan="8"><table>
+    <thead><tr><th>Time</th><th>Transition</th><th>Severity</th><th>60 s</th><th>15 min</th></tr></thead>
+    <tbody>${body}</tbody></table></td></tr>`;
+}
+
+async function getJson(url) {
+  const resp = await fetch(url, { headers: { accept: "application/json" } });
+  if (!resp.ok) throw new Error(`${url}: ${resp.status}`);
+  return resp.json();
+}
+
+async function loadDevices() {
+  try {
+    const body = await getJson("/api/v2/devices");
+    state.devices = body.devices || [];
+    const note = $("lease-note");
+    note.hidden = body.leases?.available !== false;
+    note.textContent = note.hidden ? "" : `Hostnames and IPs unavailable (${body.leases.error}); devices are shown by MAC.`;
+    $("status").textContent = `updated ${time(Date.now())}`;
+    renderDevices();
+    renderHistory();
+  } catch (err) {
+    $("status").textContent = `update failed · ${time(Date.now())}`;
+  }
+}
+
+async function loadHistory() {
+  if (!state.selected) return;
+  try {
+    const body = await getJson(`/api/v2/incidents?active=false&device=${encodeURIComponent(state.selected)}`);
+    state.history = body.incidents || [];
+    renderHistory();
+  } catch (err) { /* keep the last list */ }
+}
+
+async function loadTimeline(id) {
+  try {
+    const body = await getJson(`/api/v2/incidents/${encodeURIComponent(id)}/transitions`);
+    state.timeline.set(id, body.transitions || []);
+  } catch (err) {
+    state.timeline.set(id, []);
+  }
+  renderHistory();
+}
+
+function select(deviceKey) {
+  state.selected = state.selected === deviceKey ? null : deviceKey;
+  state.history = [];
+  state.openIncident = null;
+  const url = new URL(location.href);
+  if (state.selected) url.searchParams.set("device", state.selected); else url.searchParams.delete("device");
+  history.replaceState(null, "", url);
+  renderDevices();
+  renderHistory();
+  loadHistory();
+}
+
+function toggleIncident(id) {
+  state.openIncident = state.openIncident === id ? null : id;
+  if (state.openIncident) {
+    state.timeline.delete(id);
+    loadTimeline(id);
+  }
+  renderHistory();
+}
+
+async function poll() {
+  await loadDevices();
+  await loadHistory();
+  setTimeout(poll, POLL_MS);
+}
+
+poll();
+</script>
+</body>
+</html>

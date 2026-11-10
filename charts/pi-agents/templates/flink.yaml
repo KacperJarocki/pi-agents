@@ -105,8 +105,10 @@ spec:
     jarURI: local:///opt/flink/usrlib/detection-job.jar
     entryClass: io.piagents.detection.DetectionJob
     parallelism: {{ $job.parallelism }}
-    # Take a savepoint on upgrade and restore from it.
-    upgradeMode: savepoint
+    # Restore from the latest checkpoint (Kubernetes HA metadata) on upgrade.
+    # savepoint mode needs a healthy job to take the savepoint, so a stuck
+    # job could never be upgraded out of its failure.
+    upgradeMode: last-state
     allowNonRestoredState: {{ $job.allowNonRestoredState }}
     state: running
     args:

@@ -1,5 +1,6 @@
-# gateway-agent in safe mode (ENABLE_APPLY=false). Point path at
-# k8s/overlays/gateway-prod to let it drive the AP for real.
+# gateway-agent with ENABLE_APPLY=true: it brings up the IoT-Security SSID
+# on the gateway node as soon as it syncs. Point path at k8s/gateway for
+# safe mode (no hostapd/dnsmasq changes).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -14,7 +15,7 @@ spec:
   source:
     repoURL: https://github.com/KacperJarocki/pi-agents.git
     targetRevision: main
-    path: k8s/gateway
+    path: k8s/overlays/gateway-prod
   destination:
     server: https://kubernetes.default.svc
     namespace: iot-security

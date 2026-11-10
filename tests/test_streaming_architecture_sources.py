@@ -177,7 +177,7 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         values = (chart / "values.yaml").read_text()
         docs = (ROOT / "docs" / "STREAMING-DETECTION.md").read_text()
         self.assertIn("local:///opt/flink/usrlib/detection-job.jar", flink)
-        self.assertIn("upgradeMode: savepoint", flink)
+        self.assertIn("upgradeMode: last-state", flink)
         self.assertIn("detectionJob:", values)
         self.assertIn("openThreshold60s: 20", values)
         self.assertIn("openThreshold900s: 40", values)

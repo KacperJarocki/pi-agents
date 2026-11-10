@@ -43,8 +43,18 @@ class IncidentApiTests(unittest.TestCase):
         self.conn.execute("CREATE SCHEMA public")
         proj.db.migrate(self.conn)
         self.leases = [
-            {"mac_address": "02:00:00:00:00:0A", "ip_address": "192.168.50.134", "hostname": "zero", "lease_expires_at": "1794379528"},
-            {"mac_address": "02:00:00:00:00:0b", "ip_address": "192.168.50.137", "hostname": "iPhone", "lease_expires_at": "1794378166"},
+            {
+                "mac_address": "02:00:00:00:00:0A",
+                "ip_address": "192.168.50.134",
+                "hostname": "zero",
+                "lease_expires_at": "1794379528",
+            },
+            {
+                "mac_address": "02:00:00:00:00:0b",
+                "ip_address": "192.168.50.137",
+                "hostname": "iPhone",
+                "lease_expires_at": "1794378166",
+            },
         ]
 
         async def fetch():
@@ -68,9 +78,7 @@ class IncidentApiTests(unittest.TestCase):
         self.conn.close()
 
     def apply(self, incident, revision, status=1):
-        return proj.db.apply_transition(
-            self.conn, proj.transition(incident=incident, revision=revision, status=status)
-        )
+        return proj.db.apply_transition(self.conn, proj.transition(incident=incident, revision=revision, status=status))
 
     def test_snapshot_returns_active_incidents_with_a_cursor(self):
         self.apply("a", 1)
@@ -122,11 +130,16 @@ class IncidentApiTests(unittest.TestCase):
         self.assertEqual(set(by_mac), {"02:00:00:00:00:0a", "02:00:00:00:00:0b", "02:00:00:00:00:0c"})
         zero = by_mac["02:00:00:00:00:0a"]
         self.assertEqual(body["devices"][0]["mac"], "02:00:00:00:00:0a", "devices with active incidents first")
-        self.assertEqual((zero["hostname"], zero["ip"], zero["device_key"]), ("zero", "192.168.50.134", "gw:02:00:00:00:00:0a"))
+        self.assertEqual(
+            (zero["hostname"], zero["ip"], zero["device_key"]), ("zero", "192.168.50.134", "gw:02:00:00:00:00:0a")
+        )
         self.assertEqual(zero["features"]["60"]["flows"], 4)
         self.assertEqual(zero["features"]["900"]["flows"], 40)
         self.assertEqual(zero["last_seen_ms"], 6_000)
-        self.assertEqual(zero["incidents"], {"active": 1, "total": 2, "last_detected_ms": zero["incidents"]["last_detected_ms"], "severity": "LOW"})
+        self.assertEqual(
+            zero["incidents"],
+            {"active": 1, "total": 2, "last_detected_ms": zero["incidents"]["last_detected_ms"], "severity": "LOW"},
+        )
         self.assertEqual(zero["lease_expires_at_ms"], 1_794_379_528_000)
         phone = by_mac["02:00:00:00:00:0b"]
         self.assertIsNone(phone["device_key"], "leased but never seen by the sensor")

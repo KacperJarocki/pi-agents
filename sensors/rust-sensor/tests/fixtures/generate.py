@@ -42,9 +42,7 @@ def checksum(data):
 
 
 def ipv4(src, dst, proto, payload, ident=1):
-    header = struct.pack(
-        "!BBHHHBBH4s4s", 0x45, 0, 20 + len(payload), ident, 0, 64, proto, 0, ip4(src), ip4(dst)
-    )
+    header = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(payload), ident, 0, 64, proto, 0, ip4(src), ip4(dst))
     header = header[:10] + struct.pack("!H", checksum(header)) + header[12:]
     return header + payload
 
@@ -108,43 +106,59 @@ def write_pcap(name, frames):
 
 def main():
     d, r = DEV_IP, REMOTE_IP
-    write_pcap("tcp_established.pcap", [
-        (0.000, from_device(tcp(d, r, 40000, 443, SYN, seq=1000))),
-        (0.010, to_device(tcp(r, d, 443, 40000, SYN | ACK, seq=5000, ack=1001))),
-        (0.011, from_device(tcp(d, r, 40000, 443, ACK, seq=1001, ack=5001))),
-        (0.020, from_device(tcp(d, r, 40000, 443, PSH | ACK, b"x" * 100, seq=1001, ack=5001))),
-        (0.030, from_device(tcp(d, r, 40000, 443, FIN | ACK, seq=1101, ack=5001))),
-        (0.040, to_device(tcp(r, d, 443, 40000, FIN | ACK, seq=5001, ack=1102))),
-        (0.041, from_device(tcp(d, r, 40000, 443, ACK, seq=1102, ack=5002))),
-    ])
-    write_pcap("tcp_rejected.pcap", [
-        (0.000, from_device(tcp(d, r, 40001, 23, SYN))),
-        (0.005, to_device(tcp(r, d, 23, 40001, RST | ACK, seq=0, ack=1001))),
-    ])
-    # The retransmission lands after the active timeout: two micro-flows.
-    write_pcap("tcp_unanswered.pcap", [
-        (0.000, from_device(tcp(d, r, 40002, 8080, SYN))),
-        (1.200, from_device(tcp(d, r, 40002, 8080, SYN))),
-    ])
-    write_pcap("udp_dns.pcap", [
-        (0.000, from_device(udp(d, GW_IP, 53000, 53, dns_query("Example.com")))),
-        (0.002, to_device(udp(GW_IP, d, 53, 53000, dns_response("example.com")))),
-    ])
-    probe = udp(d, r, 41000, 161, b"\x30\x00")
-    write_pcap("icmp.pcap", [
-        (0.000, from_device(icmp(d, r, 8, 0, struct.pack("!HH", 7, 1), b"ping"))),
-        (0.004, to_device(icmp(r, d, 0, 0, struct.pack("!HH", 7, 1), b"ping"))),
-        (0.100, from_device(probe)),
-        (0.103, to_device(icmp(r, d, 3, 3, b"\0\0\0\0", probe[:28]))),
-    ])
-    write_pcap("unattributed.pcap", [
-        (0.000, ether(UNKNOWN_A, UNKNOWN_B, tcp("192.168.50.99", r, 40003, 80, SYN))),
-        (0.500, ether(UNKNOWN_B, UNKNOWN_A, tcp(r, "192.168.50.99", 80, 40003, RST | ACK))),
-        (0.600, from_device(tcp(d, r, 40004, 80, SYN))),
-    ])
-    (HERE / "leases.txt").write_text(
-        "1760003600 02:00:00:00:00:0a 192.168.50.10 sensor-a 01:02:00:00:00:00:0a\n"
+    write_pcap(
+        "tcp_established.pcap",
+        [
+            (0.000, from_device(tcp(d, r, 40000, 443, SYN, seq=1000))),
+            (0.010, to_device(tcp(r, d, 443, 40000, SYN | ACK, seq=5000, ack=1001))),
+            (0.011, from_device(tcp(d, r, 40000, 443, ACK, seq=1001, ack=5001))),
+            (0.020, from_device(tcp(d, r, 40000, 443, PSH | ACK, b"x" * 100, seq=1001, ack=5001))),
+            (0.030, from_device(tcp(d, r, 40000, 443, FIN | ACK, seq=1101, ack=5001))),
+            (0.040, to_device(tcp(r, d, 443, 40000, FIN | ACK, seq=5001, ack=1102))),
+            (0.041, from_device(tcp(d, r, 40000, 443, ACK, seq=1102, ack=5002))),
+        ],
     )
+    write_pcap(
+        "tcp_rejected.pcap",
+        [
+            (0.000, from_device(tcp(d, r, 40001, 23, SYN))),
+            (0.005, to_device(tcp(r, d, 23, 40001, RST | ACK, seq=0, ack=1001))),
+        ],
+    )
+    # The retransmission lands after the active timeout: two micro-flows.
+    write_pcap(
+        "tcp_unanswered.pcap",
+        [
+            (0.000, from_device(tcp(d, r, 40002, 8080, SYN))),
+            (1.200, from_device(tcp(d, r, 40002, 8080, SYN))),
+        ],
+    )
+    write_pcap(
+        "udp_dns.pcap",
+        [
+            (0.000, from_device(udp(d, GW_IP, 53000, 53, dns_query("Example.com")))),
+            (0.002, to_device(udp(GW_IP, d, 53, 53000, dns_response("example.com")))),
+        ],
+    )
+    probe = udp(d, r, 41000, 161, b"\x30\x00")
+    write_pcap(
+        "icmp.pcap",
+        [
+            (0.000, from_device(icmp(d, r, 8, 0, struct.pack("!HH", 7, 1), b"ping"))),
+            (0.004, to_device(icmp(r, d, 0, 0, struct.pack("!HH", 7, 1), b"ping"))),
+            (0.100, from_device(probe)),
+            (0.103, to_device(icmp(r, d, 3, 3, b"\0\0\0\0", probe[:28]))),
+        ],
+    )
+    write_pcap(
+        "unattributed.pcap",
+        [
+            (0.000, ether(UNKNOWN_A, UNKNOWN_B, tcp("192.168.50.99", r, 40003, 80, SYN))),
+            (0.500, ether(UNKNOWN_B, UNKNOWN_A, tcp(r, "192.168.50.99", 80, 40003, RST | ACK))),
+            (0.600, from_device(tcp(d, r, 40004, 80, SYN))),
+        ],
+    )
+    (HERE / "leases.txt").write_text("1760003600 02:00:00:00:00:0a 192.168.50.10 sensor-a 01:02:00:00:00:00:0a\n")
 
 
 if __name__ == "__main__":

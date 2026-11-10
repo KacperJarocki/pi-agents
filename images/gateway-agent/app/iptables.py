@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import subprocess
 
-
 NAT_TABLE = "nat"
 FILTER_TABLE = "filter"
 
@@ -177,30 +176,74 @@ def _validate_mac(mac: str) -> str:
 def block_device(mac: str) -> bool:
     """Add a DROP rule for the given MAC. Returns True if added, False if already present."""
     mac = _validate_mac(mac)
-    if _exists([
-        "iptables", "-t", FILTER_TABLE, "-C", BLOCK_CHAIN,
-        "-m", "mac", "--mac-source", mac, "-j", "DROP",
-    ]):
+    if _exists(
+        [
+            "iptables",
+            "-t",
+            FILTER_TABLE,
+            "-C",
+            BLOCK_CHAIN,
+            "-m",
+            "mac",
+            "--mac-source",
+            mac,
+            "-j",
+            "DROP",
+        ]
+    ):
         return False
-    _run([
-        "iptables", "-t", FILTER_TABLE, "-A", BLOCK_CHAIN,
-        "-m", "mac", "--mac-source", mac, "-j", "DROP",
-    ])
+    _run(
+        [
+            "iptables",
+            "-t",
+            FILTER_TABLE,
+            "-A",
+            BLOCK_CHAIN,
+            "-m",
+            "mac",
+            "--mac-source",
+            mac,
+            "-j",
+            "DROP",
+        ]
+    )
     return True
 
 
 def unblock_device(mac: str) -> bool:
     """Remove the DROP rule for the given MAC. Returns True if removed, False if not found."""
     mac = _validate_mac(mac)
-    if not _exists([
-        "iptables", "-t", FILTER_TABLE, "-C", BLOCK_CHAIN,
-        "-m", "mac", "--mac-source", mac, "-j", "DROP",
-    ]):
+    if not _exists(
+        [
+            "iptables",
+            "-t",
+            FILTER_TABLE,
+            "-C",
+            BLOCK_CHAIN,
+            "-m",
+            "mac",
+            "--mac-source",
+            mac,
+            "-j",
+            "DROP",
+        ]
+    ):
         return False
-    _run([
-        "iptables", "-t", FILTER_TABLE, "-D", BLOCK_CHAIN,
-        "-m", "mac", "--mac-source", mac, "-j", "DROP",
-    ])
+    _run(
+        [
+            "iptables",
+            "-t",
+            FILTER_TABLE,
+            "-D",
+            BLOCK_CHAIN,
+            "-m",
+            "mac",
+            "--mac-source",
+            mac,
+            "-j",
+            "DROP",
+        ]
+    )
     return True
 
 

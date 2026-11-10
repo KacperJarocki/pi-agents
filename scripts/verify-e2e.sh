@@ -379,10 +379,6 @@ fi
 # ── 9. Dashboard WebSocket ────────────────────────────────────────────────────
 section "9. Dashboard WebSocket — alert delivery"
 
-WS_CHECK=$(curl -sf --max-time 5 -o /dev/null -w '%{http_code}' \
-  -H "Upgrade: websocket" -H "Connection: Upgrade" \
-  "${API_URL/http/http}/../ws/alerts" 2>/dev/null || echo "000")
-
 DASHBOARD_URL="${DASHBOARD_URL:-http://iot-dashboard.homelab.kacperjarocki.dev}"
 DASH_WS_CHECK=$(curl -sf --max-time 5 -o /dev/null -w '%{http_code}' \
   "${DASHBOARD_URL}/ws/alerts" 2>/dev/null || echo "000")

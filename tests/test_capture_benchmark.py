@@ -2,7 +2,6 @@ import importlib.util
 import pathlib
 import unittest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "benchmark_capture.py"
 SPEC = importlib.util.spec_from_file_location("benchmark_capture", MODULE_PATH)

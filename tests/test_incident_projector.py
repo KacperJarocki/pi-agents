@@ -219,9 +219,7 @@ class IncidentProjectorTests(unittest.TestCase):
     def test_feed_pruning_keeps_recent_rows(self):
         db.apply_transition(self.conn, transition(incident="old", revision=1))
         db.apply_transition(self.conn, transition(incident="new", revision=1))
-        self.conn.execute(
-            "UPDATE incident_feed SET committed_at = now() - interval '8 days' WHERE incident_id = 'old'"
-        )
+        self.conn.execute("UPDATE incident_feed SET committed_at = now() - interval '8 days' WHERE incident_id = 'old'")
         self.assertEqual(db.prune_feed(self.conn), 1)
         left = [r[0] for r in self.conn.execute("SELECT incident_id FROM incident_feed")]
         self.assertEqual(left, ["new"])
@@ -258,15 +256,15 @@ class IncidentProjectorTests(unittest.TestCase):
         self.assertEqual([n.payload for n in notes], ["gw"])
         self.assertFalse(db.apply_health(self.conn, health(2, 3, 1_000)), "older event ignored")
         self.assertTrue(db.apply_health(self.conn, health(1, 99, 3_000, "waiting for wlan0")))
-        rows = self.conn.execute(
-            "SELECT kind, count, detail FROM gateway_health ORDER BY kind"
-        ).fetchall()
+        rows = self.conn.execute("SELECT kind, count, detail FROM gateway_health ORDER BY kind").fetchall()
         self.assertEqual(rows, [("HEARTBEAT", 99, "waiting for wlan0"), ("SPOOL_LOSS", 5, "spool full")])
 
     def test_features_keep_the_latest_window_per_device_and_horizon(self):
         self.assertTrue(db.apply_features(self.conn, feature_update(window_end=2_000, flows=5)))
         self.assertTrue(db.apply_features(self.conn, feature_update(horizon=900, window_end=2_000, flows=50)))
-        self.assertFalse(db.apply_features(self.conn, feature_update(window_end=1_000, flows=1)), "older window ignored")
+        self.assertFalse(
+            db.apply_features(self.conn, feature_update(window_end=1_000, flows=1)), "older window ignored"
+        )
         self.assertTrue(db.apply_features(self.conn, feature_update(window_end=3_000, flows=7)))
         rows = self.conn.execute(
             "SELECT horizon_seconds, features->>'flows' FROM device_features ORDER BY horizon_seconds"
@@ -293,7 +291,7 @@ class IncidentProjectorTests(unittest.TestCase):
         self.assertIn("evidence_ingest_time_ms", payload)
         self.assertEqual(payload["sample_event_ids"], ["gw/1", "gw/2"])
         committed = self.conn.execute("SELECT committed_at FROM incident_feed").fetchone()[0]
-        self.assertLess(dt.datetime.now(dt.timezone.utc) - committed, dt.timedelta(minutes=1))
+        self.assertLess(dt.datetime.now(dt.UTC) - committed, dt.timedelta(minutes=1))
 
 
 if __name__ == "__main__":

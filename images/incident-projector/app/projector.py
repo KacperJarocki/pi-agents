@@ -22,7 +22,8 @@ import pathlib
 import signal
 import threading
 import time
-from typing import Callable, Protocol
+from collections.abc import Callable
+from typing import Protocol
 
 import psycopg
 from google.protobuf.message import DecodeError
@@ -127,9 +128,7 @@ class Projector:
             transition = None
         if transition is None or not transition.transition_id or not transition.incident_id:
             self.stats["malformed"] += 1
-            log.warning(
-                "skipping malformed transition at %s[%d]@%d", msg.topic(), msg.partition(), msg.offset()
-            )
+            log.warning("skipping malformed transition at %s[%d]@%d", msg.topic(), msg.partition(), msg.offset())
             return None
         cursor = self._with_retry(lambda conn: db.apply_transition(conn, transition))
         self.stats["applied" if cursor is not None else "duplicates"] += 1

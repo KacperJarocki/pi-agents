@@ -6,6 +6,30 @@ on:
   pull_request:
 
 jobs:
+  pre-commit:
+    # Same hooks as locally (.pre-commit-config.yaml). cargo fmt and the UI's
+    # Prettier/ESLint need local toolchains and run in rust-sensor.yml and the
+    # ui job instead.
+    runs-on: ubuntu-latest
+    env:
+      SKIP: cargo-fmt,ui-prettier,ui-eslint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit on all files
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   python:
     runs-on: ubuntu-latest
     steps:

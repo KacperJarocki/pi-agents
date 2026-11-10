@@ -15,9 +15,8 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 STOP_REQUESTED = False
 
@@ -43,7 +42,7 @@ PRESETS = {
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def local_now() -> datetime:
@@ -115,26 +114,57 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run the port-sweep traffic research protocol with one command.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--target", default="192.168.50.1", help="single target for port-sweep phases; defaults to the gateway AP IP")
+    parser.add_argument(
+        "--target", default="192.168.50.1", help="single target for port-sweep phases; defaults to the gateway AP IP"
+    )
     parser.add_argument("--targets-file", help="optional target file passed to port-sweep phases")
     parser.add_argument("--targets-api", help="optional gateway API devices URL passed to port-sweep phases")
     parser.add_argument("--api-active-only", action="store_true", help="pass active_only=true to --targets-api")
-    parser.add_argument("--discover-subnet", default="auto", help="discover port-sweep targets from a CIDR subnet, or 'auto' for local /24")
+    parser.add_argument(
+        "--discover-subnet",
+        default="auto",
+        help="discover port-sweep targets from a CIDR subnet, or 'auto' for local /24",
+    )
     parser.add_argument("--no-discover", action="store_true", help="disable default discovery and use --target instead")
-    parser.add_argument("--phases", type=split_csv, default=DEFAULT_PHASES, help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed")
-    parser.add_argument("--preset", choices=sorted(PRESETS), help="prebuilt research plan; balanced35 runs 10 negative, 10 positive, 5 borderline, 5 slow, 5 aggressive")
+    parser.add_argument(
+        "--phases",
+        type=split_csv,
+        default=DEFAULT_PHASES,
+        help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        help="prebuilt research plan; balanced35 runs 10 negative, 10 positive, 5 borderline, 5 slow, 5 aggressive",
+    )
     parser.add_argument("--shuffle-phases", action="store_true", help="shuffle expanded preset phases using --seed")
-    parser.add_argument("--normal-profile", choices=["sensor", "plug", "camera-idle"], default="sensor", help="benign emulator profile for the normal phase")
-    parser.add_argument("--normal-duration", type=parse_duration, default=parse_duration("10m"), help="duration for the normal baseline phase")
+    parser.add_argument(
+        "--normal-profile",
+        choices=["sensor", "plug", "camera-idle"],
+        default="sensor",
+        help="benign emulator profile for the normal phase",
+    )
+    parser.add_argument(
+        "--normal-duration",
+        type=parse_duration,
+        default=parse_duration("10m"),
+        help="duration for the normal baseline phase",
+    )
     parser.add_argument("--sweep-duration", type=parse_duration, help="override duration for every port-sweep phase")
     parser.add_argument("--gap", type=parse_duration, default=parse_duration("60s"), help="quiet gap between phases")
     parser.add_argument("--seed", type=int, help="base random seed; each phase gets seed+phase_index")
     parser.add_argument("--randomize", action="store_true", help="randomize port-sweep probe order")
     parser.add_argument("--dry-run", action="store_true", help="print the full plan without generating traffic")
-    parser.add_argument("--detach", action="store_true", help="start the research run in the background and write pid/research.log")
+    parser.add_argument(
+        "--detach", action="store_true", help="start the research run in the background and write pid/research.log"
+    )
     parser.add_argument("--run-id", help="stable research run id")
-    parser.add_argument("--out-dir", default="artifacts/research-runs", help="output directory for research run metadata")
-    parser.add_argument("--child-out-root", default="artifacts", help="root directory for child script artifact folders")
+    parser.add_argument(
+        "--out-dir", default="artifacts/research-runs", help="output directory for research run metadata"
+    )
+    parser.add_argument(
+        "--child-out-root", default="artifacts", help="root directory for child script artifact folders"
+    )
     return parser
 
 
@@ -186,18 +216,21 @@ def detach(argv: list[str], args: argparse.Namespace, repo_root: Path, run_dir: 
             start_new_session=True,
         )
     (run_dir / "pid").write_text(f"{process.pid}\n")
-    write_json(run_dir / "status.json", {
-        "run_id": args.run_id,
-        "status": "detached",
-        "pid": process.pid,
-        "started_at": utc_now(),
-        "log": str(log_path),
-        "summary": str(run_dir / "summary.json"),
-        "markers": str(run_dir / "markers.jsonl"),
-        "estimated_duration_seconds": estimated_duration(args),
-        "estimated_duration_human": fmt_duration(estimated_duration(args)),
-        "command": command,
-    })
+    write_json(
+        run_dir / "status.json",
+        {
+            "run_id": args.run_id,
+            "status": "detached",
+            "pid": process.pid,
+            "started_at": utc_now(),
+            "log": str(log_path),
+            "summary": str(run_dir / "summary.json"),
+            "markers": str(run_dir / "markers.jsonl"),
+            "estimated_duration_seconds": estimated_duration(args),
+            "estimated_duration_human": fmt_duration(estimated_duration(args)),
+            "command": command,
+        },
+    )
     print(f"[research-runner] detached pid={process.pid}", flush=True)
     print(f"[research-runner] output={run_dir}", flush=True)
     print(f"[research-runner] log={log_path}", flush=True)
@@ -211,10 +244,14 @@ def phase_command(args: argparse.Namespace, repo_root: Path, run_dir: Path, phas
         return [
             sys.executable,
             str(repo_root / "scripts" / "iot-device-emulator.py"),
-            "--profile", args.normal_profile,
-            "--duration", str(args.normal_duration),
-            "--run-id", phase_run_id,
-            "--out-dir", str(Path(args.child_out_root) / "iot-emulator"),
+            "--profile",
+            args.normal_profile,
+            "--duration",
+            str(args.normal_duration),
+            "--run-id",
+            phase_run_id,
+            "--out-dir",
+            str(Path(args.child_out_root) / "iot-emulator"),
             *seed_args,
         ]
 
@@ -232,9 +269,12 @@ def phase_command(args: argparse.Namespace, repo_root: Path, run_dir: Path, phas
         sys.executable,
         str(repo_root / "scripts" / "port-sweep.py"),
         *target_args,
-        "--profile", phase,
-        "--run-id", phase_run_id,
-        "--out-dir", str(Path(args.child_out_root) / "port-sweep"),
+        "--profile",
+        phase,
+        "--run-id",
+        phase_run_id,
+        "--out-dir",
+        str(Path(args.child_out_root) / "port-sweep"),
         *seed_args,
     ]
     if args.sweep_duration is not None:
@@ -267,7 +307,9 @@ def timeline_bar(duration: float, max_duration: float, width: int = 24) -> str:
     return "#" * min(width, filled) + "." * max(0, width - filled)
 
 
-def print_phase_summary(phase_records: list[dict[str, object]], run_dir: Path, exit_code: int, interrupted: bool) -> None:
+def print_phase_summary(
+    phase_records: list[dict[str, object]], run_dir: Path, exit_code: int, interrupted: bool
+) -> None:
     if not phase_records:
         return
     passed = sum(1 for record in phase_records if int(record["returncode"]) == 0)
@@ -309,16 +351,31 @@ def sleep_gap(seconds: float, markers_path: Path, after_phase: str, dry_run: boo
     if seconds <= 0:
         return
     gap_started = local_now()
-    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(gap_started), "event": "gap_start", "after_phase": after_phase, "duration_seconds": seconds})
+    append_jsonl(
+        markers_path,
+        {
+            "ts": utc_now(),
+            "local_time": fmt_local(gap_started),
+            "event": "gap_start",
+            "after_phase": after_phase,
+            "duration_seconds": seconds,
+        },
+    )
     if dry_run:
         print(f"[research-runner] gap after {after_phase}: {fmt_duration(seconds)}", flush=True)
         return
-    print(f"[research-runner] gap_start after={after_phase} duration={fmt_duration(seconds)} at={fmt_local(gap_started)}", flush=True)
+    print(
+        f"[research-runner] gap_start after={after_phase} duration={fmt_duration(seconds)} at={fmt_local(gap_started)}",
+        flush=True,
+    )
     end_at = time.monotonic() + seconds
     while not STOP_REQUESTED and time.monotonic() < end_at:
         time.sleep(min(1.0, max(0.0, end_at - time.monotonic())))
     gap_ended = local_now()
-    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(gap_ended), "event": "gap_end", "after_phase": after_phase})
+    append_jsonl(
+        markers_path,
+        {"ts": utc_now(), "local_time": fmt_local(gap_ended), "event": "gap_end", "after_phase": after_phase},
+    )
     print(f"[research-runner] gap_end after={after_phase} at={fmt_local(gap_ended)}", flush=True)
 
 
@@ -334,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("use only one target source: --targets-file, --targets-api, or --no-discover with --target")
 
     repo_root = Path(__file__).resolve().parents[1]
-    args.run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    args.run_id = args.run_id or f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     run_dir = Path(args.out_dir) / args.run_id
     markers_path = run_dir / "markers.jsonl"
     status_path = run_dir / "status.json"
@@ -381,20 +438,31 @@ def main(argv: list[str] | None = None) -> int:
 
     run_dir.mkdir(parents=True, exist_ok=True)
     write_json(run_dir / "manifest.json", manifest)
-    write_json(status_path, {
-        "run_id": args.run_id,
-        "status": "running",
-        "started_at": manifest["started_at"],
-        "current_phase": None,
-        "completed_phases": 0,
-        "total_phases": len(commands),
-        "estimated_duration_seconds": manifest["estimated_duration_seconds"],
-        "estimated_duration_human": manifest["estimated_duration_human"],
-        "summary": str(run_dir / "summary.json"),
-        "markers": str(markers_path),
-    })
+    write_json(
+        status_path,
+        {
+            "run_id": args.run_id,
+            "status": "running",
+            "started_at": manifest["started_at"],
+            "current_phase": None,
+            "completed_phases": 0,
+            "total_phases": len(commands),
+            "estimated_duration_seconds": manifest["estimated_duration_seconds"],
+            "estimated_duration_human": manifest["estimated_duration_human"],
+            "summary": str(run_dir / "summary.json"),
+            "markers": str(markers_path),
+        },
+    )
     run_started_local = local_now()
-    append_jsonl(markers_path, {"ts": utc_now(), "local_time": fmt_local(run_started_local), "event": "research_run_start", "run_id": args.run_id})
+    append_jsonl(
+        markers_path,
+        {
+            "ts": utc_now(),
+            "local_time": fmt_local(run_started_local),
+            "event": "research_run_start",
+            "run_id": args.run_id,
+        },
+    )
     print(f"[research-runner] run_id={args.run_id} phases={','.join(args.phases)}", flush=True)
     print(f"[research-runner] output={run_dir}", flush=True)
     print(f"[research-runner] started_at={fmt_local(run_started_local)}", flush=True)
@@ -410,41 +478,82 @@ def main(argv: list[str] | None = None) -> int:
         started_at = utc_now()
         started_local = local_now()
         started_monotonic = time.monotonic()
-        write_json(status_path, {
-            "run_id": args.run_id,
-            "status": "running",
-            "current_phase": phase,
-            "current_phase_index": idx + 1,
-            "completed_phases": len(phase_records),
-            "total_phases": len(commands),
-            "phase_started_at": started_at,
-            "phase_started_at_local": fmt_local(started_local),
-            "summary": str(run_dir / "summary.json"),
-            "markers": str(markers_path),
-        })
-        append_jsonl(markers_path, {"ts": started_at, "local_time": fmt_local(started_local), "event": "phase_start", "phase": phase, "command": command})
+        write_json(
+            status_path,
+            {
+                "run_id": args.run_id,
+                "status": "running",
+                "current_phase": phase,
+                "current_phase_index": idx + 1,
+                "completed_phases": len(phase_records),
+                "total_phases": len(commands),
+                "phase_started_at": started_at,
+                "phase_started_at_local": fmt_local(started_local),
+                "summary": str(run_dir / "summary.json"),
+                "markers": str(markers_path),
+            },
+        )
+        append_jsonl(
+            markers_path,
+            {
+                "ts": started_at,
+                "local_time": fmt_local(started_local),
+                "event": "phase_start",
+                "phase": phase,
+                "command": command,
+            },
+        )
         print(f"\n[research-runner] phase_start phase={phase} at={fmt_local(started_local)}", flush=True)
         rc = run_phase(command, args.dry_run)
         ended_at = utc_now()
         ended_local = local_now()
         duration_seconds = time.monotonic() - started_monotonic
         duration_human = fmt_duration(duration_seconds)
-        append_jsonl(markers_path, {"ts": ended_at, "local_time": fmt_local(ended_local), "event": "phase_end", "phase": phase, "returncode": rc, "duration_seconds": round(duration_seconds, 3), "duration_human": duration_human})
-        phase_records.append({"phase": phase, "started_at": started_at, "ended_at": ended_at, "started_at_local": fmt_local(started_local), "ended_at_local": fmt_local(ended_local), "duration_seconds": round(duration_seconds, 3), "duration_human": duration_human, "returncode": rc, "command": command})
-        write_json(status_path, {
-            "run_id": args.run_id,
-            "status": "running" if rc == 0 else "failed",
-            "current_phase": None,
-            "completed_phases": len(phase_records),
-            "total_phases": len(commands),
-            "last_phase": phase,
-            "last_returncode": rc,
-            "last_phase_duration_seconds": round(duration_seconds, 3),
-            "last_phase_duration_human": duration_human,
-            "summary": str(run_dir / "summary.json"),
-            "markers": str(markers_path),
-        })
-        print(f"[research-runner] phase_end phase={phase} at={fmt_local(ended_local)} duration={duration_human} rc={rc}", flush=True)
+        append_jsonl(
+            markers_path,
+            {
+                "ts": ended_at,
+                "local_time": fmt_local(ended_local),
+                "event": "phase_end",
+                "phase": phase,
+                "returncode": rc,
+                "duration_seconds": round(duration_seconds, 3),
+                "duration_human": duration_human,
+            },
+        )
+        phase_records.append(
+            {
+                "phase": phase,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "started_at_local": fmt_local(started_local),
+                "ended_at_local": fmt_local(ended_local),
+                "duration_seconds": round(duration_seconds, 3),
+                "duration_human": duration_human,
+                "returncode": rc,
+                "command": command,
+            }
+        )
+        write_json(
+            status_path,
+            {
+                "run_id": args.run_id,
+                "status": "running" if rc == 0 else "failed",
+                "current_phase": None,
+                "completed_phases": len(phase_records),
+                "total_phases": len(commands),
+                "last_phase": phase,
+                "last_returncode": rc,
+                "last_phase_duration_seconds": round(duration_seconds, 3),
+                "last_phase_duration_human": duration_human,
+                "summary": str(run_dir / "summary.json"),
+                "markers": str(markers_path),
+            },
+        )
+        print(
+            f"[research-runner] phase_end phase={phase} at={fmt_local(ended_local)} duration={duration_human} rc={rc}",
+            flush=True,
+        )
         if rc != 0:
             exit_code = rc
             break
@@ -467,20 +576,33 @@ def main(argv: list[str] | None = None) -> int:
         "markers": str(markers_path),
         "dashboard_note": manifest["dashboard_note"],
     }
-    append_jsonl(markers_path, {"ts": summary["ended_at"], "local_time": summary["ended_at_local"], "event": "research_run_end", "run_id": args.run_id, "exit_code": exit_code, "interrupted": interrupted})
+    append_jsonl(
+        markers_path,
+        {
+            "ts": summary["ended_at"],
+            "local_time": summary["ended_at_local"],
+            "event": "research_run_end",
+            "run_id": args.run_id,
+            "exit_code": exit_code,
+            "interrupted": interrupted,
+        },
+    )
     write_json(run_dir / "summary.json", summary)
-    write_json(status_path, {
-        "run_id": args.run_id,
-        "status": "interrupted" if interrupted else "failed" if exit_code else "complete",
-        "exit_code": exit_code,
-        "interrupted": interrupted,
-        "completed_phases": len(phase_records),
-        "total_phases": len(commands),
-        "ended_at": summary["ended_at"],
-        "ended_at_local": summary["ended_at_local"],
-        "summary": str(run_dir / "summary.json"),
-        "markers": str(markers_path),
-    })
+    write_json(
+        status_path,
+        {
+            "run_id": args.run_id,
+            "status": "interrupted" if interrupted else "failed" if exit_code else "complete",
+            "exit_code": exit_code,
+            "interrupted": interrupted,
+            "completed_phases": len(phase_records),
+            "total_phases": len(commands),
+            "ended_at": summary["ended_at"],
+            "ended_at_local": summary["ended_at_local"],
+            "summary": str(run_dir / "summary.json"),
+            "markers": str(markers_path),
+        },
+    )
     print_phase_summary(phase_records, run_dir, exit_code, interrupted)
     print(f"[research-runner] complete summary={run_dir / 'summary.json'}", flush=True)
     return exit_code

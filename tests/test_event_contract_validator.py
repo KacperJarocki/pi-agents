@@ -1,16 +1,20 @@
+import json
 import pathlib
 import sys
 import unittest
-
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from validate_event_contract import (  # noqa: E402
-    BASELINE_PATH, COMPATIBILITY_PATH, PROTO_PATH, V2, parse_contract,
-    validate, validate_compatibility,
+    BASELINE_PATH,
+    COMPATIBILITY_PATH,
+    PROTO_PATH,
+    V2,
+    parse_contract,
+    validate,
+    validate_compatibility,
 )
-import json
 
 
 class EventContractValidatorTests(unittest.TestCase):

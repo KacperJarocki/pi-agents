@@ -1,7 +1,7 @@
 import ipaddress
 import subprocess
 
-from .models import WifiConfig, ValidationResult
+from .models import ValidationResult, WifiConfig
 
 
 def _iface_exists(name: str) -> bool:

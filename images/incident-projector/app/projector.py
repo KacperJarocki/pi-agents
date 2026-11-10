@@ -9,6 +9,7 @@ Environment:
   DATABASE_URL        PostgreSQL connection URI (required)
   DETECTIONS_TOPIC    default traffic.detections.v2
   HEALTH_TOPIC        default traffic.health.v2 (latest per gateway/component/kind)
+  FEATURES_TOPIC      default traffic.features.v2 (latest view per device/horizon)
   GROUP_ID            default incident-projector
   HEARTBEAT_FILE      rewritten every loop iteration for the liveness probe
 """
@@ -27,9 +28,10 @@ import psycopg
 from google.protobuf.message import DecodeError
 
 from app import db
-from app.events_pb2 import DetectionTransition, HealthEvent
+from app.events_pb2 import DetectionTransition, FeatureUpdate, HealthEvent
 
 HEALTH_TOPIC = os.environ.get("HEALTH_TOPIC", "traffic.health.v2")
+FEATURES_TOPIC = os.environ.get("FEATURES_TOPIC", "traffic.features.v2")
 
 log = logging.getLogger("incident-projector")
 
@@ -65,7 +67,7 @@ class Projector:
         self.clock = clock
         self.last_prune = clock()
         self.heartbeat = heartbeat
-        self.stats = {"applied": 0, "duplicates": 0, "malformed": 0, "db_retries": 0, "health": 0}
+        self.stats = {"applied": 0, "duplicates": 0, "malformed": 0, "db_retries": 0, "health": 0, "features": 0}
 
     def _db(self) -> psycopg.Connection:
         if self.conn is None or self.conn.closed:
@@ -82,6 +84,17 @@ class Projector:
             return
         self._with_retry(lambda conn: db.apply_health(conn, event))
         self.stats["health"] += 1
+
+    def _features(self, msg: Message) -> None:
+        try:
+            update = FeatureUpdate.FromString(msg.value() or b"")
+        except DecodeError:
+            update = None
+        if update is None or not update.envelope.device_key or not update.window_end_unix_millis:
+            self.stats["malformed"] += 1
+            return
+        self._with_retry(lambda conn: db.apply_features(conn, update))
+        self.stats["features"] += 1
 
     def _with_retry(self, operation):
         """Runs a database operation, reconnecting and retrying on connection loss."""
@@ -104,6 +117,9 @@ class Projector:
         """Decodes and applies one message; retries database errors until it succeeds."""
         if msg.topic() == HEALTH_TOPIC:
             self._health(msg)
+            return None
+        if msg.topic() == FEATURES_TOPIC:
+            self._features(msg)
             return None
         try:
             transition = DetectionTransition.FromString(msg.value() or b"")
@@ -157,13 +173,12 @@ def main() -> None:  # pragma: no cover - wiring only
             "group.id": os.environ.get("GROUP_ID", "incident-projector"),
             "enable.auto.commit": False,
             "auto.offset.reset": "earliest",
-            # The Flink sink is transactional; reading uncommitted keeps the
-            # projector off the checkpoint interval. Duplicates from aborted
-            # transactions are removed by the transition primary key.
+            # The Flink detections sink is at-least-once; duplicates are
+            # removed by the transition primary key.
             "isolation.level": "read_uncommitted",
         }
     )
-    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2"), HEALTH_TOPIC])
+    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2"), HEALTH_TOPIC, FEATURES_TOPIC])
     heartbeat = os.environ.get("HEARTBEAT_FILE")
     projector = Projector(
         consumer,

@@ -71,7 +71,7 @@ CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s
 - `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`).
 
 ### Playwright
-`tests/ui/live.spec.ts` tests the `/live` page (`images/incident-api/app/static/index.html`) with the page served from disk and the incident WebSocket mocked through `page.routeWebSocket`, so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts --project=chromium`.
+`tests/ui/live.spec.ts` tests the `/live` page (`images/incident-api/app/static/index.html`) and `tests/ui/devices.spec.ts` the device overview at `/` (`devices.html`, JSON API mocked with `page.route`) with the page served from disk and the incident WebSocket mocked through `page.routeWebSocket`, so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts devices.spec.ts --project=chromium`.
 
 ---
 

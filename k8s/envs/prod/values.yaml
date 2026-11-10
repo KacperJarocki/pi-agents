@@ -38,3 +38,8 @@ postgres:
     limits:
       cpu: "1"
       memory: 1Gi
+
+incidents:
+  api:
+    # Hostnames and IPs on the device overview come from the AP's DHCP leases.
+    gatewayAgentUrl: http://gateway-agent:7000

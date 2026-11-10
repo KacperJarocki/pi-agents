@@ -157,6 +157,39 @@ def prune_feed(conn: psycopg.Connection, older_than: dt.timedelta = FEED_RETENTI
         return cur.rowcount
 
 
+def apply_features(conn: psycopg.Connection, f) -> bool:
+    """Stores a FeatureUpdate as the latest view for its device and horizon.
+
+    An older window (by window end) never replaces a newer one, so redelivery
+    and reordering are harmless. Returns whether the row changed.
+    """
+    with conn.transaction():
+        changed = conn.execute(
+            """
+            INSERT INTO device_features (
+                device_key, gateway_id, horizon_seconds, window_end, feature_version, features)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (device_key, horizon_seconds) DO UPDATE SET
+                gateway_id = EXCLUDED.gateway_id,
+                window_end = EXCLUDED.window_end,
+                feature_version = EXCLUDED.feature_version,
+                features = EXCLUDED.features,
+                received_at = now()
+            WHERE device_features.window_end <= EXCLUDED.window_end
+            RETURNING device_key
+            """,
+            (
+                f.envelope.device_key,
+                f.envelope.gateway_id,
+                f.horizon_seconds,
+                _ts(f.window_end_unix_millis),
+                f.feature_version,
+                json.dumps(dict(f.features)),
+            ),
+        ).fetchone()
+    return changed is not None
+
+
 def apply_health(conn: psycopg.Connection, h) -> bool:
     """Stores a HealthEvent as the latest for its gateway, component and kind.
 

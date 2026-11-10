@@ -210,6 +210,9 @@ incidents:
       repository: ghcr.io/kacperjarocki/incident-api
       tag: ""
     replicas: 1
+    # gateway-agent base URL for DHCP leases (hostname, IP) on the device
+    # overview, e.g. http://gateway-agent:7000. Empty: devices show MAC only.
+    gatewayAgentUrl: ""
     resources:
       requests:
         cpu: 50m

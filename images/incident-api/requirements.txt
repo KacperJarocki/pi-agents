@@ -1,4 +1,6 @@
 fastapi==0.142.2
+# Reads DHCP leases from the gateway-agent for the device overview.
+httpx==0.28.1
 uvicorn==0.54.0
 # uvicorn needs a WebSocket implementation for /ws/v2/incidents.
 websockets==17.1

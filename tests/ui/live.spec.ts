@@ -127,6 +127,55 @@ test('shows ingestion loss and capture problems from gateway health', async ({ p
   await expect(page.getByTestId('empty')).toBeVisible();
 });
 
+test('a few frames without a lease or old count problems do not raise the banner', async ({ page }) => {
+  const now = Date.now();
+  await open(page, (ws) => {
+    send(ws, {
+      type: 'health',
+      gateways: [
+        { gateway_id: 'gw', component: 'sensor', kind: 'UNATTRIBUTED', count: 1, first_sequence: 0, last_sequence: 0, detail: '', first_event_time_ms: now - 5_000, last_event_time_ms: now },
+        { gateway_id: 'gw', component: 'sensor', kind: 'FLOW_TABLE_EVICTION', count: 9, first_sequence: 0, last_sequence: 0, detail: '', first_event_time_ms: now - 7_200_000, last_event_time_ms: now - 3_600_000 },
+      ],
+    });
+    send(ws, { type: 'snapshot', cursor: 0, incidents: [] });
+    send(ws, { type: 'live', cursor: 0 });
+  });
+  await expect(page.getByTestId('status')).toHaveText('live · cursor 0');
+  await expect(page.getByTestId('ingestion-banner')).toBeHidden();
+});
+
+test('a burst of unattributed frames raises the banner', async ({ page }) => {
+  const now = Date.now();
+  await open(page, (ws) => {
+    send(ws, {
+      type: 'health',
+      gateways: [{ gateway_id: 'gw', component: 'sensor', kind: 'UNATTRIBUTED', count: 250, first_sequence: 0, last_sequence: 0, detail: '', first_event_time_ms: now - 5_000, last_event_time_ms: now }],
+    });
+    send(ws, { type: 'snapshot', cursor: 0, incidents: [] });
+    send(ws, { type: 'live', cursor: 0 });
+  });
+  await expect(page.getByTestId('ingestion-banner')).toContainText('250 frames from devices without a DHCP lease');
+});
+
+test('shows the device hostname and links to its history', async ({ page }) => {
+  await page.route('**/api/v2/devices', (route) =>
+    route.fulfill({
+      json: {
+        devices: [{ mac: '02:00:00:00:00:0a', device_key: 'gw:02:00:00:00:00:0a', hostname: 'zero', ip: '192.168.50.134', features: {}, incidents: {} }],
+        leases: { available: true, error: null },
+      },
+    }),
+  );
+  await open(page, (ws) => {
+    send(ws, { type: 'snapshot', cursor: 1, incidents: [transition('a', 1)] });
+    send(ws, { type: 'live', cursor: 1 });
+  });
+  const link = page.locator('tr[data-incident="a"]').getByTestId('device');
+  await expect(link).toHaveText('zero');
+  await expect(link).toHaveAttribute('href', '/?device=gw%3A02%3A00%3A00%3A00%3A00%3A0a');
+  await expect(page.locator('tr[data-incident="a"]')).toContainText('192.168.50.134');
+});
+
 test('a healthy gateway shows no ingestion banner', async ({ page }) => {
   await open(page, (ws) => {
     send(ws, { type: 'health', gateways: [{ gateway_id: 'gw', component: 'sensor', kind: 'HEARTBEAT', count: 10, first_sequence: 0, last_sequence: 0, detail: '' }] });

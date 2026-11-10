@@ -11,6 +11,9 @@ import psycopg
 FEED_CHANNEL = "incident_feed"
 HEALTH_CHANNEL = "gateway_health"
 FEED_RETENTION = dt.timedelta(days=7)
+# device_feature_history keeps one row per device and minute of this horizon.
+HISTORY_HORIZON_S = 60
+HISTORY_RETENTION = dt.timedelta(hours=24)
 
 _STATUS = {1: "OPEN", 2: "UPDATE", 3: "REOPEN", 4: "RESOLVE"}
 _SEVERITY = {1: "LOW", 2: "MEDIUM", 3: "HIGH"}
@@ -184,7 +187,30 @@ def apply_features(conn: psycopg.Connection, f) -> bool:
                 json.dumps(dict(f.features)),
             ),
         ).fetchone()
+        if f.horizon_seconds == HISTORY_HORIZON_S:
+            conn.execute(
+                """
+                INSERT INTO device_feature_history (device_key, minute, window_end, features)
+                VALUES (%(device)s, date_trunc('minute', %(end)s), %(end)s, %(features)s)
+                ON CONFLICT (device_key, minute) DO UPDATE SET
+                    window_end = EXCLUDED.window_end,
+                    features = EXCLUDED.features
+                WHERE device_feature_history.window_end <= EXCLUDED.window_end
+                """,
+                {
+                    "device": f.envelope.device_key,
+                    "end": _ts(f.window_end_unix_millis),
+                    "features": json.dumps(dict(f.features)),
+                },
+            )
     return changed is not None
+
+
+def prune_feature_history(conn: psycopg.Connection, older_than: dt.timedelta = HISTORY_RETENTION) -> int:
+    """Deletes device history older than the retention; returns how many rows."""
+    with conn.transaction():
+        cur = conn.execute("DELETE FROM device_feature_history WHERE minute < now() - %s", (older_than,))
+        return cur.rowcount
 
 
 def apply_health(conn: psycopg.Connection, h) -> bool:

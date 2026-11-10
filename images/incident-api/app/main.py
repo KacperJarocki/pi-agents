@@ -13,7 +13,8 @@ gateway-agent reports (hostname, IP). Devices are matched by MAC: a device key
 is `<gateway_id>:<mac>`.
 
 Environment: DATABASE_URL (required), STATIC_DIR (optional pages),
-GATEWAY_AGENT_URL (optional, e.g. http://gateway-agent:7000).
+GATEWAY_AGENT_URL (optional, e.g. http://gateway-agent:7000), DEVICE_BLOCKING
+(`true` lets the UI block devices through the gateway-agent; default off).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import contextlib
 import datetime as dt
 import os
 import pathlib
+import re
 import time
 from typing import Any
 
@@ -138,6 +140,18 @@ class Store:
             incidents = await cur.fetchall()
         return features, incidents
 
+    async def device_history(self, device_key: str, minutes: int) -> list[dict[str, Any]]:
+        """Per-minute 60 s windows of one device, oldest first."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT minute, window_end, features FROM device_feature_history"
+                " WHERE device_key = %s AND minute >= date_trunc('minute', now()) - make_interval(mins => %s)"
+                " ORDER BY minute",
+                (device_key, minutes),
+            )
+            rows = await cur.fetchall()
+        return [{"minute_ms": _ms(r["minute"]), "window_end_ms": _ms(r["window_end"]), **r["features"]} for r in rows]
+
     async def health(self) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
@@ -194,12 +208,74 @@ class Leases:
         return self.cached
 
 
+MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+
+
+class BlockingDisabled(Exception):
+    """Device blocking is switched off (DEVICE_BLOCKING) or has no gateway-agent."""
+
+
+class GatewayAgent:
+    """Device blocking through the gateway-agent (`/blocked`, `/block`).
+
+    Off unless DEVICE_BLOCKING=true and GATEWAY_AGENT_URL is set: the API has no
+    authentication, so anyone who can open the dashboard could cut a device off.
+    A block is an iptables rule on the gateway; it lasts until the gateway's
+    firewall is reset (e.g. the access point is reapplied or rolled back).
+    """
+
+    def __init__(self, base_url: str | None, enabled: bool, transport: httpx.AsyncBaseTransport | None = None):
+        self.base_url = (base_url or "").rstrip("/")
+        self.enabled = enabled and bool(self.base_url)
+        self.transport = transport
+        self.cached: set[str] = set()
+        self.fetched_at = 0.0
+
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(base_url=self.base_url, timeout=3.0, transport=self.transport)
+
+    async def blocked(self) -> set[str]:
+        """Blocked MACs (lowercase), cached; empty when blocking is off or the agent is down."""
+        if not self.enabled:
+            return set()
+        if time.monotonic() - self.fetched_at < LEASE_CACHE_S:
+            return self.cached
+        try:
+            async with self._client() as client:
+                resp = await client.get("/blocked")
+                resp.raise_for_status()
+                self.cached = {str(m).lower() for m in resp.json().get("blocked") or []}
+        except httpx.HTTPError:
+            pass  # keep the last known list
+        self.fetched_at = time.monotonic()
+        return self.cached
+
+    async def set_blocked(self, mac: str, blocked: bool) -> dict[str, Any]:
+        if not self.enabled:
+            raise BlockingDisabled("device blocking is disabled")
+        async with self._client() as client:
+            if blocked:
+                resp = await client.post("/block", json={"mac": mac})
+            else:
+                resp = await client.delete(f"/block/{mac}")
+            resp.raise_for_status()
+            body = resp.json()
+        if body.get("blocked"):
+            self.cached = self.cached | {mac}
+        else:
+            self.cached = self.cached - {mac}
+        self.fetched_at = time.monotonic()
+        return {"mac": mac, "blocked": bool(body.get("blocked")), "message": body.get("message", "")}
+
+
 def _mac(device_key: str) -> str:
     """`<gateway_id>:<mac>` -> mac (the gateway ID has no colon)."""
     return device_key.split(":", 1)[1].lower() if ":" in device_key else device_key.lower()
 
 
-def build_devices(features, incidents, leases) -> list[dict[str, Any]]:
+def build_devices(
+    features, incidents, leases, blocked: set[str] | frozenset[str] = frozenset()
+) -> list[dict[str, Any]]:
     devices: dict[str, dict[str, Any]] = {}
 
     def entry(mac: str) -> dict[str, Any]:
@@ -216,6 +292,7 @@ def build_devices(features, incidents, leases) -> list[dict[str, Any]]:
                 "last_seen_ms": None,
                 "features": {},
                 "incidents": {"active": 0, "total": 0, "last_detected_ms": None, "severity": None},
+                "blocked": mac in blocked,
             },
         )
 
@@ -246,15 +323,25 @@ def build_devices(features, incidents, leases) -> list[dict[str, Any]]:
         expires = lease.get("lease_expires_at")
         d["lease_expires_at_ms"] = int(expires) * 1000 if str(expires or "").isdigit() else None
         d["in_lease_table"] = True
+    for mac in blocked:  # blocked devices stay listed even when silent and without a lease
+        entry(mac)
     return sorted(
         devices.values(),
         key=lambda d: (-(d["incidents"]["active"]), -(d["last_seen_ms"] or 0), d["hostname"] or d["mac"]),
     )
 
 
-def create_app(dsn: str | None = None, leases: Leases | None = None, static_dir: pathlib.Path | None = None) -> FastAPI:
+def create_app(
+    dsn: str | None = None,
+    leases: Leases | None = None,
+    static_dir: pathlib.Path | None = None,
+    agent: GatewayAgent | None = None,
+) -> FastAPI:
     store = Store(dsn or os.environ["DATABASE_URL"])
     leases = leases or Leases(os.environ.get("GATEWAY_AGENT_URL"))
+    agent = agent or GatewayAgent(
+        os.environ.get("GATEWAY_AGENT_URL"), os.environ.get("DEVICE_BLOCKING", "false").lower() == "true"
+    )
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -286,11 +373,38 @@ def create_app(dsn: str | None = None, leases: Leases | None = None, static_dir:
     async def devices():
         features, incidents = await store.device_rows()
         lease_rows = await leases.get()
+        blocked = await agent.blocked()
         return {
-            "devices": build_devices(features, incidents, lease_rows),
+            "devices": build_devices(features, incidents, lease_rows, blocked),
             "leases": {"available": leases.error is None, "error": leases.error},
+            "actions": {"block": agent.enabled},
             "generated_at_ms": int(time.time() * 1000),
         }
+
+    @app.get("/api/v2/devices/{device_key}/history")
+    async def device_history(device_key: str, minutes: int = Query(60, ge=5, le=1440)):
+        return {"device_key": device_key, "minutes": minutes, "points": await store.device_history(device_key, minutes)}
+
+    async def set_blocked(mac: str, blocked: bool):
+        mac = mac.lower()
+        if not MAC_RE.match(mac):
+            raise HTTPException(status_code=400, detail="invalid MAC address")
+        try:
+            return await agent.set_blocked(mac, blocked)
+        except BlockingDisabled as err:
+            raise HTTPException(status_code=403, detail=str(err)) from err
+        except httpx.HTTPStatusError as err:
+            raise HTTPException(status_code=502, detail=f"gateway-agent: HTTP {err.response.status_code}") from err
+        except httpx.HTTPError as err:
+            raise HTTPException(status_code=503, detail=f"gateway-agent unavailable: {err.__class__.__name__}") from err
+
+    @app.post("/api/v2/devices/{mac}/block")
+    async def block(mac: str):
+        return await set_blocked(mac, True)
+
+    @app.delete("/api/v2/devices/{mac}/block")
+    async def unblock(mac: str):
+        return await set_blocked(mac, False)
 
     @app.get("/api/v2/incidents/changes")
     async def changes(after: int = Query(..., ge=0), limit: int = Query(BATCH, ge=1, le=5000)):

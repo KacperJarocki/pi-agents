@@ -4,6 +4,7 @@
   import { devices } from '../lib/devices.svelte';
   import { ago, dateTime, delay, delayMs, horizon } from '../lib/format';
   import { ingestionProblems } from '../lib/health';
+  import { explain, ruleInfo } from '../lib/rules';
   import { live, type LiveIncident } from '../lib/live.svelte';
   import { prefs } from '../lib/prefs.svelte';
   import { deviceHref, link } from '../lib/router.svelte';
@@ -128,11 +129,12 @@
       <thead>
         <tr>
           <th>Severity</th>
+          <th>Threat</th>
           <th>Device</th>
           <th>Status</th>
           <th title="Value / open threshold over the 60 s window">60 s</th>
           <th title="Value / open threshold over the 15 min window">15 min</th>
-          <th class="hide-sm">Started</th>
+          <th class="hide-sm hide-md">Started</th>
           <th>Updated</th>
           <th class="right hide-sm" title="Evidence event time → committed to the database">Delay</th>
           <th class="right hide-sm" title="Revision">Rev</th>
@@ -148,6 +150,10 @@
             class:flash={t.changed_at && clock.now - t.changed_at < FLASH_MS}
           >
             <td><SeverityBadge severity={t.severity} muted={t.status === 'RESOLVE'} /></td>
+            <td class="threat">
+              <strong data-testid="threat">{ruleInfo(t).title}</strong>
+              <div class="why" data-testid="why" title={explain(t)}>{explain(t)}</div>
+            </td>
             <td>
               <a class="device" href={deviceHref(t.device_key)} onclick={link} title={t.device_key} data-testid="device"
                 >{d ? deviceName(d) : t.device_key}</a
@@ -159,7 +165,9 @@
             <td><Badge tone={s.tone} dot pulse={t.status === 'OPEN'} testid="incident-status">{s.text}</Badge></td>
             <td><HorizonMeter h={horizon(t, 60)} /></td>
             <td><HorizonMeter h={horizon(t, 900)} /></td>
-            <td class="muted hide-sm" title={dateTime(t.episode_start_ms)}>{ago(t.episode_start_ms, clock.now)}</td>
+            <td class="muted hide-sm hide-md" title={dateTime(t.episode_start_ms)}
+              >{ago(t.episode_start_ms, clock.now)}</td
+            >
             <td class="muted" title={dateTime(t.detected_at_ms)}>{ago(t.detected_at_ms, clock.now)}</td>
             <td class="right num hide-sm" data-testid="delay">{delay(delayMs(t))}</td>
             <td class="right num hide-sm muted" data-testid="revision">{t.revision}</td>
@@ -185,6 +193,19 @@
 </section>
 
 <style>
+  .threat strong {
+    font-weight: 600;
+  }
+  .why {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  tr.resolved .threat strong {
+    font-weight: 500;
+  }
   .device {
     font-weight: 600;
     color: var(--text);

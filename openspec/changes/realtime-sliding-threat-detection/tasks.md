@@ -38,6 +38,7 @@
 - [x] 6.1 Add the Postgres schema migrations (`incident_transitions`, `incidents`, `incident_feed`) and the projector service with a transactional dedupe, revision guard, `NOTIFY` and post-commit offset commit. Verify with tests against a real Postgres: repeated delivery, stale revision, a crash between DB commit and offset commit, and feed pruning.
 - [x] 6.2 Implement `incident-api` (snapshot, changes-after-cursor, WebSocket with catch-up then live, health summary) with an image, chart templates and resource limits. Verify with tests for reconnect with a cursor, an expired cursor falling back to snapshot, and ordering across catch-up and live.
 - [x] 6.3 Serve the static `/live` page from `incident-api` with an `Ingress` on the former dashboard host: one row per incident, revision application, a stored cursor, reconnect with backoff, and banners for lost connection and reported ingestion loss. Verify with mocked Playwright tests in `tests/ui/live.spec.ts`.
+- [x] 6.4 Device context in the UI: a per-minute history of each device's 60 s window (`device_feature_history`, 24 h retention) charted against the rule threshold, plain-language incident explanations from `rule_id`, and gateway blocking through incident-api behind `incidents.api.deviceBlocking`. Verify with projector/API tests against Postgres and mocked Playwright tests in `tests/ui/devices.spec.ts`.
 
 ## 7. End-to-end
 

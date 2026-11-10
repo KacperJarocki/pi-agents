@@ -71,7 +71,7 @@ Changing the partition count of `traffic.flows.v2` requires a replay plan; it is
 
 The job is a Java 17 DataStream job built as its own image from `flink:1.20.x-java17` (ARM64). It runs `KafkaSource` → dedupe → `keyBy(device_key)` → `KeyedProcessFunction` → `KafkaSink`s. Settings:
 - state backend `hashmap`: state is small, and on ARM it is faster than RocksDB;
-- checkpoints every 10 s to RustFS S3, Kafka sink in exactly-once (transactional) mode;
+- checkpoints every 10 s to RustFS S3; the detections Kafka sink is at-least-once and the projector dedupes by transition ID (transactional sinks stalled recovery, see Risks);
 - 1 JobManager (1.5 GiB) and 2 TaskManagers (2 GiB, 2 slots each), parallelism 4, kept off the gateway node.
 
 **Per-device state, per horizon (60 s and 900 s):** a time-ordered deque of contributions plus incremental aggregates: flow count, bytes, distinct destination IPs, and a map from `(dst_ip, dst_port)` to the latest event time, with an outcome flag. Expiry pops from the deque head and decrements the aggregates. The state also keeps a dedupe set of event IDs seen within `900 s + lateness`.
@@ -154,7 +154,7 @@ Removal comes first. There is no detection between removal and the streaming go-
 - [Unanswered-SYN outcome is provisional at flush time] → The follow-up `established` event retracts that target from the signal. Fixtures cover slow servers.
 - [Threshold values are guesses] → They are configurable per rule version. Validate them against the existing `negative`/`borderline`/`positive`/`slow`/`aggressive` port-sweep profiles before trusting alerts.
 - [Processing-time device clock drifts from event time under broker lag] → Expiry during silence is approximate. Event-driven updates stay exact, and lag is exported as a metric.
-- [Exactly-once Kafka sink adds checkpoint-interval latency for `read_committed` consumers] → The projector reads `traffic.detections.v2` with `read_uncommitted` and relies on transition-level idempotence. This keeps it off the 10 s checkpoint path.
+- [Duplicate transitions after a restore (at-least-once sink)] → The projector relies on transition-level idempotence (dedupe by `transition_id`). An exactly-once sink was dropped: connector 3.x's lingering-transaction abort probes one transactional ID per checkpoint ID and, in prod, kept the sink in `INITIALIZING` for hours after ~30k failed checkpoints.
 - [Clock offset between gateway and cluster nodes skews latency numbers] → Require chrony on all nodes and export the offset.
 
 ## Migration Plan

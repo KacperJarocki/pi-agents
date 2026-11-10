@@ -56,11 +56,11 @@ The thresholds are first guesses. Validate them against the port-sweep research 
 
 | Output | Guarantee | Notes |
 | --- | --- | --- |
-| `traffic.detections.v2` | Exactly-once (Kafka transactions committed with checkpoints) | The incident projector reads `read_uncommitted` and dedupes by `transition_id`, so it does not wait for the 10 s checkpoint interval. `transaction.timeout.ms` = 15 min, within the broker default. |
+| `traffic.detections.v2` | At-least-once | Effectively-once at the incident store: the projector dedupes by `transition_id`. No Kafka transactions: connector 3.x aborts lingering transactions by probing one transactional ID per checkpoint ID, which kept the sink in `INITIALIZING` for hours after a run of failed checkpoints. |
 | `traffic.late.v2` | At-least-once | Original bytes; reason and detail headers. |
 | `traffic.features.v2` | At-least-once | Observability only. |
 
-Checkpoints and savepoints go to `s3://pi-agents/flink/` on RustFS; the `FlinkDeployment` uses `upgradeMode: savepoint`, so a job upgrade takes a savepoint and restores from it. Every stateful operator has a stable `uid`.
+Checkpoints and savepoints go to `s3://pi-agents/flink/` on RustFS; the `FlinkDeployment` uses `upgradeMode: last-state`, so a job upgrade restores from the latest checkpoint recorded in the Kubernetes HA metadata and works even when the running job cannot take a savepoint. Every stateful operator has a stable `uid`.
 
 ## Observability
 

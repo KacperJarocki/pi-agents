@@ -1,7 +1,6 @@
 package io.piagents.detection;
 
 import java.time.Duration;
-import java.util.Properties;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.connector.base.DeliveryGuarantee;
@@ -149,19 +148,16 @@ public final class DetectionJob {
             .build();
     features(views).sinkTo(featuresSink).name(FEATURES_TOPIC).uid("features-sink");
 
-    // Exactly-once: transitions are committed with Flink checkpoints. The
-    // incident projector reads read_uncommitted and dedupes by transition ID,
-    // so it does not wait for the checkpoint interval.
-    Properties producer = new Properties();
-    // Must not exceed the broker's transaction.max.timeout.ms (15 min default).
-    producer.setProperty("transaction.timeout.ms", "900000");
+    // At-least-once: the incident projector reads read_uncommitted and dedupes
+    // by transition ID, so Kafka transactions bought nothing. They also broke
+    // recovery: connector 3.x aborts lingering transactions by probing one
+    // transactional ID per checkpoint ID, and after many failed checkpoints
+    // that scan kept the sink in INITIALIZING for hours.
     KafkaSink<Transition> detectionsSink =
         KafkaSink.<Transition>builder()
             .setBootstrapServers(bootstrap)
             .setRecordSerializer(new TransitionSerializer(DETECTIONS_TOPIC))
-            .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
-            .setTransactionalIdPrefix(params.get("transactional-id-prefix", "pi-agents-detection"))
-            .setKafkaProducerConfig(producer)
+            .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
             .build();
     transitions.sinkTo(detectionsSink).name(DETECTIONS_TOPIC).uid("detections-sink");
 

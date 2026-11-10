@@ -33,8 +33,9 @@ class TestGatewayAgentValidate(unittest.TestCase):
             enabled=True,
         )
 
-        with patch("app.validate._iface_exists", return_value=True), patch(
-            "app.validate._bin_exists", return_value=True
+        with (
+            patch("app.validate._iface_exists", return_value=True),
+            patch("app.validate._bin_exists", return_value=True),
         ):
             res = validate_config(cfg)
 
@@ -63,8 +64,9 @@ class TestGatewayAgentValidate(unittest.TestCase):
             upstream_interface="eth0",
         )
 
-        with patch("app.validate._iface_exists", return_value=True), patch(
-            "app.validate._bin_exists", return_value=True
+        with (
+            patch("app.validate._iface_exists", return_value=True),
+            patch("app.validate._bin_exists", return_value=True),
         ):
             res = validate_config(cfg)
 

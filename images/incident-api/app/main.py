@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -60,9 +60,7 @@ class Store:
             dsn, min_size=1, max_size=5, open=False, kwargs={"autocommit": True, "row_factory": dict_row}
         )
 
-    async def snapshot(
-        self, active_only: bool, limit: int = 500, device_key: str | None = None
-    ) -> dict[str, Any]:
+    async def snapshot(self, active_only: bool, limit: int = 500, device_key: str | None = None) -> dict[str, Any]:
         where = []
         params: list[Any] = []
         if active_only:
@@ -113,8 +111,7 @@ class Store:
     async def transitions(self, incident_id: str) -> list[dict[str, Any]]:
         async with self.pool.connection() as conn:
             cur = await conn.execute(
-                "SELECT payload, received_at FROM incident_transitions"
-                " WHERE incident_id = %s ORDER BY revision",
+                "SELECT payload, received_at FROM incident_transitions WHERE incident_id = %s ORDER BY revision",
                 (incident_id,),
             )
             rows = await cur.fetchall()
@@ -151,7 +148,10 @@ class Store:
             rows = await cur.fetchall()
         return [
             {
-                **{k: r[k] for k in ("gateway_id", "component", "kind", "count", "first_sequence", "last_sequence", "detail")},
+                **{
+                    k: r[k]
+                    for k in ("gateway_id", "component", "kind", "count", "first_sequence", "last_sequence", "detail")
+                },
                 "first_event_time_ms": _ms(r["first_event_time"]),
                 "last_event_time_ms": _ms(r["last_event_time"]),
                 "received_at_ms": _ms(r["received_at"]),
@@ -252,7 +252,7 @@ def build_devices(features, incidents, leases) -> list[dict[str, Any]]:
     )
 
 
-def create_app(dsn: str | None = None, leases: Leases | None = None) -> FastAPI:
+def create_app(dsn: str | None = None, leases: Leases | None = None, static_dir: pathlib.Path | None = None) -> FastAPI:
     store = Store(dsn or os.environ["DATABASE_URL"])
     leases = leases or Leases(os.environ.get("GATEWAY_AGENT_URL"))
 
@@ -272,9 +272,7 @@ def create_app(dsn: str | None = None, leases: Leases | None = None) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/v2/incidents")
-    async def incidents(
-        active: bool = True, limit: int = Query(500, ge=1, le=5000), device: str | None = None
-    ):
+    async def incidents(active: bool = True, limit: int = Query(500, ge=1, le=5000), device: str | None = None):
         return await store.snapshot(active, limit, device_key=device)
 
     @app.get("/api/v2/incidents/{incident_id}/transitions")
@@ -353,12 +351,12 @@ def create_app(dsn: str | None = None, leases: Leases | None = None) -> FastAPI:
             except (WebSocketDisconnect, RuntimeError):
                 return
 
-    if STATIC_DIR.is_dir() and any(STATIC_DIR.iterdir()):
-        app.mount("/live", StaticFiles(directory=STATIC_DIR, html=True), name="live")
-
-        @app.get("/", include_in_schema=False)
-        async def root():
-            return FileResponse(STATIC_DIR / "devices.html", media_type="text/html")
+    # The built UI (images/incident-api/ui): `/` is the device overview and
+    # `/live/` the live incidents page; both load the same bundle from
+    # /assets. Mounted last so the API routes above take precedence.
+    pages = static_dir or STATIC_DIR
+    if pages.is_dir() and any(pages.iterdir()):
+        app.mount("/", StaticFiles(directory=pages, html=True), name="ui")
 
     return app
 

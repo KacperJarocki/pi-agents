@@ -10,6 +10,7 @@ The thesis-era batch pipeline (collector → SQLite → ml-trainer/ml-inference 
 
 ```
 images/gateway-agent/   # Wi-Fi AP controller (hostapd/dnsmasq), FastAPI on port 7000
+images/incident-api/    # Incident API (FastAPI) + ui/ (Svelte 5 web UI)
 sensors/rust-sensor/    # Rust capture sensor (Cargo crate)
 schemas/events/         # Protobuf event contracts; v2 is current, v1 frozen
 charts/pi-agents/       # Helm chart: streaming config, Strimzi Kafka, Flink
@@ -55,6 +56,14 @@ for env in dev prod; do helm template pi-agents charts/pi-agents -n iot-security
 helm dependency build charts/strimzi-operator && helm template strimzi-operator charts/strimzi-operator -n strimzi-system -f k8s/values/strimzi-operator.yaml
 ```
 
+### Pre-commit
+Hooks live in `.pre-commit-config.yaml` (ruff lint + format with `ruff.toml`, shellcheck, actionlint for workflows, whitespace/EOF/line endings, YAML/JSON/TOML syntax, private keys, executable bits, the event contract validator, `cargo fmt`, and Prettier/ESLint for the UI). Install once per clone; they then fix or block staged files on every commit:
+```bash
+pre-commit install                 # brew install pre-commit / pip install pre-commit
+pre-commit run --all-files         # whole repo, same as the CI job `pre-commit`
+```
+The UI hooks need `npm ci` in `images/incident-api/ui`. Keep formatter-sensitive literals that tests assert on inside `# fmt: off` / `# fmt: on`.
+
 ### Local run
 Only `gateway-agent` is in `docker-compose.yml`, behind the `gateway` profile (Linux only: host network + privileged). Locally only `podman` is installed, not docker.
 
@@ -64,14 +73,25 @@ CORRECT_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && podman machine ssh "sudo date -s
 ```
 
 ### CI
-- `validate.yml`: `compileall images`, unit tests, Helm lint/template of every values profile, `kubectl kustomize k8s/gateway` + client dry run; `projector` job runs the incident projector and API tests against a `postgres:17.6` service (`PROJECTOR_TEST_DSN`); `ui` job runs the Playwright `/live` tests.
+- `validate.yml`: `compileall images`, unit tests, Helm lint/template of every values profile, `kubectl kustomize k8s/gateway` + client dry run; `projector` job runs the incident projector and API tests against a `postgres:17.6` service (`PROJECTOR_TEST_DSN`); `ui` job runs `npm audit`, Prettier, ESLint, `svelte-check` and Vitest for `images/incident-api/ui`, then the Playwright tests.
 - `flink-job.yml`: `./mvnw verify` for `flink/detection-job` (MiniCluster and operator-harness tests).
 - `rust-sensor.yml`: fmt, test and an aarch64 check for the sensor.
 - `streaming-contracts.yml`: event contract validator and its tests.
-- `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`).
+- `docker-build.yml`: builds `images/*` on PRs (amd64, no push) and on `main` (amd64 + arm64, push to `ghcr.io`, tags `latest` and `sha-<8 chars>`). Every build is scanned with Trivy (`scripts/trivy-scan.sh`, fixable MEDIUM+ vulnerabilities): the job summary lists findings, and on `main` the arm64 image's SARIF goes to code scanning (Security tab). Report-only; accepted CVEs go in `.trivyignore` with a reason.
+- `image-scan.yml`: weekly Trivy scan of the images prod runs (`k8s/envs/prod/images.yaml`, `gateway-agent:latest`) into code scanning.
+- `validate.yml` job `pre-commit`: runs the pre-commit hooks on all files (minus cargo fmt and the UI hooks, which run in their own jobs).
+
+### Web UI
+`images/incident-api/ui/` is the browser UI: Svelte 5 + TypeScript built by Vite 8 into static files (`/` device overview, `/live/` live incidents, one shared bundle). The incident-api Dockerfile builds it in a Node stage and copies `dist/` into `app/static`, which is not in git. Tooling: ESLint 10 (flat config, typescript-eslint, eslint-plugin-svelte), Prettier 3 with the Svelte plugin, `svelte-check`, Vitest. CI fails on `npm audit` findings of moderate or higher.
+```bash
+cd images/incident-api/ui && npm ci
+npm run dev           # proxies /api and /ws to an incident-api on :8080 (API_URL to override)
+npm run format:check && npm run lint && npm run check && npm test && npm run build
+npm audit --audit-level=moderate
+```
 
 ### Playwright
-`tests/ui/live.spec.ts` tests the `/live` page (`images/incident-api/app/static/index.html`) and `tests/ui/devices.spec.ts` the device overview at `/` (`devices.html`, JSON API mocked with `page.route`) with the page served from disk and the incident WebSocket mocked through `page.routeWebSocket`, so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts devices.spec.ts --project=chromium`.
+`tests/ui/live.spec.ts` (live incidents at `/live/`) and `tests/ui/devices.spec.ts` (device overview at `/`) run against the built UI served by `vite preview` (Playwright `webServer` builds it), with the JSON API mocked through `page.route` and the incident WebSocket through `page.routeWebSocket` (`tests/ui/mocks.ts`), so no backend is needed: `cd tests/ui && npm ci && npx playwright test live.spec.ts devices.spec.ts --project=chromium`.
 
 ---
 

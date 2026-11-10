@@ -1,0 +1,11 @@
+# Python lint/format for the whole repo (used by the pre-commit hooks).
+target-version = "py312"
+line-length = 120
+extend-exclude = ["openspec/changes/archive"]
+
+[lint]
+# pyflakes, the error-level pycodestyle checks, import sorting, bugbear, pyupgrade.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[lint.isort]
+known-first-party = ["app", "tests"]

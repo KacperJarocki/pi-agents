@@ -1,0 +1,55 @@
+name: Image scan
+
+# Weekly Trivy scan of the images prod actually runs (k8s/envs/prod/images.yaml
+# and gateway-agent:latest): new CVEs appear without a new build. Results land
+# in code scanning (Security tab) per image; the run itself never fails on
+# findings. Builds are scanned in docker-build.yml.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: flink-detection-job
+            tag_path: .flink.detectionJob.image.tag
+          - image: rust-sensor
+            tag_path: .sensor.image.tag
+          - image: incident-projector
+            tag_path: .incidents.projector.image.tag
+          - image: incident-api
+            tag_path: .incidents.api.image.tag
+          - image: gateway-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan the prod image (Trivy)
+        env:
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ matrix.image }}
+          TAG_PATH: ${{ matrix.tag_path }}
+          TRIVY_PLATFORM: linux/arm64
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          tag=latest
+          [ -n "$TAG_PATH" ] && tag=$(yq "$TAG_PATH" k8s/envs/prod/images.yaml)
+          scripts/trivy-scan.sh "ghcr.io/${owner}/${IMAGE}:${tag}" trivy-out >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Trivy results to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-out/trivy.sarif
+          category: trivy-prod-${{ matrix.image }}

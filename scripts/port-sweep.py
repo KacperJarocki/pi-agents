@@ -18,11 +18,10 @@ import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
-
 
 PROFILES: dict[str, dict[str, object]] = {
     "negative": {
@@ -40,7 +39,42 @@ PROFILES: dict[str, dict[str, object]] = {
         "description": "Near the port_churn threshold; useful for boundary checks.",
     },
     "positive": {
-        "ports": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 465, 587, 993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017],
+        "ports": [
+            20,
+            21,
+            22,
+            23,
+            25,
+            53,
+            80,
+            110,
+            135,
+            139,
+            143,
+            389,
+            443,
+            445,
+            465,
+            587,
+            993,
+            995,
+            1433,
+            1883,
+            2323,
+            3306,
+            3389,
+            5432,
+            5683,
+            5900,
+            5985,
+            5986,
+            6379,
+            8080,
+            8443,
+            9200,
+            11211,
+            27017,
+        ],
         "rate": 6.0,
         "duration_seconds": 300.0,
         "label": "attack_port_sweep",
@@ -54,7 +88,42 @@ PROFILES: dict[str, dict[str, object]] = {
         "description": "Same signal as positive, spread over time to test bucket sensitivity.",
     },
     "aggressive": {
-        "ports": [20, 21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 389, 443, 445, 465, 587, 993, 995, 1433, 1883, 2323, 3306, 3389, 5432, 5683, 5900, 5985, 5986, 6379, 8080, 8443, 9200, 11211, 27017],
+        "ports": [
+            20,
+            21,
+            22,
+            23,
+            25,
+            53,
+            80,
+            110,
+            135,
+            139,
+            143,
+            389,
+            443,
+            445,
+            465,
+            587,
+            993,
+            995,
+            1433,
+            1883,
+            2323,
+            3306,
+            3389,
+            5432,
+            5683,
+            5900,
+            5985,
+            5986,
+            6379,
+            8080,
+            8443,
+            9200,
+            11211,
+            27017,
+        ],
         "rate": 10.0,
         "duration_seconds": 300.0,
         "label": "aggressive_port_sweep",
@@ -78,7 +147,7 @@ STOP_REQUESTED = False
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def request_stop(_signum: int, _frame: object) -> None:
@@ -294,26 +363,42 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate controlled TCP port-sweep traffic for IoT anomaly research.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--target", default="192.168.50.1", help="target host/IP to probe; defaults to the gateway AP IP")
+    parser.add_argument(
+        "--target", default="192.168.50.1", help="target host/IP to probe; defaults to the gateway AP IP"
+    )
     parser.add_argument("--targets-file", help="optional file with one target host/IP per line")
-    parser.add_argument("--targets-api", help="optional gateway API devices URL, e.g. http://localhost:8080/api/v1/devices")
-    parser.add_argument("--api-active-only", action="store_true", help="append active_only=true when using --targets-api")
+    parser.add_argument(
+        "--targets-api", help="optional gateway API devices URL, e.g. http://localhost:8080/api/v1/devices"
+    )
+    parser.add_argument(
+        "--api-active-only", action="store_true", help="append active_only=true when using --targets-api"
+    )
     parser.add_argument("--api-timeout", type=float, default=5.0, help="timeout for loading targets from --targets-api")
     parser.add_argument("--discover-subnet", help="discover targets from a CIDR subnet, or 'auto' for local /24")
     parser.add_argument("--discovery-ports", help="comma-separated ports/groups used only to discover reachable hosts")
-    parser.add_argument("--discovery-timeout", type=float, default=0.2, help="TCP timeout per host/port during discovery")
+    parser.add_argument(
+        "--discovery-timeout", type=float, default=0.2, help="TCP timeout per host/port during discovery"
+    )
     parser.add_argument("--discovery-workers", type=int, default=64, help="parallel workers for subnet discovery")
-    parser.add_argument("--discovery-include-self", action="store_true", help="include this host when --discover-subnet=auto")
+    parser.add_argument(
+        "--discovery-include-self", action="store_true", help="include this host when --discover-subnet=auto"
+    )
     parser.add_argument("--profile", choices=sorted(PROFILES), default="positive", help="traffic profile")
     parser.add_argument("--ports", help="comma-separated ports and/or groups: web,iot,admin,db,common")
     parser.add_argument("--rate", type=float, help="probes per second; defaults to profile rate")
     parser.add_argument("--timeout", type=float, default=0.75, help="TCP connect timeout in seconds")
-    parser.add_argument("--duration", type=parse_duration, help="run duration; accepts seconds or suffixes like 10m/1h, use 0 for repeat-only mode")
+    parser.add_argument(
+        "--duration",
+        type=parse_duration,
+        help="run duration; accepts seconds or suffixes like 10m/1h, use 0 for repeat-only mode",
+    )
     parser.add_argument("--repeat", type=int, default=1, help="minimum number of full target/port cycles")
     parser.add_argument("--jitter", type=float, default=0.1, help="random delay jitter as fraction of base delay")
     parser.add_argument("--randomize", action="store_true", help="shuffle target/port probe order")
     parser.add_argument("--seed", type=int, help="random seed for reproducible jitter and shuffled order")
-    parser.add_argument("--progress-every", type=int, default=25, help="print progress every N probes; use 0 to disable")
+    parser.add_argument(
+        "--progress-every", type=int, default=25, help="print progress every N probes; use 0 to disable"
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the plan without generating traffic")
     parser.add_argument("--label", help="ground-truth label stored in run.json")
     parser.add_argument("--run-id", help="stable run id for output paths")
@@ -355,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     rate = float(args.rate or PROFILES[args.profile]["rate"])
     duration_seconds = float(args.duration if args.duration is not None else PROFILES[args.profile]["duration_seconds"])
     delay = 1.0 / rate
-    run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    run_id = args.run_id or f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     label = args.label or str(PROFILES[args.profile]["label"])
     run_dir = Path(args.out_dir) / run_id
     probes_path = run_dir / "probes.jsonl"
@@ -365,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
     estimated_probe_count = len(base_sequence) * args.repeat
     if duration_seconds > 0:
         estimated_probe_count = max(estimated_probe_count, int(duration_seconds * rate))
-    estimated_end_at = datetime.now(timezone.utc) + timedelta(seconds=duration_seconds) if duration_seconds > 0 else None
+    estimated_end_at = datetime.now(UTC) + timedelta(seconds=duration_seconds) if duration_seconds > 0 else None
 
     run_payload: dict[str, object] = {
         "run_id": run_id,
@@ -374,7 +459,13 @@ def main(argv: list[str] | None = None) -> int:
         "profile_description": PROFILES[args.profile]["description"],
         "started_at": utc_now(),
         "targets": targets,
-        "target_source": "discovery" if args.discover_subnet else "api" if args.targets_api else "file" if args.targets_file else "single",
+        "target_source": "discovery"
+        if args.discover_subnet
+        else "api"
+        if args.targets_api
+        else "file"
+        if args.targets_file
+        else "single",
         "discover_subnet": args.discover_subnet,
         "discovery_ports": parse_discovery_ports(args.discovery_ports) if args.discover_subnet else None,
         "ports": ports,
@@ -446,7 +537,9 @@ def main(argv: list[str] | None = None) -> int:
                     suffix = f" progress={progress:.1f}% eta={eta}"
                 else:
                     suffix = ""
-                print(f"[{probe_count:05d}] cycle={cycle_count} {target}:{port} {record['outcome']} {record['duration_ms']}ms{suffix}")
+                print(
+                    f"[{probe_count:05d}] cycle={cycle_count} {target}:{port} {record['outcome']} {record['duration_ms']}ms{suffix}"
+                )
 
             spread = delay * args.jitter
             sleep_for = max(0.0, delay + random.uniform(-spread, spread))
@@ -454,7 +547,9 @@ def main(argv: list[str] | None = None) -> int:
                 sleep_for = min(sleep_for, max(0.0, end_at - time.monotonic()))
             time.sleep(sleep_for)
 
-        append_jsonl(markers_path, {"ts": utc_now(), "event": "cycle_end", "cycle": cycle_count, "probe_count": probe_count})
+        append_jsonl(
+            markers_path, {"ts": utc_now(), "event": "cycle_end", "cycle": cycle_count, "probe_count": probe_count}
+        )
 
     if STOP_REQUESTED:
         interrupted = True
@@ -476,7 +571,10 @@ def main(argv: list[str] | None = None) -> int:
         "expected_signal": run_payload["expected_signal"],
         "dashboard_note": "Use this run_id and timestamps when reading FP/FN and reaction time from the dashboard.",
     }
-    append_jsonl(markers_path, {"ts": ended_at, "event": "run_end", "run_id": run_id, "interrupted": interrupted, "probe_count": probe_count})
+    append_jsonl(
+        markers_path,
+        {"ts": ended_at, "event": "run_end", "run_id": run_id, "interrupted": interrupted, "probe_count": probe_count},
+    )
     write_json(run_dir / "summary.json", summary)
     status = "interrupted" if interrupted else "complete"
     print(f"[port-sweep] {status} summary={run_dir / 'summary.json'}")

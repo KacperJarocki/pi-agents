@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - /images/incident-api/ui
+      - /tests/ui
+    schedule:
+      interval: weekly
+    groups:
+      ui-tooling:
+        patterns: ["*"]
+        update-types: [minor, patch]

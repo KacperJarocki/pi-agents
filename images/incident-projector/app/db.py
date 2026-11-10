@@ -48,7 +48,7 @@ def migrate(conn: psycopg.Connection) -> list[str]:
 def _ts(millis: int) -> dt.datetime | None:
     if not millis:
         return None
-    return dt.datetime.fromtimestamp(millis / 1000, tz=dt.timezone.utc)
+    return dt.datetime.fromtimestamp(millis / 1000, tz=dt.UTC)
 
 
 def transition_payload(t) -> dict:
@@ -140,8 +140,7 @@ def apply_transition(conn: psycopg.Connection, t) -> int | None:
             ),
         )
         cursor = conn.execute(
-            "INSERT INTO incident_feed (incident_id, revision, payload) VALUES (%s, %s, %s)"
-            " RETURNING cursor",
+            "INSERT INTO incident_feed (incident_id, revision, payload) VALUES (%s, %s, %s) RETURNING cursor",
             (t.incident_id, t.revision, json.dumps(payload)),
         ).fetchone()[0]
         conn.execute("SELECT pg_notify(%s, %s)", (FEED_CHANNEL, str(cursor)))
@@ -151,9 +150,7 @@ def apply_transition(conn: psycopg.Connection, t) -> int | None:
 def prune_feed(conn: psycopg.Connection, older_than: dt.timedelta = FEED_RETENTION) -> int:
     """Deletes feed rows older than the retention; returns how many."""
     with conn.transaction():
-        cur = conn.execute(
-            "DELETE FROM incident_feed WHERE committed_at < now() - %s", (older_than,)
-        )
+        cur = conn.execute("DELETE FROM incident_feed WHERE committed_at < now() - %s", (older_than,))
         return cur.rowcount
 
 
@@ -231,4 +228,3 @@ def apply_health(conn: psycopg.Connection, h) -> bool:
         if changed is not None:
             conn.execute("SELECT pg_notify(%s, %s)", (HEALTH_CHANNEL, h.envelope.gateway_id))
     return changed is not None
-

@@ -9,12 +9,17 @@ on:
       - 'flink/detection-job/**'
       - 'schemas/events/v2/**'
       - '.github/workflows/docker-build.yml'
+      - 'scripts/trivy-scan.sh'
+      - '.trivyignore'
   pull_request:
     paths:
       - 'images/**'
       - 'sensors/rust-sensor/**'
       - 'flink/detection-job/**'
       - 'schemas/events/v2/**'
+      - '.github/workflows/docker-build.yml'
+      - 'scripts/trivy-scan.sh'
+      - '.trivyignore'
   workflow_dispatch:
 
 jobs:
@@ -23,6 +28,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
     outputs:
       tag: sha-${{ steps.tag.outputs.short }}
 
@@ -73,7 +79,7 @@ jobs:
         run: |
           REPO_OWNER_LOWER=$(echo "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')
           IMAGE_NAME_LOWER=$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
-          echo "name=${REPO_OWNER_LOWER}/${IMAGE_NAME_LOWER}" >> $GITHUB_OUTPUT
+          echo "name=${REPO_OWNER_LOWER}/${IMAGE_NAME_LOWER}" >> "$GITHUB_OUTPUT"
           echo "Image: ghcr.io/${REPO_OWNER_LOWER}/${IMAGE_NAME_LOWER}"
 
       - name: Build and push
@@ -82,11 +88,11 @@ jobs:
           SHA_SHORT: ${{ github.sha }}
         run: |
           REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          
+
           echo "Building and pushing multi-platform Docker image"
           echo "From directory: ${{ matrix.image_dir }} (context: ${{ matrix.context || matrix.image_dir }})"
           echo "To: ghcr.io/${IMAGE_NAME}"
-          
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "PR build: build-only (no push)"
             docker buildx build \
@@ -104,6 +110,36 @@ jobs:
               --file "${{ matrix.image_dir }}/Dockerfile" \
               "${{ matrix.context || matrix.image_dir }}"
           fi
+
+      # Second line of defence after npm audit and Dependabot: known
+      # vulnerabilities in the built image (OS packages and app deps). Report
+      # only: findings go to the job summary and, on main, to code scanning
+      # (Security tab). Set TRIVY_FAIL_ON to make it blocking.
+      - name: Scan image (Trivy)
+        env:
+          OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ matrix.image_name }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.number }}
+          SHA: ${{ github.sha }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$EVENT" = "pull_request" ]; then
+            ref="ghcr.io/${owner}/${IMAGE}:pr-${PR_NUMBER}"   # loaded into the local daemon
+          else
+            ref="ghcr.io/${owner}/${IMAGE}:sha-${SHA:0:8}"
+            export TRIVY_PLATFORM=linux/arm64                 # what the Pis run
+          fi
+          scripts/trivy-scan.sh "$ref" trivy-out >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Trivy results to code scanning
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-out/trivy.sarif
+          category: trivy-${{ matrix.image_name }}
 
       - name: Display build success
         env:
@@ -152,7 +188,7 @@ jobs:
           git add k8s/envs/dev/images.yaml
           git diff --cached --quiet && { echo "dev already on $TAG"; exit 0; }
           git commit -m "chore(dev): deploy $TAG"
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             git push origin HEAD:main && exit 0
             git pull --rebase origin main
           done

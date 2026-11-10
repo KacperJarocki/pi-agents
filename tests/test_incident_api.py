@@ -7,6 +7,7 @@ Needs PROJECTOR_TEST_DSN plus the projector and incident-api requirements
 import os
 import pathlib
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -42,8 +43,18 @@ class IncidentApiTests(unittest.TestCase):
         self.conn.execute("CREATE SCHEMA public")
         proj.db.migrate(self.conn)
         self.leases = [
-            {"mac_address": "02:00:00:00:00:0A", "ip_address": "192.168.50.134", "hostname": "zero", "lease_expires_at": "1794379528"},
-            {"mac_address": "02:00:00:00:00:0b", "ip_address": "192.168.50.137", "hostname": "iPhone", "lease_expires_at": "1794378166"},
+            {
+                "mac_address": "02:00:00:00:00:0A",
+                "ip_address": "192.168.50.134",
+                "hostname": "zero",
+                "lease_expires_at": "1794379528",
+            },
+            {
+                "mac_address": "02:00:00:00:00:0b",
+                "ip_address": "192.168.50.137",
+                "hostname": "iPhone",
+                "lease_expires_at": "1794378166",
+            },
         ]
 
         async def fetch():
@@ -52,17 +63,22 @@ class IncidentApiTests(unittest.TestCase):
             return self.leases
 
         self.lease_source = api_main.Leases("http://gateway-agent:7000", fetch=fetch)
-        self.client_cm = TestClient(api_main.create_app(DSN, leases=self.lease_source))
+        # Stand-in for the built UI (images/incident-api/ui/dist).
+        self.static = tempfile.TemporaryDirectory()
+        pages = pathlib.Path(self.static.name)
+        (pages / "live").mkdir()
+        (pages / "index.html").write_text("<title>Devices</title>")
+        (pages / "live" / "index.html").write_text("<title>Live incidents</title>")
+        self.client_cm = TestClient(api_main.create_app(DSN, leases=self.lease_source, static_dir=pages))
         self.client = self.client_cm.__enter__()
 
     def tearDown(self):
         self.client_cm.__exit__(None, None, None)
+        self.static.cleanup()
         self.conn.close()
 
     def apply(self, incident, revision, status=1):
-        return proj.db.apply_transition(
-            self.conn, proj.transition(incident=incident, revision=revision, status=status)
-        )
+        return proj.db.apply_transition(self.conn, proj.transition(incident=incident, revision=revision, status=status))
 
     def test_snapshot_returns_active_incidents_with_a_cursor(self):
         self.apply("a", 1)
@@ -99,6 +115,7 @@ class IncidentApiTests(unittest.TestCase):
         root = self.client.get("/", follow_redirects=False)
         self.assertEqual(root.status_code, 200)
         self.assertIn("<title>Devices</title>", root.text)
+        self.assertEqual(self.client.get("/api/v2/health").status_code, 200, "API routes win over the UI mount")
 
     def test_devices_join_features_incidents_and_leases_by_mac(self):
         proj.db.apply_features(self.conn, proj.feature_update(window_end=5_000, flows=4))
@@ -113,11 +130,16 @@ class IncidentApiTests(unittest.TestCase):
         self.assertEqual(set(by_mac), {"02:00:00:00:00:0a", "02:00:00:00:00:0b", "02:00:00:00:00:0c"})
         zero = by_mac["02:00:00:00:00:0a"]
         self.assertEqual(body["devices"][0]["mac"], "02:00:00:00:00:0a", "devices with active incidents first")
-        self.assertEqual((zero["hostname"], zero["ip"], zero["device_key"]), ("zero", "192.168.50.134", "gw:02:00:00:00:00:0a"))
+        self.assertEqual(
+            (zero["hostname"], zero["ip"], zero["device_key"]), ("zero", "192.168.50.134", "gw:02:00:00:00:00:0a")
+        )
         self.assertEqual(zero["features"]["60"]["flows"], 4)
         self.assertEqual(zero["features"]["900"]["flows"], 40)
         self.assertEqual(zero["last_seen_ms"], 6_000)
-        self.assertEqual(zero["incidents"], {"active": 1, "total": 2, "last_detected_ms": zero["incidents"]["last_detected_ms"], "severity": "LOW"})
+        self.assertEqual(
+            zero["incidents"],
+            {"active": 1, "total": 2, "last_detected_ms": zero["incidents"]["last_detected_ms"], "severity": "LOW"},
+        )
         self.assertEqual(zero["lease_expires_at_ms"], 1_794_379_528_000)
         phone = by_mac["02:00:00:00:00:0b"]
         self.assertIsNone(phone["device_key"], "leased but never seen by the sensor")

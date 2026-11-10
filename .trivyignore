@@ -1,0 +1,3 @@
+# Vulnerabilities accepted after review, one ID per line with a reason and
+# a review date, e.g.:
+#   CVE-2026-12345  # not reachable: we never parse untrusted archives (2026-11-10)

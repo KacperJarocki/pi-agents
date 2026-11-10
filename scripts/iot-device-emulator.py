@@ -16,10 +16,9 @@ import ssl
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
-
 
 PROFILES: dict[str, dict[str, object]] = {
     "sensor": {
@@ -56,7 +55,7 @@ PROFILES: dict[str, dict[str, object]] = {
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def parse_duration(value: str) -> float:
@@ -184,7 +183,13 @@ def http_get(url: str, timeout: float, max_bytes: int) -> dict[str, object]:
 def udp_heartbeat(target: str, timeout: float, payload: bytes) -> dict[str, object]:
     host, _, port_raw = target.rpartition(":")
     if not host or not port_raw.isdigit():
-        return {"ts": utc_now(), "action": "udp_heartbeat", "target": target, "outcome": "error", "error": "expected host:port"}
+        return {
+            "ts": utc_now(),
+            "action": "udp_heartbeat",
+            "target": target,
+            "outcome": "error",
+            "error": "expected host:port",
+        }
     port = int(port_raw)
     started = time.perf_counter()
     outcome = "sent"
@@ -251,11 +256,11 @@ def main(argv: list[str] | None = None) -> int:
     endpoints = split_csv(args.endpoints) or list(profile["endpoints"])  # type: ignore[arg-type]
     dns_hosts = split_csv(args.dns_hosts) or list(profile["dns_hosts"])  # type: ignore[arg-type]
     udp_targets = split_csv(args.udp_targets) or list(profile["udp_targets"])  # type: ignore[arg-type]
-    run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    run_id = args.run_id or f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     run_dir = Path(args.out_dir) / run_id
     events_path = run_dir / "events.jsonl"
     estimated_cycles = 0 if duration == 0 else max(1, int(duration / interval))
-    estimated_end_at = datetime.now(timezone.utc) + timedelta(seconds=duration) if duration > 0 else None
+    estimated_end_at = datetime.now(UTC) + timedelta(seconds=duration) if duration > 0 else None
 
     run_payload: dict[str, object] = {
         "run_id": run_id,

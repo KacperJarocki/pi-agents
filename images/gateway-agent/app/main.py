@@ -1,13 +1,22 @@
 import os
-import structlog
-from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 
-from .models import WifiConfig, ValidationResult, GatewayStatus, ApplyResult, BlockRequest, BlockResult, BlockedListResponse
-from .validate import validate_config
-from .status import get_status
+import structlog
+from fastapi import FastAPI, HTTPException
+
+from .iptables import block_device, list_blocked, unblock_device
+from .models import (
+    ApplyResult,
+    BlockedListResponse,
+    BlockRequest,
+    BlockResult,
+    GatewayStatus,
+    ValidationResult,
+    WifiConfig,
+)
 from .state import GatewayRuntime
-from .iptables import block_device, unblock_device, list_blocked
+from .status import get_status
+from .validate import validate_config
 
 structlog.configure(
     processors=[
@@ -16,6 +25,7 @@ structlog.configure(
     ],
 )
 log = structlog.get_logger()
+
 
 def _bool_env(name: str, default: bool) -> bool:
     v = os.getenv(name)
@@ -124,24 +134,28 @@ async def rollback():
 async def block(req: BlockRequest):
     try:
         added = block_device(req.mac)
-        return BlockResult(ok=True, mac=req.mac.lower(), blocked=True, message="blocked" if added else "already blocked")
+        return BlockResult(
+            ok=True, mac=req.mac.lower(), blocked=True, message="blocked" if added else "already blocked"
+        )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         log.error("block_error", mac=req.mac, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.delete("/block/{mac}", response_model=BlockResult)
 async def unblock(mac: str):
     try:
         removed = unblock_device(mac)
-        return BlockResult(ok=True, mac=mac.lower(), blocked=False, message="unblocked" if removed else "was not blocked")
+        return BlockResult(
+            ok=True, mac=mac.lower(), blocked=False, message="unblocked" if removed else "was not blocked"
+        )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         log.error("unblock_error", mac=mac, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/blocked", response_model=BlockedListResponse)

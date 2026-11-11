@@ -149,8 +149,9 @@ class CopyTests(unittest.TestCase):
     def test_idle_source_with_unfinished_range_fails(self):
         ticks = iter(range(0, 1000, 30))
         with self.assertRaises(RuntimeError):
-            run_copy(FakeConsumer([]), FakeProducer(), [replay.Range(0, 0, 5)],
-                     idle_timeout=60, clock=lambda: next(ticks))
+            run_copy(
+                FakeConsumer([]), FakeProducer(), [replay.Range(0, 0, 5)], idle_timeout=60, clock=lambda: next(ticks)
+            )
 
     def test_undelivered_records_count_as_errors(self):
         consumer = FakeConsumer([[FakeMessage(0, 0)]])

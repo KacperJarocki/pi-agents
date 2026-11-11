@@ -2,7 +2,6 @@ import pathlib
 import re
 import unittest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -24,7 +23,7 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
 
     def test_event_contract_has_versioned_envelope_and_required_domains(self):
         proto = (ROOT / "schemas" / "events" / "v1" / "events.proto").read_text()
-        self.assertIn("syntax = \"proto3\"", proto)
+        self.assertIn('syntax = "proto3"', proto)
         for field in (
             "event_id",
             "schema_version",
@@ -163,7 +162,7 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         job = ROOT / "flink" / "detection-job"
         pom = (job / "pom.xml").read_text()
         dockerfile = (job / "Dockerfile").read_text()
-        source = (job / "src" / "main" / "java" / "io" / "piagents" / "detection")
+        source = job / "src" / "main" / "java" / "io" / "piagents" / "detection"
         self.assertIn("../../schemas/events/v2", pom)
         self.assertIn("<exclude>baseline.proto</exclude>", pom)
         self.assertIn("<flink.version>1.20.5</flink.version>", pom)

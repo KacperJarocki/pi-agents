@@ -129,7 +129,7 @@ run_burst() {
 
 run_spike() {
   printf '[spike] starting %s parallel download workers\n' "$PARALLEL_DOWNLOADS"
-  for i in $(seq 1 "$PARALLEL_DOWNLOADS"); do
+  for _ in $(seq 1 "$PARALLEL_DOWNLOADS"); do
     curl -L --fail --silent --output /dev/null --max-time 60 \
       --range 0-104857599 "${DOWNLOAD_URLS[0]}" &
   done

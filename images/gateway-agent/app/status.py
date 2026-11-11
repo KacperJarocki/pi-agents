@@ -25,7 +25,9 @@ def _get_iface_ip(name: str) -> str | None:
 
 def _ip_forward_enabled() -> bool | None:
     try:
-        out = subprocess.run(["sysctl", "-n", "net.ipv4.ip_forward"], check=True, capture_output=True, text=True).stdout.strip()
+        out = subprocess.run(
+            ["sysctl", "-n", "net.ipv4.ip_forward"], check=True, capture_output=True, text=True
+        ).stdout.strip()
         return out == "1"
     except Exception:
         return None

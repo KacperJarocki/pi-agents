@@ -143,10 +143,7 @@ def copy(
         messages = consumer.consume(500, 1.0)
         if not messages:
             if clock() - last_progress > idle_timeout:
-                raise RuntimeError(
-                    f"no records for {idle_timeout:.0f}s; unfinished partitions "
-                    f"{sorted(remaining)}"
-                )
+                raise RuntimeError(f"no records for {idle_timeout:.0f}s; unfinished partitions {sorted(remaining)}")
             continue
         last_progress = clock()
         for msg in messages:
@@ -271,9 +268,7 @@ def main(argv=None) -> int:
 
         end_offsets = {}
         for p in partitions:
-            _low, high = consumer.get_watermark_offsets(
-                TopicPartition(args.source_topic, p), timeout=30
-            )
+            _low, high = consumer.get_watermark_offsets(TopicPartition(args.source_topic, p), timeout=30)
             end_offsets[p] = high
         found = consumer.offsets_for_times(
             [TopicPartition(args.source_topic, p, window_start_ms) for p in partitions],

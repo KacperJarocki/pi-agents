@@ -6,6 +6,30 @@ on:
   pull_request:
 
 jobs:
+  pre-commit:
+    # Same hooks as locally (.pre-commit-config.yaml). cargo fmt and the UI's
+    # Prettier/ESLint need local toolchains and run in rust-sensor.yml and the
+    # ui job instead.
+    runs-on: ubuntu-latest
+    env:
+      SKIP: cargo-fmt,ui-prettier,ui-eslint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit on all files
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   python:
     runs-on: ubuntu-latest
     steps:
@@ -60,24 +84,46 @@ jobs:
         run: python -m unittest tests.test_incident_projector tests.test_incident_api -v
 
   ui:
-    # ubuntu-latest moved to 26.04, which Playwright 1.59 cannot install chromium on.
+    # ubuntu-latest moved to 26.04, which Playwright cannot always install chromium on.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "26"
           cache: npm
-          cache-dependency-path: tests/ui/package-lock.json
+          cache-dependency-path: |
+            images/incident-api/ui/package-lock.json
+            tests/ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: images/incident-api/ui
+        run: npm ci
+
+      - name: Audit UI dependencies
+        working-directory: images/incident-api/ui
+        run: npm audit --audit-level=moderate
+
+      - name: Format, lint and type-check the UI
+        working-directory: images/incident-api/ui
+        run: |
+          npm run format:check
+          npm run lint
+          npm run check
+
+      - name: UI unit tests
+        working-directory: images/incident-api/ui
+        run: npm test
 
       - name: Install Playwright
         working-directory: tests/ui
         run: |
           npm ci
+          npm audit --audit-level=moderate
           npx playwright install chromium --with-deps
 
-      - name: Live page tests (mocked WebSocket)
+      - name: UI tests (built UI, mocked API and WebSocket)
         working-directory: tests/ui
         run: npx playwright test live.spec.ts devices.spec.ts --project=chromium
 

@@ -16,7 +16,8 @@ import runpy
 import sys
 from pathlib import Path
 
-
+# Flag/value pairs stay on one line (tests/test_port_sweep_script_sources.py).
+# fmt: off
 DEFAULT_RESEARCH_ARGS = [
     "--preset", "balanced35",
     "--gap", "5m",
@@ -24,6 +25,7 @@ DEFAULT_RESEARCH_ARGS = [
     "--shuffle-phases",
     "--detach",
 ]
+# fmt: on
 
 
 if __name__ == "__main__":

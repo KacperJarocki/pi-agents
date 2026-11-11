@@ -9,7 +9,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 FIELD_PATTERN = re.compile(
     r"(?m)^\s*(repeated\s+)?(map<[^>]+>|[\w.<>]+)\s+"
@@ -48,12 +47,21 @@ V1 = Contract(
 V2 = Contract(
     "v2",
     (
-        "Envelope", "FlowEvent", "FeatureUpdate", "HorizonEvidence",
-        "DetectionTransition", "HealthEvent",
+        "Envelope",
+        "FlowEvent",
+        "FeatureUpdate",
+        "HorizonEvidence",
+        "DetectionTransition",
+        "HealthEvent",
     ),
     (
-        "Protocol", "Direction", "AttemptOutcome", "ThreatFamily",
-        "TransitionStatus", "Severity", "HealthKind",
+        "Protocol",
+        "Direction",
+        "AttemptOutcome",
+        "ThreatFamily",
+        "TransitionStatus",
+        "Severity",
+        "HealthKind",
     ),
 )
 CONTRACTS = (V1, V2)
@@ -97,7 +105,9 @@ def _numbered(items, owner: str) -> dict[str, int]:
 
 
 def parse_contract(
-    source: str, messages: tuple[str, ...] = MESSAGES, enums: tuple[str, ...] = (),
+    source: str,
+    messages: tuple[str, ...] = MESSAGES,
+    enums: tuple[str, ...] = (),
 ) -> dict[str, dict[str, int]]:
     result: dict[str, dict[str, int]] = {}
     for message in messages:
@@ -113,13 +123,15 @@ def parse_contract(
 
 def _signatures(source: str, message: str) -> dict[str, tuple[str, str]]:
     return {
-        name: (label or "", field_type)
-        for label, field_type, name, _ in FIELD_PATTERN.findall(_body(source, message))
+        name: (label or "", field_type) for label, field_type, name, _ in FIELD_PATTERN.findall(_body(source, message))
     }
 
 
 def validate_compatibility(
-    source: str, baseline: str, expected: dict, contract: Contract = V1,
+    source: str,
+    baseline: str,
+    expected: dict,
+    contract: Contract = V1,
 ) -> None:
     actual = parse_contract(source, contract.messages, contract.enums)
     if parse_contract(baseline, contract.messages, contract.enums) != expected:
@@ -152,6 +164,6 @@ if __name__ == "__main__":
         validate()
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"event contract validation failed: {error}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from error
     for item in CONTRACTS:
         print(f"validated {item.proto_path.relative_to(ROOT)}")

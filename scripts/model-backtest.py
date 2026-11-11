@@ -16,11 +16,10 @@ import os
 import sqlite3
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "images" / "ml-pipeline"))
@@ -29,7 +28,7 @@ from app.ml_core import FeatureExtractor, get_detector  # noqa: E402
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def parse_ts(value: str) -> datetime:
@@ -39,7 +38,7 @@ def parse_ts(value: str) -> datetime:
     except ValueError:
         parsed = datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S")
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
     return parsed
 
 
@@ -100,7 +99,9 @@ def load_flows(db_path: str, device_id: int, start: str, end: str) -> pd.DataFra
     df = pd.DataFrame([dict(row) for row in rows])
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed")
     if "flags" in df.columns:
-        df["flags"] = df["flags"].apply(lambda value: json.loads(value) if isinstance(value, str) and value else (value or {}))
+        df["flags"] = df["flags"].apply(
+            lambda value: json.loads(value) if isinstance(value, str) and value else (value or {})
+        )
         df["dns_rcode"] = df["flags"].apply(lambda value: value.get("dns_rcode") if isinstance(value, dict) else None)
         df["icmp_type"] = df["flags"].apply(lambda value: value.get("icmp_type") if isinstance(value, dict) else None)
         df["icmp_code"] = df["flags"].apply(lambda value: value.get("icmp_code") if isinstance(value, dict) else None)
@@ -179,7 +180,9 @@ def score_window(args: argparse.Namespace, model_type: str, model_file: str, mod
         "detection_delay_seconds": detection_delay_seconds(args.start, first_detection),
         "anomaly_buckets": anomaly_buckets,
         "anomaly_bucket_rate": round(anomaly_buckets / max(bucket_count, 1), 6),
-        "false_positive_rate": round(anomaly_buckets / max(bucket_count, 1), 6) if not is_positive_label(args.label) else 0.0,
+        "false_positive_rate": round(anomaly_buckets / max(bucket_count, 1), 6)
+        if not is_positive_label(args.label)
+        else 0.0,
         "peak_anomaly_score": max((float(row.get("anomaly_score") or 0.0) for row in scores), default=0.0),
         "min_anomaly_score": min((float(row.get("anomaly_score") or 0.0) for row in scores), default=0.0),
         "max_score_margin": max((float(row.get("score_margin") or 0.0) for row in scores), default=0.0),
@@ -200,17 +203,20 @@ def load_windows(path: str) -> list[dict]:
 def model_rankings(results: list[dict]) -> list[dict]:
     by_model: dict[str, dict] = {}
     for result in results:
-        item = by_model.setdefault(result["model_type"], {
-            "model_type": result["model_type"],
-            "tp": 0,
-            "fp": 0,
-            "tn": 0,
-            "fn": 0,
-            "windows": 0,
-            "false_positive_buckets": 0,
-            "benign_buckets": 0,
-            "detection_delays": [],
-        })
+        item = by_model.setdefault(
+            result["model_type"],
+            {
+                "model_type": result["model_type"],
+                "tp": 0,
+                "fp": 0,
+                "tn": 0,
+                "fn": 0,
+                "windows": 0,
+                "false_positive_buckets": 0,
+                "benign_buckets": 0,
+                "detection_delays": [],
+            },
+        )
         item["windows"] += 1
         item[result["classification"].lower()] += 1
         if not is_positive_label(result["label"]):
@@ -224,15 +230,19 @@ def model_rankings(results: list[dict]) -> list[dict]:
         recall = item["tp"] / max(item["tp"] + item["fn"], 1)
         f1 = 2 * precision * recall / max(precision + recall, 1e-9)
         delays = item.pop("detection_delays")
-        rankings.append({
-            **item,
-            "precision": round(precision, 6),
-            "recall": round(recall, 6),
-            "f1": round(f1, 6),
-            "false_positive_rate": round(item["false_positive_buckets"] / max(item["benign_buckets"], 1), 6),
-            "mean_detection_delay_seconds": round(sum(delays) / len(delays), 3) if delays else None,
-        })
-    return sorted(rankings, key=lambda row: (-row["f1"], row["false_positive_rate"], row["mean_detection_delay_seconds"] or 0.0))
+        rankings.append(
+            {
+                **item,
+                "precision": round(precision, 6),
+                "recall": round(recall, 6),
+                "f1": round(f1, 6),
+                "false_positive_rate": round(item["false_positive_buckets"] / max(item["benign_buckets"], 1), 6),
+                "mean_detection_delay_seconds": round(sum(delays) / len(delays), 3) if delays else None,
+            }
+        )
+    return sorted(
+        rankings, key=lambda row: (-row["f1"], row["false_positive_rate"], row["mean_detection_delay_seconds"] or 0.0)
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -241,7 +251,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--device-id", type=int, required=False)
-    parser.add_argument("--model-type", choices=MODEL_TYPES, help="model type; inferred from --model-registry-id when omitted")
+    parser.add_argument(
+        "--model-type", choices=MODEL_TYPES, help="model type; inferred from --model-registry-id when omitted"
+    )
     parser.add_argument("--start", help="window start timestamp")
     parser.add_argument("--end", help="window end timestamp")
     parser.add_argument("--label", default="unknown", help="ground-truth label: benign or attack_port_sweep")
@@ -251,7 +263,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-root", default=os.getenv("MODEL_PATH", "/data/models"))
     parser.add_argument("--model-file", help="explicit .joblib artifact path")
     parser.add_argument("--model-registry-id", type=int, help="model_registry id to load")
-    parser.add_argument("--compare-all", action="store_true", help="score the same window with latest registry artifact for all model types")
+    parser.add_argument(
+        "--compare-all",
+        action="store_true",
+        help="score the same window with latest registry artifact for all model types",
+    )
     parser.add_argument("--bucket-minutes", type=int, default=int(os.getenv("FEATURE_BUCKET_MINUTES", "5")))
     parser.add_argument("--run-id", help="stable output run id")
     parser.add_argument("--out-dir", default="artifacts/backtests")
@@ -260,19 +276,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    run_id = args.run_id or f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     run_dir = Path(args.out_dir) / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
     runs = []
 
-    windows = load_windows(args.windows_file) if args.windows_file else [{
-        "device_id": args.device_id,
-        "start": args.start,
-        "end": args.end,
-        "label": args.label,
-        "scenario": args.scenario,
-    }]
+    windows = (
+        load_windows(args.windows_file)
+        if args.windows_file
+        else [
+            {
+                "device_id": args.device_id,
+                "start": args.start,
+                "end": args.end,
+                "label": args.label,
+                "scenario": args.scenario,
+            }
+        ]
+    )
 
     for window in windows:
         if not window.get("device_id") or not window.get("start") or not window.get("end"):

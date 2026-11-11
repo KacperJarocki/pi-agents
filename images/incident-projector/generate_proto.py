@@ -21,9 +21,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.schemas is None:
         args.schemas = str(HERE.parents[1] / "schemas" / "events" / "v2")
-    return protoc.main(
-        ["protoc", f"--proto_path={args.schemas}", f"--python_out={args.out}", "events.proto"]
-    )
+    return protoc.main(["protoc", f"--proto_path={args.schemas}", f"--python_out={args.out}", "events.proto"])
 
 
 if __name__ == "__main__":

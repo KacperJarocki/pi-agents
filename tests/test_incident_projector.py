@@ -9,6 +9,7 @@ import datetime as dt
 import os
 import pathlib
 import sys
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -146,7 +147,12 @@ class IncidentProjectorTests(unittest.TestCase):
         self.conn.execute("CREATE SCHEMA public")
         self.assertEqual(
             db.migrate(self.conn),
-            ["0001_incidents.sql", "0002_gateway_health.sql", "0003_device_features.sql"],
+            [
+                "0001_incidents.sql",
+                "0002_gateway_health.sql",
+                "0003_device_features.sql",
+                "0004_device_feature_history.sql",
+            ],
         )
 
     def tearDown(self):
@@ -219,9 +225,7 @@ class IncidentProjectorTests(unittest.TestCase):
     def test_feed_pruning_keeps_recent_rows(self):
         db.apply_transition(self.conn, transition(incident="old", revision=1))
         db.apply_transition(self.conn, transition(incident="new", revision=1))
-        self.conn.execute(
-            "UPDATE incident_feed SET committed_at = now() - interval '8 days' WHERE incident_id = 'old'"
-        )
+        self.conn.execute("UPDATE incident_feed SET committed_at = now() - interval '8 days' WHERE incident_id = 'old'")
         self.assertEqual(db.prune_feed(self.conn), 1)
         left = [r[0] for r in self.conn.execute("SELECT incident_id FROM incident_feed")]
         self.assertEqual(left, ["new"])
@@ -258,20 +262,40 @@ class IncidentProjectorTests(unittest.TestCase):
         self.assertEqual([n.payload for n in notes], ["gw"])
         self.assertFalse(db.apply_health(self.conn, health(2, 3, 1_000)), "older event ignored")
         self.assertTrue(db.apply_health(self.conn, health(1, 99, 3_000, "waiting for wlan0")))
-        rows = self.conn.execute(
-            "SELECT kind, count, detail FROM gateway_health ORDER BY kind"
-        ).fetchall()
+        rows = self.conn.execute("SELECT kind, count, detail FROM gateway_health ORDER BY kind").fetchall()
         self.assertEqual(rows, [("HEARTBEAT", 99, "waiting for wlan0"), ("SPOOL_LOSS", 5, "spool full")])
 
     def test_features_keep_the_latest_window_per_device_and_horizon(self):
         self.assertTrue(db.apply_features(self.conn, feature_update(window_end=2_000, flows=5)))
         self.assertTrue(db.apply_features(self.conn, feature_update(horizon=900, window_end=2_000, flows=50)))
-        self.assertFalse(db.apply_features(self.conn, feature_update(window_end=1_000, flows=1)), "older window ignored")
+        self.assertFalse(
+            db.apply_features(self.conn, feature_update(window_end=1_000, flows=1)), "older window ignored"
+        )
         self.assertTrue(db.apply_features(self.conn, feature_update(window_end=3_000, flows=7)))
         rows = self.conn.execute(
             "SELECT horizon_seconds, features->>'flows' FROM device_features ORDER BY horizon_seconds"
         ).fetchall()
         self.assertEqual(rows, [(60, "7.0"), (900, "50.0")])
+
+    def test_60s_windows_build_a_per_minute_history(self):
+        minute = 1_760_486_400_000  # a whole minute
+        db.apply_features(self.conn, feature_update(window_end=minute + 5_000, flows=1))
+        db.apply_features(self.conn, feature_update(window_end=minute + 50_000, flows=2))
+        db.apply_features(self.conn, feature_update(window_end=minute + 20_000, flows=9))  # older, same minute
+        db.apply_features(self.conn, feature_update(window_end=minute + 65_000, flows=3))
+        db.apply_features(self.conn, feature_update(horizon=900, window_end=minute + 70_000, flows=99))
+        rows = self.conn.execute(
+            "SELECT extract(epoch FROM minute)::bigint * 1000, features->>'flows'"
+            " FROM device_feature_history ORDER BY minute"
+        ).fetchall()
+        self.assertEqual(rows, [(minute, "2.0"), (minute + 60_000, "3.0")], "latest window per minute, 60 s only")
+
+    def test_history_pruning_keeps_the_last_day(self):
+        now = int(time.time() * 1000)
+        db.apply_features(self.conn, feature_update(window_end=now - 25 * 3_600_000))
+        db.apply_features(self.conn, feature_update(window_end=now - 60_000))
+        self.assertEqual(db.prune_feature_history(self.conn), 1)
+        self.assertEqual(self.count("device_feature_history"), 1)
 
     def test_projector_routes_feature_updates_and_commits_them(self):
         import psycopg
@@ -293,7 +317,7 @@ class IncidentProjectorTests(unittest.TestCase):
         self.assertIn("evidence_ingest_time_ms", payload)
         self.assertEqual(payload["sample_event_ids"], ["gw/1", "gw/2"])
         committed = self.conn.execute("SELECT committed_at FROM incident_feed").fetchone()[0]
-        self.assertLess(dt.datetime.now(dt.timezone.utc) - committed, dt.timedelta(minutes=1))
+        self.assertLess(dt.datetime.now(dt.UTC) - committed, dt.timedelta(minutes=1))
 
 
 if __name__ == "__main__":

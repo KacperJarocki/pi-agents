@@ -163,6 +163,11 @@ jobs:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Builds of two quick merges can finish out of order. One bump at a time,
+    # and a build never replaces a newer one already running in dev.
+    concurrency:
+      group: bump-dev
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -171,8 +176,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
+
+      - name: Skip if dev already runs a newer build
+        id: newer
+        run: |
+          current=$(yq '.incidents.api.image.tag' k8s/envs/dev/images.yaml)
+          current=${current#sha-}
+          if [ "sha-$current" != "$TAG" ] && git cat-file -e "${current}^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$GITHUB_SHA" "$current"; then
+            echo "dev runs sha-$current, which already contains $GITHUB_SHA; not going back to $TAG"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Pin the new tags in dev
+        if: steps.newer.outputs.skip != 'true'
         run: |
           f=k8s/envs/dev/images.yaml
           yq -i '
@@ -187,6 +205,7 @@ jobs:
           git diff --stat
 
       - name: Commit and push
+        if: steps.newer.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

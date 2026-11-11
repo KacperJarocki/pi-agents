@@ -1,7 +1,7 @@
 # Detection job image. Build from the repository root (the job generates its
 # Protobuf classes from schemas/events/v2):
 #   docker build -f flink/detection-job/Dockerfile .
-FROM docker.io/library/eclipse-temurin:17.0.21_9-jdk AS build
+FROM docker.io/library/eclipse-temurin:24.0.2_12-jdk AS build
 WORKDIR /src
 COPY schemas/events/v2 schemas/events/v2
 COPY flink/detection-job/.mvn flink/detection-job/.mvn

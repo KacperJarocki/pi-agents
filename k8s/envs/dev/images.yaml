@@ -3,17 +3,17 @@
 flink:
   detectionJob:
     image:
-      tag: sha-17d1d3e5
+      tag: sha-ae9b24d7
 sensor:
   image:
-    tag: sha-17d1d3e5
+    tag: sha-ae9b24d7
 incidents:
   projector:
     image:
-      tag: sha-17d1d3e5
+      tag: sha-ae9b24d7
   api:
     image:
-      tag: sha-17d1d3e5
+      tag: sha-ae9b24d7
 flowReplay:
   image:
-    tag: sha-17d1d3e5
+    tag: sha-ae9b24d7

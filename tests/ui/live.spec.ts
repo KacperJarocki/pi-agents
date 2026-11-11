@@ -295,3 +295,20 @@ test('explains each incident in plain words', async ({ page }) => {
   await expect(row.getByTestId('threat')).toHaveText('Port scan');
   await expect(row.getByTestId('why')).toHaveText('20 refused or unanswered targets in 60 s (opens at 20)');
 });
+
+test('a gateway clock ahead of the database shows as clock skew, not a negative delay', async ({ page }) => {
+  await open(page, (ws) => {
+    send(ws, {
+      type: 'snapshot',
+      cursor: 2,
+      incidents: [
+        transition('skewed', 1, { committed_at_ms: 1_760_486_300_000 }), // 100 s before the evidence
+        transition('ok', 1, { committed_at_ms: 1_760_486_400_350 }),
+      ],
+    });
+    send(ws, { type: 'live', cursor: 2 });
+  });
+  await expect(page.locator('tr[data-incident="skewed"]').getByTestId('delay')).toHaveText('clock skew');
+  await expect(page.locator('tr[data-incident="ok"]').getByTestId('delay')).toHaveText('350 ms');
+  await expect(page.getByText('-100000 ms')).toHaveCount(0);
+});

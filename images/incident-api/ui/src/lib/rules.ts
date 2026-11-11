@@ -1,4 +1,4 @@
-import { titleCase } from './format';
+import { duration, titleCase } from './format';
 import type { Horizon, Transition } from './types';
 
 // What each detection rule means, in plain words. Values mirror the Flink
@@ -47,10 +47,17 @@ const NOUNS: Record<string, string> = { 'port-scan': 'refused or unanswered targ
 
 /**
  * One line on why the incident exists, e.g.
- * "241 refused or unanswered targets in 60 s (opens at 20)". For a resolved
- * incident it describes where the signal ended up instead.
+ * "241 refused or unanswered targets in 60 s (opens at 20)". A resolved
+ * incident's last transition only holds the values it settled at, so it says
+ * how long the episode lasted instead.
  */
-export function explain(t: Pick<Transition, 'rule_id' | 'horizons' | 'status'>): string {
+export function explain(
+  t: Pick<Transition, 'rule_id' | 'horizons' | 'status' | 'episode_start_ms' | 'detected_at_ms'>,
+): string {
+  if (t.status === 'RESOLVE') {
+    const lasted = t.episode_start_ms && t.detected_at_ms ? duration(t.detected_at_ms - t.episode_start_ms) : '';
+    return lasted ? `Resolved after ${lasted}` : 'Resolved';
+  }
   const all = t.horizons ?? [];
   const over = all.filter((h) => h.over_threshold);
   const shown: Horizon[] = over.length ? over : all.slice(0, 1);
@@ -60,6 +67,5 @@ export function explain(t: Pick<Transition, 'rule_id' | 'horizons' | 'status'>):
     `${Math.round(h.value)} in ${windowName(h.horizon_seconds)} (opens at ${h.open_threshold})`;
   const [first, ...rest] = shown.map(part);
   const head = first!.replace(' in ', ` ${noun} in `);
-  const text = [head, ...rest].join(', ');
-  return t.status === 'RESOLVE' ? `Back down: ${text}` : text;
+  return [head, ...rest].join(', ');
 }

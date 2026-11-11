@@ -20,9 +20,16 @@ describe('rules', () => {
     expect(explain({ rule_id: 'port-scan', status: 'UPDATE', horizons: horizons(241, 860) })).toBe(
       '241 refused or unanswered targets in 60 s (opens at 20), 860 in 15 min (opens at 40)',
     );
-    expect(explain({ rule_id: 'port-scan', status: 'RESOLVE', horizons: horizons(2, 30) })).toBe(
-      'Back down: 2 refused or unanswered targets in 60 s (opens at 20)',
-    );
+    expect(
+      explain({
+        rule_id: 'port-scan',
+        status: 'RESOLVE',
+        horizons: horizons(0, 2),
+        episode_start_ms: 1_000,
+        detected_at_ms: 1_000 + 36 * 60_000 + 51_000,
+      }),
+    ).toBe('Resolved after 36 min 51 s');
+    expect(explain({ rule_id: 'port-scan', status: 'RESOLVE', horizons: horizons(0, 2) })).toBe('Resolved');
     expect(explain({ status: 'OPEN', horizons: [] })).toBe('');
   });
 });

@@ -9,13 +9,21 @@ class RustSensorSourceTests(unittest.TestCase):
         cargo = (ROOT / "sensors" / "rust-sensor" / "Cargo.toml").read_text()
         source = (ROOT / "sensors" / "rust-sensor" / "src" / "lib.rs").read_text()
         self.assertIn('edition = "2021"', cargo)
-        self.assertIn('live = ["dep:pcap"]', cargo)
+        # libc only for poll() on the capture descriptor; both stay optional.
+        self.assertIn('live = ["dep:pcap", "dep:libc"]', cargo)
         self.assertIn("optional = true", cargo)
         self.assertIn("pub struct FlowTable", source)
         self.assertIn("pub fn flush_due", source)
         self.assertIn("UpsertResult::Evicted", source)
         self.assertIn("DEFAULT_IDLE_US: i64 = 1_000_000", source)
         self.assertIn("DEFAULT_ACTIVE_US: i64 = 1_000_000", source)
+
+    def test_live_capture_never_blocks_on_a_silent_interface(self):
+        # A blocking read on a quiet AP stalled the loop and the status file,
+        # and the liveness probe killed the pod in a loop.
+        main = (ROOT / "sensors" / "rust-sensor" / "src" / "main.rs").read_text()
+        self.assertIn(".setnonblock()", main)
+        self.assertIn("Err(pcap::Error::TimeoutExpired) => wait_readable(fd, 20)", main)
 
     def test_sensor_publishes_through_a_bounded_spool_with_idempotent_kafka(self):
         crate = ROOT / "sensors" / "rust-sensor"

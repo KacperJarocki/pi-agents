@@ -61,8 +61,13 @@ export function delayMs(t: Pick<Transition, 'committed_at_ms' | 'evidence_event_
   return t.committed_at_ms - t.evidence_event_time_ms;
 }
 
+/**
+ * A negative delay means the gateway's clock ran ahead of the database's
+ * (e.g. a Pi without an RTC before NTP sync): not a real latency.
+ */
 export function delay(ms: number | null): string {
   if (ms == null) return DASH;
+  if (ms < 0) return 'clock skew';
   return ms < 10000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 

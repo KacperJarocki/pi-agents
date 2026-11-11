@@ -38,7 +38,7 @@
   const medianDelay = $derived.by(() => {
     const ds = all
       .map(delayMs)
-      .filter((d): d is number => d != null)
+      .filter((d): d is number => d != null && d >= 0) // negative = clock skew
       .sort((a, b) => a - b);
     return ds.length ? ds[Math.floor(ds.length / 2)]! : null;
   });
@@ -169,7 +169,14 @@
               >{ago(t.episode_start_ms, clock.now)}</td
             >
             <td class="muted" title={dateTime(t.detected_at_ms)}>{ago(t.detected_at_ms, clock.now)}</td>
-            <td class="right num hide-sm" data-testid="delay">{delay(delayMs(t))}</td>
+            <td
+              class="right num hide-sm"
+              class:skew={(delayMs(t) ?? 0) < 0}
+              data-testid="delay"
+              title={(delayMs(t) ?? 0) < 0
+                ? `Evidence is ${Math.round(-(delayMs(t) ?? 0) / 1000)} s later than the database commit: the gateway clock was ahead.`
+                : undefined}>{delay(delayMs(t))}</td
+            >
             <td class="right num hide-sm muted" data-testid="revision">{t.revision}</td>
           </tr>
         {/each}
@@ -223,6 +230,10 @@
   }
   tr:not(.resolved) td:first-child {
     box-shadow: inset 3px 0 0 var(--high);
+  }
+  .skew {
+    color: var(--muted);
+    font-style: italic;
   }
   tr.flash {
     animation: flash 2.5s var(--ease);

@@ -21,7 +21,7 @@ describe('format', () => {
     expect(bytes(2_500_000)).toBe('2.4 MB');
     expect(delay(delayMs({ committed_at_ms: 1_500, evidence_event_time_ms: 1_000 }))).toBe('500 ms');
     expect(delay(12_345)).toBe('12.3 s');
-    expect(delay(-99_743)).toBe('clock skew');
+    expect(delay(-99_743)).toBe('–');
     expect(delay(delayMs({ committed_at_ms: null, evidence_event_time_ms: 1 }))).toBe('–');
   });
 

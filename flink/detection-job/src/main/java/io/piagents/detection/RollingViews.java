@@ -68,9 +68,14 @@ public class RollingViews extends KeyedProcessFunction<String, FlowRecord, Devic
     if (w == null) {
       w = new DeviceWindows(horizonsMs);
     }
-    long previousClock = w.clockMs();
+    // Silence is measured from the newest event, so note when one arrives even
+    // if it does not move the clock: after a quiet spell the clock has been
+    // extrapolated by wall time and is usually ahead of resumed traffic. Keyed
+    // on the clock instead, the old timestamp stayed and the next tick added
+    // the whole earlier silence again, running the clock minutes ahead.
+    long previousLatest = latestEventTime(w);
     w.add(record);
-    if (w.clockMs() > previousClock) {
+    if (latestEventTime(w) > previousLatest) {
       lastEventWallMs.update(ctx.timerService().currentProcessingTime());
     }
     windows.update(w);

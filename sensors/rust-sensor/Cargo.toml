@@ -14,10 +14,11 @@ path = "src/main.rs"
 
 [features]
 # Live capture through libpcap. The core and offline replay need no libraries.
-live = ["dep:pcap"]
+live = ["dep:pcap", "dep:libc"]
 # Kafka publishing through librdkafka (built from source; needs a C toolchain).
 kafka = ["dep:rdkafka"]
 
 [dependencies]
 pcap = { version = "2.5.0", optional = true }
+libc = { version = "0.2", optional = true }
 rdkafka = { version = "0.39.0", optional = true }

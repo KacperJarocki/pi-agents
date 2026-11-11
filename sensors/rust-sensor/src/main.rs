@@ -359,7 +359,7 @@ fn capture(
     };
     // The AP interface may be down (AP disabled or restarting). Keep the
     // sensor alive, report why in heartbeats and the status file, and retry.
-    let mut capture = {
+    let capture = {
         let mut last_report = Instant::now() - Duration::from_secs(10);
         loop {
             match open() {
@@ -378,6 +378,14 @@ fn capture(
             }
         }
     };
+    // Non-blocking reads plus our own poll() with a short timeout: a blocking
+    // read can wait forever on a silent interface (no client traffic), which
+    // stalls flushing, Kafka delivery and the status file the liveness probe
+    // watches, so the pod gets killed in a loop.
+    let mut capture = capture
+        .setnonblock()
+        .map_err(|err| io::Error::other(format!("{interface}: non-blocking mode: {err}")))?;
+    let fd = std::os::fd::AsRawFd::as_raw_fd(&capture);
     eprintln!("capturing on {interface}");
 
     let mut out = Vec::new();
@@ -394,7 +402,7 @@ fn capture(
                 let timestamp_us = i64::from(ts.tv_sec) * 1_000_000 + i64::from(ts.tv_usec);
                 sensor.process_frame(timestamp_us, packet.data, packet.header.len, &mut out);
             }
-            Err(pcap::Error::TimeoutExpired) => {}
+            Err(pcap::Error::TimeoutExpired) => wait_readable(fd, 20),
             Err(err) => {
                 sensor.flush_all(&mut out);
                 sink.emit(&mut out)?;
@@ -420,6 +428,21 @@ fn capture(
             report(&sensor, &sink, status_file);
             last_housekeeping = Instant::now();
         }
+    }
+}
+
+/// Waits up to `timeout_ms` for the capture descriptor to become readable.
+#[cfg(feature = "live")]
+fn wait_readable(fd: std::os::fd::RawFd, timeout_ms: i32) {
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd for the duration of the call. EINTR and other
+    // errors just end the wait; the loop reads (and reports errors) next.
+    unsafe {
+        libc::poll(&mut pfd, 1, timeout_ms);
     }
 }
 

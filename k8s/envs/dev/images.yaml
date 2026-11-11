@@ -3,17 +3,17 @@
 flink:
   detectionJob:
     image:
-      tag: sha-817cbeaf
+      tag: sha-ca0fc01c
 sensor:
   image:
-    tag: sha-817cbeaf
+    tag: sha-ca0fc01c
 incidents:
   projector:
     image:
-      tag: sha-817cbeaf
+      tag: sha-ca0fc01c
   api:
     image:
-      tag: sha-817cbeaf
+      tag: sha-ca0fc01c
 flowReplay:
   image:
-    tag: sha-817cbeaf
+    tag: sha-ca0fc01c

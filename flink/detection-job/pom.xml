@@ -15,7 +15,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!-- Must match the runtime image flink:1.20.5-java17. -->
     <flink.version>1.20.5</flink.version>
-    <flink.kafka.version>3.4.0-1.20</flink.kafka.version>
+    <flink.kafka.version>5.0.0-2.2</flink.kafka.version>
     <protobuf.version>4.36.2</protobuf.version>
     <junit.version>5.13.4</junit.version>
     <!-- flink-connector-kafka 3.4.0-1.20 bundles jackson 2.15 and guava 32,

@@ -121,7 +121,19 @@ jobs:
         run: |
           npm ci
           npm audit --audit-level=moderate
-          npx playwright install chromium --with-deps
+
+      # The runner image already has Chrome's system libraries; only the
+      # browser build is downloaded (cached), without apt. `--with-deps` made
+      # the job depend on the Ubuntu mirror, which failed it during an outage.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/ui/package-lock.json') }}
+
+      - name: Install Chromium for Playwright
+        working-directory: tests/ui
+        run: npx playwright install chromium
 
       - name: UI tests (built UI, mocked API and WebSocket)
         working-directory: tests/ui

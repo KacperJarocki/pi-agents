@@ -1,7 +1,7 @@
 # Incident projector. Build from the repository root (it generates its
 # Protobuf module from schemas/events/v2):
 #   docker build -f images/incident-projector/Dockerfile .
-FROM docker.io/library/python:3.12.16-slim-bookworm AS proto
+FROM docker.io/library/python:3.15.0-slim-bookworm AS proto
 WORKDIR /src
 COPY images/incident-projector/requirements-build.txt .
 RUN pip install --no-cache-dir -r requirements-build.txt
@@ -9,7 +9,7 @@ COPY schemas/events/v2 schemas/events/v2
 COPY images/incident-projector/generate_proto.py .
 RUN mkdir out && python generate_proto.py --schemas schemas/events/v2 --out out
 
-FROM docker.io/library/python:3.12.16-slim-bookworm
+FROM docker.io/library/python:3.15.0-slim-bookworm
 WORKDIR /srv
 COPY images/incident-projector/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

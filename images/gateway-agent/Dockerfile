@@ -1,4 +1,4 @@
-FROM docker.io/library/python:3.12.16-slim-bookworm
+FROM docker.io/library/python:3.15.0-slim-bookworm
 
 WORKDIR /app
 

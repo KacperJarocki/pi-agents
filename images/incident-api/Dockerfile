@@ -7,7 +7,7 @@ RUN npm ci --no-audit --no-fund
 COPY ui/ ./
 RUN npm run build
 
-FROM docker.io/library/python:3.12.16-slim-bookworm
+FROM docker.io/library/python:3.15.0-slim-bookworm
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

@@ -38,7 +38,7 @@
   const medianDelay = $derived.by(() => {
     const ds = all
       .map(delayMs)
-      .filter((d): d is number => d != null && d >= 0) // negative = clock skew
+      .filter((d): d is number => d != null && d >= 0) // negative: device clock ran ahead
       .sort((a, b) => a - b);
     return ds.length ? ds[Math.floor(ds.length / 2)]! : null;
   });
@@ -174,7 +174,7 @@
               class:skew={(delayMs(t) ?? 0) < 0}
               data-testid="delay"
               title={(delayMs(t) ?? 0) < 0
-                ? `Evidence is ${Math.round(-(delayMs(t) ?? 0) / 1000)} s later than the database commit: the gateway clock was ahead.`
+                ? `Evidence time is ${Math.round(-(delayMs(t) ?? 0) / 1000)} s after the commit: the detection job's device clock ran ahead (fixed), so there is no real delay to show.`
                 : undefined}>{delay(delayMs(t))}</td
             >
             <td class="right num hide-sm muted" data-testid="revision">{t.revision}</td>

@@ -75,6 +75,35 @@ class RollingViewsTest {
   }
 
   @Test
+  void clockDoesNotRunAheadWhenTrafficResumesAfterSilence() throws Exception {
+    var h = harness();
+    h.setProcessingTime(0);
+    h.processElement(probe(1, "12:00:00", 22), 0);
+    // Five minutes of silence: the device clock follows wall time to ~12:05:00.
+    for (long t = 1_000; t <= 300_000; t += 1_000) {
+      h.setProcessingTime(t);
+    }
+    // Traffic resumes. Its event time trails the clock extrapolated at the last
+    // tick (flows reach Flink seconds after they end), so the clock does not move.
+    long resumed = Events.record(2, "12:04:54").eventTimeMs;
+    h.processElement(probe(2, "12:04:54", 23), 300_000);
+    drain(h);
+    // 30 s later that probe must still be inside the 60 s window, and the
+    // clock must be about 30 s past it, not the earlier silence ahead.
+    for (long t = 301_000; t <= 330_000; t += 1_000) {
+      h.setProcessingTime(t);
+    }
+    List<DeviceWindows.ViewSet> sets = drain(h);
+    for (DeviceWindows.ViewSet set : sets) {
+      assertTrue(
+          set.windowEndMs - resumed <= 40_000,
+          "device clock ran " + (set.windowEndMs - resumed) / 1000 + " s past the last event");
+      assertEquals(1, set.views[0].failedTargets, "the resumed probe expired early");
+    }
+    h.close();
+  }
+
+  @Test
   void stateSurvivesSnapshotAndRestore() throws Exception {
     var h = harness();
     h.setProcessingTime(0);

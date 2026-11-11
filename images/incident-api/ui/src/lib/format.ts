@@ -62,12 +62,12 @@ export function delayMs(t: Pick<Transition, 'committed_at_ms' | 'evidence_event_
 }
 
 /**
- * A negative delay means the gateway's clock ran ahead of the database's
- * (e.g. a Pi without an RTC before NTP sync): not a real latency.
+ * A negative delay is not a latency: the evidence time came from the
+ * detection job's device clock, which could run ahead of real time after a
+ * device was silent (fixed in RollingViews). Shown as a dash.
  */
 export function delay(ms: number | null): string {
-  if (ms == null) return DASH;
-  if (ms < 0) return 'clock skew';
+  if (ms == null || ms < 0) return DASH;
   return ms < 10000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 

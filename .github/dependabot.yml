@@ -26,6 +26,18 @@ updates:
       base-images:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # A Python minor (3.12 -> 3.15) is a runtime upgrade, not a security
+      # patch: fresh minors lack wheels (confluent-kafka needs gcc) and must
+      # be adopted deliberately across all images at once.
+      - dependency-name: "library/python"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # The JDK and Flink runtime majors must move together with the job's
+      # flink.version (runtime image is flink:*-java17); bump them by hand.
+      - dependency-name: "library/eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "library/flink"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: maven
     directory: /flink/detection-job
@@ -35,3 +47,9 @@ updates:
       flink-job:
         patterns: ["*"]
         update-types: [minor, patch]
+    ignore:
+      # Flink 2.x is an API break (ParameterTool, RichFunction#open, sink2) and
+      # the connector's -1.20/-2.x suffix must match the runtime image. Migrate
+      # flink.version, flink-connector-kafka and the flink image together.
+      - dependency-name: "org.apache.flink:*"
+        update-types: ["version-update:semver-major"]

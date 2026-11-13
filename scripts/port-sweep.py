@@ -129,6 +129,73 @@ PROFILES: dict[str, dict[str, object]] = {
         "label": "aggressive_port_sweep",
         "description": "High-diversity, high-rate sweep for strong model/heuristic response.",
     },
+    # Attack shapes beyond the vertical port sweep. "shape" is the scan
+    # geometry and "expected_signal" says what the current port-scan rule
+    # (distinct failed targets, 60 s >= 20 or 900 s >= 40) should do:
+    #   port_churn          -> expected to open an incident
+    #   none_or_boundary    -> benign / right at the threshold
+    #   below_threshold_gap -> a real attack the current rule does not catch,
+    #                          kept so the thesis can show detection coverage.
+    "horizontal": {
+        "ports": [23],
+        "rate": 6.0,
+        "duration_seconds": 300.0,
+        "label": "horizontal_scan",
+        "description": "One service port (Telnet 23) swept across many hosts, like worm/Mirai propagation. "
+        "Needs several discovered targets; each refusing host is a distinct failed target.",
+        "shape": "horizontal",
+        "expected_signal": "port_churn",
+    },
+    "telnet-brute": {
+        "ports": [23, 2323, 22],
+        "rate": 8.0,
+        "duration_seconds": 300.0,
+        "label": "telnet_credential_brute",
+        "description": "Mirai-style repeated Telnet/SSH logins against a few hosts: high flow volume but few "
+        "distinct targets, so it stays under the port-scan threshold.",
+        "shape": "brute",
+        "expected_signal": "below_threshold_gap",
+    },
+    "web-fuzz": {
+        "ports": [80, 443, 8080, 8443],
+        "rate": 8.0,
+        "duration_seconds": 300.0,
+        "label": "web_endpoint_fuzz",
+        "description": "Rapid repeated connections to one host's web ports, like directory/endpoint fuzzing: high "
+        "volume, low target diversity.",
+        "shape": "brute",
+        "expected_signal": "below_threshold_gap",
+    },
+    "rdp-brute": {
+        "ports": [3389, 5900, 22],
+        "rate": 6.0,
+        "duration_seconds": 300.0,
+        "label": "remote_access_brute",
+        "description": "Remote-access credential brute against admin ports (RDP/VNC/SSH) on a few hosts; a "
+        "volume anomaly rather than a wide sweep.",
+        "shape": "brute",
+        "expected_signal": "below_threshold_gap",
+    },
+    "flood": {
+        "ports": [80],
+        "rate": 30.0,
+        "duration_seconds": 120.0,
+        "label": "connection_flood",
+        "description": "High-rate connection burst to a single target port (a load/DoS traffic signature, not a "
+        "spoofed or amplified flood): very high flows, one target.",
+        "shape": "flood",
+        "expected_signal": "below_threshold_gap",
+    },
+    "beacon": {
+        "ports": [8443],
+        "rate": 0.1,
+        "duration_seconds": 900.0,
+        "label": "c2_beacon",
+        "description": "Low-and-slow periodic connection to one destination, like C2 beaconing or exfil staging: "
+        "almost no volume, one target, long lived.",
+        "shape": "beacon",
+        "expected_signal": "below_threshold_gap",
+    },
 }
 
 
@@ -482,7 +549,11 @@ def main(argv: list[str] | None = None) -> int:
         "progress_every": args.progress_every,
         "estimated_end_at": estimated_end_at.isoformat(timespec="milliseconds") if estimated_end_at else None,
         "dry_run": args.dry_run,
-        "expected_signal": "port_churn" if args.profile in {"positive", "slow", "aggressive"} else "none_or_boundary",
+        "attack_shape": PROFILES[args.profile].get("shape", "vertical"),
+        "expected_signal": PROFILES[args.profile].get(
+            "expected_signal",
+            "port_churn" if args.profile in {"positive", "slow", "aggressive"} else "none_or_boundary",
+        ),
     }
 
     if args.dry_run:

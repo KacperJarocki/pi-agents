@@ -22,14 +22,46 @@ STOP_REQUESTED = False
 
 
 DEFAULT_PHASES = ["negative", "borderline", "positive", "slow", "aggressive"]
-PORT_SWEEP_PHASES = {"negative", "borderline", "positive", "slow", "aggressive"}
+# Vertical port sweeps plus the richer attack shapes from scripts/port-sweep.py.
+PORT_SWEEP_PHASES = {
+    "negative",
+    "borderline",
+    "positive",
+    "slow",
+    "aggressive",
+    "horizontal",
+    "telnet-brute",
+    "web-fuzz",
+    "rdp-brute",
+    "flood",
+    "beacon",
+}
 PORT_SWEEP_DURATIONS = {
     "negative": 300.0,
     "borderline": 300.0,
     "positive": 300.0,
     "slow": 900.0,
     "aggressive": 300.0,
+    "horizontal": 300.0,
+    "telnet-brute": 300.0,
+    "web-fuzz": 300.0,
+    "rdp-brute": 300.0,
+    "flood": 120.0,
+    "beacon": 900.0,
 }
+PRESET_ORDER = [
+    "negative",
+    "positive",
+    "borderline",
+    "slow",
+    "aggressive",
+    "horizontal",
+    "telnet-brute",
+    "web-fuzz",
+    "rdp-brute",
+    "flood",
+    "beacon",
+]
 PRESETS = {
     "balanced35": {
         "negative": 10,
@@ -37,7 +69,22 @@ PRESETS = {
         "borderline": 5,
         "slow": 5,
         "aggressive": 5,
-    }
+    },
+    # One pass of every attack shape (plus benign/boundary baselines) for a
+    # mixed dataset that covers the detection gaps, not just vertical sweeps.
+    "attackmix": {
+        "negative": 3,
+        "borderline": 2,
+        "positive": 3,
+        "slow": 1,
+        "aggressive": 1,
+        "horizontal": 3,
+        "telnet-brute": 3,
+        "web-fuzz": 2,
+        "rdp-brute": 2,
+        "flood": 2,
+        "beacon": 1,
+    },
 }
 
 
@@ -130,12 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--phases",
         type=split_csv,
         default=DEFAULT_PHASES,
-        help="comma-separated phases: negative,borderline,positive,slow,aggressive; add normal if needed",
+        help="comma-separated phases: negative,borderline,positive,slow,aggressive,horizontal,telnet-brute,web-fuzz,rdp-brute,flood,beacon; add normal if needed",
     )
     parser.add_argument(
         "--preset",
         choices=sorted(PRESETS),
-        help="prebuilt research plan; balanced35 runs 10 negative, 10 positive, 5 borderline, 5 slow, 5 aggressive",
+        help="prebuilt research plan; balanced35 runs 35 vertical-sweep phases, attackmix runs one pass of every attack shape (horizontal, brute, fuzz, flood, beacon) with benign baselines",
     )
     parser.add_argument("--shuffle-phases", action="store_true", help="shuffle expanded preset phases using --seed")
     parser.add_argument(
@@ -172,7 +219,7 @@ def preset_phases(name: str, seed: int | None = None, shuffle: bool = False) -> 
     counts = PRESETS[name]
     remaining = dict(counts)
     phases: list[str] = []
-    order = ["negative", "positive", "borderline", "slow", "aggressive"]
+    order = [phase for phase in PRESET_ORDER if phase in remaining]
     while sum(remaining.values()) > 0:
         for phase in order:
             if remaining[phase] > 0:

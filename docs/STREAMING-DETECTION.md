@@ -75,6 +75,26 @@ Flink metrics (per operator):
 
 Sensor health (loss, unattributed traffic, flow-table evictions, heartbeat) arrives on `traffic.health.v2` from the gateway.
 
+## Alerting (push to ntfy)
+
+The browser UI shows incidents live and (since the header bell) raises a toast,
+tone and desktop notification. For a push that does not need the dashboard open,
+incidents also reach the homelab Alertmanager → ntfy path:
+
+```
+incident-api /metrics ─► Prometheus (ServiceMonitor) ─► PrometheusRule (PortScanActive)
+                                                              │
+                                              Alertmanager route (team=security)
+                                                              │
+                                                 ntfy topic "homelab-security" ─► phone
+```
+
+- **Metric** — incident-api serves `/metrics` with `pi_agents_active_incidents{incident_severity,rule_id}` (and `pi_agents_active_incidents_total`, always emitted so the series is stable). It counts rows in `incidents` where `active` is true, so a gauge above 0 means an episode is currently open.
+- **Scrape + rule** — `incidents.api.monitoring.enabled` (on in prod) renders a `ServiceMonitor` scraping `/metrics` and a `PrometheusRule` with `alert: PortScanActive` (`expr: max by (incident_severity) (pi_agents_active_incidents{rule_id="port-scan"}) > 0`, `for: 2m`). Prometheus selects both cluster-wide. The alert carries `severity: warning` and `topic: security` (from `monitoring.alertLabels`) for routing.
+- **Routing + topic (homelab repo)** — the homelab Alertmanager routes one ntfy topic per `topic` label (`homelab-<topic>`). A route for `topic = "security"` sends the alert to the `ntfy-security` receiver → the `homelab-security` topic, separate from the infra topics. The homelab ntfy ACL is a wildcard (`alertmanager:homelab-*:wo`, `phone:homelab-*:ro`), so a new `homelab-*` topic needs no ACL change — only the route + receiver and a phone subscription to the topic.
+
+Why not push straight from incident-api to ntfy: this reuses Alertmanager's dedup, grouping and silencing, and keeps one notification path and one place (homelab) that decides which topic a class of alert goes to. The cost is latency (scrape interval + `for:`), so the UI bell remains the instant signal and ntfy is the away-from-screen backstop.
+
 ## Deploying
 
 Set `flink.detectionJob.enabled=true` and `flink.detectionJob.image.tag` to a `sha-<8 chars>` tag of `ghcr.io/kacperjarocki/flink-detection-job`. When an existing deployment switches from the smoke job, also set `flink.detectionJob.allowNonRestoredState=true` for that rollout (the smoke job's savepoint holds state the detection job does not have), then set it back to `false`.

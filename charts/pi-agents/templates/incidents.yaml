@@ -184,4 +184,52 @@ spec:
                 port:
                   name: http
 {{- end }}
+{{- if $a.monitoring.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-api
+  labels:
+    app.kubernetes.io/component: incident-api
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: incident-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $a.monitoring.interval | default "30s" }}
+{{- if $a.monitoring.portScan.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}-threats
+  labels:
+    app.kubernetes.io/component: incident-api
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pi-agents-threats
+      rules:
+        - alert: PortScanActive
+          # One series per incident severity; max by keeps labels clean so the
+          # alert resolves when the gauge drops to 0.
+          expr: max by (incident_severity) (pi_agents_active_incidents{rule_id="port-scan"}) > 0
+          for: {{ $a.monitoring.portScan.for | default "2m" | quote }}
+          labels:
+            severity: warning
+            {{- range $k, $v := $a.monitoring.alertLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          annotations:
+            summary: "Port scan active on the IoT network"
+            description: >-
+              A device is being flagged as port scanning (incident severity
+              {{`{{ $labels.incident_severity }}`}}). Open the dashboard: {{ $a.monitoring.portScan.dashboardUrl }}
+{{- end }}
+{{- end }}
 {{- end }}

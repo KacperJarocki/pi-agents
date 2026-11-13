@@ -1,5 +1,6 @@
 <script lang="ts">
   import { clock } from '../lib/clock.svelte';
+  import { alerts } from '../lib/alerts.svelte';
   import { live } from '../lib/live.svelte';
   import { prefs, type Theme } from '../lib/prefs.svelte';
   import { link, route } from '../lib/router.svelte';
@@ -16,6 +17,16 @@
       : live.connection === 'offline'
         ? `Connection lost, retrying in ${retryIn} s`
         : 'Opening the live connection',
+  );
+
+  const alertLabel = $derived(
+    !prefs.alerts
+      ? 'Incident alerts off'
+      : alerts.permission === 'granted'
+        ? 'Incident alerts on (in page and desktop notifications)'
+        : alerts.permission === 'denied'
+          ? 'Incident alerts on in this page; desktop notifications are blocked in the browser settings'
+          : 'Incident alerts on in this page; click to allow desktop notifications',
   );
 
   const themes: { value: Theme; label: string; icon: 'monitor' | 'sun' | 'moon' }[] = [
@@ -57,6 +68,18 @@
       >
         <span class="dot" aria-hidden="true"></span>{statusText}
       </span>
+      <button
+        class="icon-btn"
+        class:on={prefs.alerts}
+        type="button"
+        onclick={() => alerts.toggle()}
+        title={alertLabel}
+        aria-label={alertLabel}
+        aria-pressed={prefs.alerts}
+        data-testid="alerts-toggle"
+      >
+        <Icon name={prefs.alerts ? 'bell' : 'bell-off'} />
+      </button>
       <button class="icon-btn" type="button" onclick={nextTheme} title={theme.label} aria-label={theme.label}>
         <Icon name={theme.icon} />
       </button>
@@ -213,6 +236,9 @@
   .icon-btn:hover {
     color: var(--text);
     border-color: var(--border-strong);
+  }
+  .icon-btn.on {
+    color: var(--accent);
   }
 
   @media (max-width: 760px) {

@@ -312,3 +312,41 @@ test('an evidence time after the commit shows no delay instead of a negative one
   await expect(page.locator('tr[data-incident="ok"]').getByTestId('delay')).toHaveText('350 ms');
   await expect(page.getByText('-100000 ms')).toHaveCount(0);
 });
+
+test('alerts with a toast when an incident opens or escalates, not on the snapshot', async ({ page }) => {
+  await open(page, (ws) => {
+    send(ws, { type: 'snapshot', cursor: 1, incidents: [transition('old', 1)] });
+    send(ws, { type: 'live', cursor: 1 });
+    send(ws, { type: 'change', cursor: 2, transition: transition('new', 1) });
+    send(ws, { type: 'change', cursor: 3, transition: transition('old', 2, { severity: 'HIGH' }) });
+  });
+
+  const toasts = page.getByTestId('alert-toast');
+  await expect(toasts).toHaveCount(2);
+  await expect(toasts.nth(0)).toContainText('Port scan escalated to HIGH');
+  await expect(toasts.nth(1)).toContainText('Port scan detected (LOW)');
+  await expect(toasts.nth(1)).toContainText('02:00:00:00:00:0a');
+
+  await toasts.nth(0).getByRole('button', { name: 'Dismiss alert' }).click();
+  await expect(toasts).toHaveCount(1);
+});
+
+test('the bell turns incident alerts off', async ({ page }) => {
+  let socket: WebSocketRoute | undefined;
+  await open(page, (ws) => {
+    socket = ws;
+    send(ws, { type: 'snapshot', cursor: 0, incidents: [] });
+    send(ws, { type: 'live', cursor: 0 });
+  });
+  await expect(page.getByTestId('status')).toHaveText('Live');
+
+  const bell = page.getByTestId('alerts-toggle');
+  await expect(bell).toHaveAttribute('aria-pressed', 'true');
+  // Headless Chromium has no pending permission prompt, so a click toggles alerts off.
+  await bell.click();
+  await expect(bell).toHaveAttribute('aria-pressed', 'false');
+
+  send(socket!, { type: 'change', cursor: 1, transition: transition('quiet', 1) });
+  await expect(page.locator('tr[data-incident="quiet"]')).toBeVisible();
+  await expect(page.getByTestId('alert-toast')).toHaveCount(0);
+});

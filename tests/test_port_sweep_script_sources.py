@@ -29,6 +29,18 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn("ML port-diversity features", src)
         self.assertIn("27017", src)
 
+    def test_port_sweep_has_varied_attack_shapes(self):
+        repo = Path(__file__).resolve().parents[1]
+        src = (repo / "scripts" / "port-sweep.py").read_text()
+
+        for profile in ("horizontal", "telnet-brute", "web-fuzz", "rdp-brute", "flood", "beacon"):
+            self.assertIn(f'"{profile}"', src)
+        # Each shape carries ground-truth metadata used in run.json.
+        self.assertIn('"shape"', src)
+        self.assertIn("expected_signal", src)
+        self.assertIn("below_threshold_gap", src)
+        self.assertIn("attack_shape", src)
+
     def test_port_sweep_wrapper_exists(self):
         repo = Path(__file__).resolve().parents[1]
         src = (repo / "scripts" / "port-sweep.sh").read_text()
@@ -68,6 +80,10 @@ class TestPortSweepScriptSources(unittest.TestCase):
         self.assertIn('"borderline": 5', src)
         self.assertIn('"slow": 5', src)
         self.assertIn('"aggressive": 5', src)
+        self.assertIn('"attackmix"', src)
+        self.assertIn('"horizontal"', src)
+        self.assertIn('"telnet-brute"', src)
+        self.assertIn("PRESET_ORDER", src)
         self.assertIn("--detach", src)
         self.assertIn("research.log", src)
         self.assertIn("status.json", src)

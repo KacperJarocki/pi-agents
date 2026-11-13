@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity';
+import { alerts } from './alerts.svelte';
 import type { FeedMessage, GatewayHealth, Transition } from './types';
 
 // Live incidents over /ws/v2/incidents. One entry per incident; a transition
@@ -67,10 +68,15 @@ class LiveFeed {
       case 'reset':
         this.incidents.clear();
         break;
-      case 'change':
-        if (this.#apply(msg.transition, msg.committed_at_ms, true)) this.changes++;
+      case 'change': {
+        const prev = this.incidents.get(msg.transition.incident_id);
+        if (this.#apply(msg.transition, msg.committed_at_ms, true)) {
+          this.changes++;
+          alerts.onChange(prev, msg.transition);
+        }
         this.cursor = msg.cursor;
         break;
+      }
       case 'health':
         this.health = msg.gateways ?? [];
         break;

@@ -21,6 +21,14 @@ Both pages share one live connection: the header shows its state and the
 number of open incidents, and the device list refreshes when an incident
 changes. The theme follows the OS or a manual light/dark choice.
 
+The bell in the header controls incident alerts (on by default, remembered per
+browser). While an incident **opens**, **escalates** to a higher severity, or
+sees a **new wave** inside an active episode, the UI raises a toast, plays a
+short tone, and — when the browser has been granted permission — posts a
+desktop notification. The first click on the bell asks for that permission;
+further clicks turn alerts off and on. A snapshot replay on (re)connect never
+alerts, so reconnecting is silent.
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v2/incidents?active=true&device=<key>` | Snapshot of incidents (active only by default, optionally for one device key) plus the feed `cursor` it corresponds to (one REPEATABLE READ transaction). |

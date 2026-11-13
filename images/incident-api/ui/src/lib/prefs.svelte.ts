@@ -13,12 +13,17 @@ function load<T>(key: string, fallback: T): T {
 export const prefs = $state({
   theme: load<Theme>('theme', 'system'),
   showResolved: load('showResolved', true),
+  /** Toast, tone and desktop notification when an incident opens or escalates. */
+  alerts: load('alerts', true),
+  alertSound: load('alertSound', true),
 });
 
 $effect.root(() => {
   $effect(() => {
     localStorage.setItem('pi-agents:theme', JSON.stringify(prefs.theme));
     localStorage.setItem('pi-agents:showResolved', JSON.stringify(prefs.showResolved));
+    localStorage.setItem('pi-agents:alerts', JSON.stringify(prefs.alerts));
+    localStorage.setItem('pi-agents:alertSound', JSON.stringify(prefs.alertSound));
     if (prefs.theme === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = prefs.theme;
   });

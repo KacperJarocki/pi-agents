@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AlertToasts from './components/AlertToasts.svelte';
   import AppHeader from './components/AppHeader.svelte';
   import DevicesPage from './components/DevicesPage.svelte';
   import LivePage from './components/LivePage.svelte';
@@ -25,6 +26,7 @@
 </script>
 
 <AppHeader />
+<AlertToasts />
 <main>
   {#if route.page === 'live'}
     <LivePage />

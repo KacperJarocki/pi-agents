@@ -91,7 +91,7 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("pi_agents_active_incidents", api_main)
         # Scrape + alert are opt-in and wired to Alertmanager routing labels.
         self.assertIn("monitoring:", values)
-        self.assertIn("team: security", values)
+        self.assertIn("topic: security", values)
         self.assertIn("kind: ServiceMonitor", template)
         self.assertIn("kind: PrometheusRule", template)
         self.assertIn("alert: PortScanActive", template)

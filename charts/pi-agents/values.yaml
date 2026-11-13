@@ -235,10 +235,11 @@ incidents:
     monitoring:
       enabled: false
       interval: 30s
-      # Added to the alert's labels so the homelab Alertmanager can route it to
-      # a dedicated receiver/ntfy topic (it matches team=security).
+      # Added to the alert's labels so the homelab Alertmanager routes it to a
+      # dedicated receiver/ntfy topic. Homelab routes one ntfy topic per `topic`
+      # label (homelab-<topic>); "security" -> the homelab-security topic.
       alertLabels:
-        team: security
+        topic: security
       portScan:
         enabled: true
         # Minimum time a port-scan incident must stay active before alerting.

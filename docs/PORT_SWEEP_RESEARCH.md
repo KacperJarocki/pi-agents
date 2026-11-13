@@ -22,6 +22,8 @@ Run it from the device being evaluated, not from the gateway host, so the collec
 
 ## Profiles
 
+### Vertical port sweeps
+
 | Profile | Purpose | Expected Detection |
 |---------|---------|--------------------|
 | `negative` | Low-volume normal web-like probes for FP checks | No `port_churn` |
@@ -32,6 +34,44 @@ Run it from the device being evaluated, not from the gateway host, so the collec
 
 The `positive`, `slow`, and `aggressive` profiles are designed around the current `port_churn` heuristic: at least 6 unique destination ports and at least 5 new destination ports in the latest inference bucket.
 
+### Other attack shapes
+
+The sweeps above are all **vertical** (many ports on a host). These profiles cover
+different attack geometries so the dataset is not just port sweeps. Each run records
+its `attack_shape` and `expected_signal` in `run.json`, so you can use them as
+ground-truth labels. `expected_signal` is what the **current** streaming port-scan
+rule (distinct failed targets: 60 s ≥ 20 or 900 s ≥ 40) is expected to do.
+
+| Profile | Shape | Attack it mimics | `expected_signal` |
+|---------|-------|------------------|-------------------|
+| `horizontal` | horizontal | One service port (Telnet 23) across many hosts — worm/Mirai propagation | `port_churn` (each refusing host is a distinct failed target) |
+| `telnet-brute` | brute | Mirai-style Telnet/SSH credential brute on a few hosts | `below_threshold_gap` |
+| `web-fuzz` | brute | Directory/endpoint fuzzing against one host's web ports | `below_threshold_gap` |
+| `rdp-brute` | brute | Remote-access (RDP/VNC/SSH) credential brute | `below_threshold_gap` |
+| `flood` | flood | High-rate connection burst to one target port (load/DoS signature) | `below_threshold_gap` |
+| `beacon` | beacon | Low-and-slow C2 beacon / exfil staging to one destination | `below_threshold_gap` |
+
+`port_churn` means the current rule should open an incident. `below_threshold_gap`
+marks a real attack the current rule does **not** catch, because it concentrates on
+one or a few targets instead of fanning out: these are kept deliberately as detection
+coverage gaps, useful for arguing which rules (volume, beaconing, brute-force) the
+system still needs. `horizontal` needs several discovered hosts — run it with subnet
+discovery (the default in `research.py`), not a single `--target`.
+
+`flood` is a high connection **rate** to one port to produce a load signature for
+research on your own testbed; it is not a spoofed or amplified denial-of-service.
+
+```bash
+# Horizontal Telnet sweep across the discovered /24
+./scripts/port-sweep.sh --discover-subnet auto --profile horizontal
+
+# Telnet credential brute against the gateway (a below-threshold volume anomaly)
+./scripts/port-sweep.sh --target 192.168.50.1 --profile telnet-brute
+
+# Low-and-slow beacon shape
+./scripts/port-sweep.sh --target 192.168.50.1 --profile beacon --dry-run
+```
+
 `research.py` runs the suggested port-sweep protocol as one experiment: `negative`, `borderline`, `positive`, `slow`, and `aggressive`, with a quiet gap between phases. It stores top-level timestamps under `artifacts/research-runs/<run-id>/` so dashboard readings can be mapped back to each phase. Add `--phases normal,negative,borderline,positive,slow,aggressive` only if you want the benign IoT emulator included in the same run.
 
 `python3 research.py` is intentionally the ready-to-run overnight command. It is equivalent to:
@@ -41,6 +81,23 @@ python3 research.py --preset balanced35 --gap 5m --randomize --shuffle-phases --
 ```
 
 `balanced35` expands to 35 phases: 10 `negative`, 10 `positive`, 5 `borderline`, 5 `slow`, and 5 `aggressive`. With the default profile durations and a 5-minute gap it takes about 6h35m. Discovery is still enabled by default, so this command finds reachable hosts in the local `/24` before each port-sweep phase.
+
+### The `attackmix` preset
+
+For a dataset that spans every attack shape rather than just vertical sweeps, use the
+`attackmix` preset. It runs one balanced pass of the sweeps plus the horizontal scan,
+the brute-force shapes, the flood, and the beacon (23 phases), interleaved so no two
+identical phases run back to back:
+
+```bash
+python3 research.py --preset attackmix --gap 5m --randomize --shuffle-phases --detach
+```
+
+With default durations and a 5-minute gap it takes about 2h30m before gaps. Each phase
+still writes its own child output and the `attack_shape` / `expected_signal` labels, so
+the run covers both detections the rule should make (`horizontal`) and the gaps it
+should miss (`telnet-brute`, `web-fuzz`, `rdp-brute`, `flood`, `beacon`). You can also
+pick shapes directly with `--phases`, e.g. `--phases horizontal,telnet-brute,flood`.
 
 Target discovery options:
 

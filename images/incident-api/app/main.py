@@ -30,7 +30,7 @@ from typing import Any
 import httpx
 import psycopg
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -43,6 +43,36 @@ BATCH = 500
 STATIC_DIR = pathlib.Path(os.environ.get("STATIC_DIR", pathlib.Path(__file__).parent / "static"))
 LEASE_CACHE_S = 10
 _SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+
+
+def _metric_label(value: str) -> str:
+    """Escape a Prometheus label value (backslash, quote, newline)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def render_metrics(rows: list[dict[str, Any]], total: int) -> str:
+    """Prometheus text exposition for the active-incident gauges.
+
+    `pi_agents_active_incidents_total` is always emitted (0 when quiet) so the
+    series is stable; the per-severity/rule breakdown appears only while
+    incidents are active. Alertmanager routes on these labels.
+    """
+    lines = [
+        "# HELP pi_agents_active_incidents Active (unresolved) incidents by severity and rule.",
+        "# TYPE pi_agents_active_incidents gauge",
+    ]
+    for r in sorted(rows, key=lambda r: (str(r["rule_id"]), str(r["severity"]))):
+        rule = _metric_label(str(r["rule_id"]))
+        # Named incident_severity so it does not clash with Alertmanager's own
+        # severity label when a PrometheusRule fires on this series.
+        severity = _metric_label(str(r["severity"]))
+        lines.append(f'pi_agents_active_incidents{{incident_severity="{severity}",rule_id="{rule}"}} {int(r["n"])}')
+    lines += [
+        "# HELP pi_agents_active_incidents_total Active (unresolved) incidents across all rules.",
+        "# TYPE pi_agents_active_incidents_total gauge",
+        f"pi_agents_active_incidents_total {int(total)}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _ms(value: dt.datetime | None) -> int | None:
@@ -118,6 +148,16 @@ class Store:
             )
             rows = await cur.fetchall()
         return [{**r["payload"], "committed_at_ms": _ms(r["received_at"])} for r in rows]
+
+    async def active_incident_counts(self) -> tuple[list[dict[str, Any]], int]:
+        """Active (unresolved) incident counts grouped by severity and rule."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT severity, rule_id, count(*) AS n FROM incidents WHERE active GROUP BY severity, rule_id"
+            )
+            rows = await cur.fetchall()
+        total = sum(int(r["n"]) for r in rows)
+        return rows, total
 
     async def device_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Latest views per device/horizon and incident counts per device."""
@@ -357,6 +397,11 @@ def create_app(
         async with store.pool.connection() as conn:
             await conn.execute("SELECT 1")
         return {"ok": True}
+
+    @app.get("/metrics")
+    async def metrics():
+        rows, total = await store.active_incident_counts()
+        return PlainTextResponse(render_metrics(rows, total), media_type="text/plain; version=0.0.4")
 
     @app.get("/api/v2/incidents")
     async def incidents(active: bool = True, limit: int = Query(500, ge=1, le=5000), device: str | None = None):

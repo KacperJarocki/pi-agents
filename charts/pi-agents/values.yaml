@@ -228,6 +228,23 @@ incidents:
       enabled: true
       host: iot-dashboard.homelab.kacperjarocki.dev
       clusterIssuer: letsencrypt-http-prod
+    # Scrape /metrics (active-incident gauges) and ship a port-scan alert to
+    # Alertmanager. Needs the Prometheus operator CRDs (ServiceMonitor,
+    # PrometheusRule) from kube-prometheus-stack. Prometheus selects these
+    # cluster-wide, so no extra labels are required.
+    monitoring:
+      enabled: false
+      interval: 30s
+      # Added to the alert's labels so the homelab Alertmanager can route it to
+      # a dedicated receiver/ntfy topic (it matches team=security).
+      alertLabels:
+        team: security
+      portScan:
+        enabled: true
+        # Minimum time a port-scan incident must stay active before alerting.
+        for: 2m
+        # Link put in the notification.
+        dashboardUrl: https://iot-dashboard.homelab.kacperjarocki.dev/live/
 
 # Daily replay of traffic.flows.v2 from another environment's Kafka (prod) into
 # this release's Kafka, so dev has real traffic to test against. Only for dev:

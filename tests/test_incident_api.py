@@ -331,6 +331,34 @@ class IncidentApiTests(unittest.TestCase):
             update = self.receive_until(ws, "health")
             self.assertEqual(update["gateways"][0]["count"], 20)
 
+    def test_metrics_exposes_active_incident_gauges(self):
+        quiet = self.client.get("/metrics")
+        self.assertEqual(quiet.status_code, 200)
+        self.assertIn("text/plain", quiet.headers["content-type"])
+        self.assertIn("# TYPE pi_agents_active_incidents_total gauge", quiet.text)
+        self.assertIn("pi_agents_active_incidents_total 0", quiet.text)
+
+        self.apply("a", 1)  # active LOW port-scan
+        self.apply("b", 1)  # active LOW port-scan
+        self.apply("b", 2, status=4)  # resolved -> inactive
+        text = self.client.get("/metrics").text
+        self.assertIn('pi_agents_active_incidents{incident_severity="LOW",rule_id="port-scan"} 1', text)
+        self.assertIn("pi_agents_active_incidents_total 1", text)
+
+    def test_render_metrics_sorts_and_labels(self):
+        out = api_main.render_metrics(
+            [
+                {"severity": "HIGH", "rule_id": "port-scan", "n": 2},
+                {"severity": "LOW", "rule_id": "port-scan", "n": 1},
+            ],
+            3,
+        )
+        self.assertIn('pi_agents_active_incidents{incident_severity="HIGH",rule_id="port-scan"} 2', out)
+        self.assertIn("pi_agents_active_incidents_total 3", out)
+        self.assertLess(
+            out.index('incident_severity="HIGH"'), out.index('incident_severity="LOW"'), "stable label order"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -81,6 +81,22 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("KAFKA_BOOTSTRAP_SERVERS", config_template)
         self.assertIn("EXTERNAL_SERVICES_SECRET_NAME", secret_template)
 
+    def test_incident_api_exposes_metrics_and_opt_in_alerting(self):
+        chart = ROOT / "charts" / "pi-agents"
+        values = (chart / "values.yaml").read_text()
+        template = (chart / "templates" / "incidents.yaml").read_text()
+        api_main = (ROOT / "images" / "incident-api" / "app" / "main.py").read_text()
+        # The API serves a Prometheus /metrics endpoint.
+        self.assertIn('@app.get("/metrics")', api_main)
+        self.assertIn("pi_agents_active_incidents", api_main)
+        # Scrape + alert are opt-in and wired to Alertmanager routing labels.
+        self.assertIn("monitoring:", values)
+        self.assertIn("team: security", values)
+        self.assertIn("kind: ServiceMonitor", template)
+        self.assertIn("kind: PrometheusRule", template)
+        self.assertIn("alert: PortScanActive", template)
+        self.assertIn("$a.monitoring.enabled", template)
+
     def test_external_service_credentials_are_not_chart_values(self):
         values = (ROOT / "charts" / "pi-agents" / "values.yaml").read_text()
         for forbidden in ("password:", "accessKey:", "secretKey:", "postgres://"):

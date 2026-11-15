@@ -49,6 +49,10 @@ spec:
     state.savepoints.dir: {{ printf "%s/savepoints" $root | quote }}
     high-availability.type: kubernetes
     high-availability.storageDir: {{ printf "%s/ha" $root | quote }}
+    {{- if .Values.flink.monitoring.enabled }}
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: "9249"
+    {{- end }}
     {{- if eq $backend "s3" }}
     s3.endpoint: {{ $endpoint | quote }}
     s3.path.style.access: "true"
@@ -68,6 +72,12 @@ spec:
         fsGroup: 9999
       containers:
         - name: flink-main-container
+          {{- if .Values.flink.monitoring.enabled }}
+          ports:
+            - name: metrics
+              containerPort: 9249
+              protocol: TCP
+          {{- end }}
           {{- if eq $backend "longhorn" }}
           volumeMounts:
             - name: flink-state
@@ -131,4 +141,79 @@ spec:
     upgradeMode: last-state
     state: running
   {{- end }}
+{{- if .Values.flink.monitoring.enabled }}
+{{- $m := .Values.flink.monitoring }}
+{{- $flink := printf "%s-flink" (include "pi-agents.fullname" .) }}
+{{- $ns := .Release.Namespace | quote }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $flink }}
+  labels:
+    app.kubernetes.io/component: flink
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $flink }}
+      type: flink-native-kubernetes
+  podMetricsEndpoints:
+    - port: metrics
+      interval: {{ $m.interval | default "30s" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $flink }}
+  labels:
+    app.kubernetes.io/component: flink
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pi-agents-flink
+      rules:
+        - alert: DetectionJobNotRunning
+          # absent(): the JobManager itself is gone (or not scraped).
+          expr: >-
+            max(flink_jobmanager_numRunningJobs{namespace={{ $ns }}}) < 1
+            or absent(flink_jobmanager_numRunningJobs{namespace={{ $ns }}})
+          for: 5m
+          labels:
+            severity: warning
+            {{- range $k, $v := $m.alertLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          annotations:
+            summary: "The Flink detection job is not running"
+            description: >-
+              No Flink job has been running in {{ .Release.Namespace }} for 5 minutes.
+              Traffic is still captured, but nothing is evaluating it.
+        - alert: DetectionJobRestarting
+          expr: >-
+            max(increase(flink_jobmanager_job_numRestarts{namespace={{ $ns }}}[15m])) > {{ $m.maxRestarts | default 3 }}
+          labels:
+            severity: warning
+            {{- range $k, $v := $m.alertLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          annotations:
+            summary: "The Flink detection job keeps restarting"
+            description: >-
+              More than {{ $m.maxRestarts | default 3 }} restarts in 15 minutes in {{ .Release.Namespace }}.
+              Check the JobManager log for the failing operator.
+        - alert: DetectionJobCheckpointsFailing
+          expr: >-
+            max(increase(flink_jobmanager_job_numberOfFailedCheckpoints{namespace={{ $ns }}}[15m])) > {{ $m.maxFailedCheckpoints | default 3 }}
+          labels:
+            severity: warning
+            {{- range $k, $v := $m.alertLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          annotations:
+            summary: "The Flink detection job is failing its checkpoints"
+            description: >-
+              More than {{ $m.maxFailedCheckpoints | default 3 }} failed checkpoints in 15 minutes in {{ .Release.Namespace }}.
+              A restart would replay from an old checkpoint; check the object store and the TaskManager.
+{{- end }}
 {{- end }}

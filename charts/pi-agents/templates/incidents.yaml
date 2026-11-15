@@ -239,5 +239,36 @@ spec:
               A device is being flagged as port scanning (incident severity
               {{`{{ $labels.incident_severity }}`}}). Open the dashboard: {{ $a.monitoring.portScan.dashboardUrl }}
 {{- end }}
+{{- if $a.monitoring.heartbeat.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}-ingestion
+  labels:
+    app.kubernetes.io/component: incident-api
+    {{- include "pi-agents.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pi-agents-ingestion
+      rules:
+        - alert: SensorHeartbeatStale
+          # absent(): the API (or its scrape) is down, or no heartbeat was ever stored.
+          expr: >-
+            max by (gateway_id) (pi_agents_gateway_heartbeat_age_seconds{namespace={{ .Release.Namespace | quote }}}) > {{ $a.monitoring.heartbeat.staleAfterSeconds | default 120 }}
+            or absent(pi_agents_gateway_heartbeat_age_seconds{namespace={{ .Release.Namespace | quote }}})
+          for: {{ $a.monitoring.heartbeat.for | default "5m" | quote }}
+          labels:
+            severity: warning
+            {{- range $k, $v := $a.monitoring.alertLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+          annotations:
+            summary: "IoT traffic is not reaching the detection pipeline"
+            description: >-
+              No sensor heartbeat has been stored for more than {{ $a.monitoring.heartbeat.staleAfterSeconds | default 120 }} s
+              (gateway {{`{{ $labels.gateway_id }}`}}). The sensor, Kafka or the incident projector is down,
+              so port scans are not being detected.
+{{- end }}
 {{- end }}
 {{- end }}

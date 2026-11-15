@@ -376,6 +376,39 @@ class IncidentApiTests(unittest.TestCase):
             out.index('incident_severity="HIGH"'), out.index('incident_severity="LOW"'), "stable label order"
         )
 
+    def test_metrics_report_how_old_the_sensor_heartbeat_is(self):
+        self.assertNotIn("pi_agents_gateway_heartbeat_age_seconds{", self.client.get("/metrics").text)
+
+        beat = proj.events_pb2.HealthEvent()
+        beat.envelope.gateway_id = "gw"
+        beat.component, beat.kind, beat.count, beat.last_event_time_unix_millis = "sensor", 1, 10, 1_000
+        proj.db.apply_health(self.conn, beat)
+        loss = proj.events_pb2.HealthEvent()
+        loss.envelope.gateway_id = "gw"
+        loss.component, loss.kind, loss.count, loss.last_event_time_unix_millis = "sensor-spool", 2, 42, 1_000
+        proj.db.apply_health(self.conn, loss)
+        self.conn.execute("UPDATE gateway_health SET received_at = now() - interval '300 seconds'")
+
+        text = self.client.get("/metrics").text
+        age = next(line for line in text.splitlines() if line.startswith("pi_agents_gateway_heartbeat_age_seconds{"))
+        self.assertTrue(age.startswith('pi_agents_gateway_heartbeat_age_seconds{gateway_id="gw",component="sensor"} '))
+        self.assertTrue(300 <= float(age.rsplit(" ", 1)[1]) < 310, age)
+        self.assertIn(
+            'pi_agents_gateway_health_report_count{gateway_id="gw",component="sensor-spool",kind="SPOOL_LOSS"} 42',
+            text,
+        )
+        # The heartbeat is not repeated among the per-kind reports.
+        self.assertNotIn('kind="HEARTBEAT"', text)
+
+        beat.last_event_time_unix_millis = 2_000
+        proj.db.apply_health(self.conn, beat)  # a new heartbeat makes it fresh again
+        fresh = next(
+            line
+            for line in self.client.get("/metrics").text.splitlines()
+            if line.startswith("pi_agents_gateway_heartbeat_age_seconds{")
+        )
+        self.assertLess(float(fresh.rsplit(" ", 1)[1]), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

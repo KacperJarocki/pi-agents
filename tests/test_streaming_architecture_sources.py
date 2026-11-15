@@ -90,6 +90,13 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("kind: PrometheusRule", template)
         self.assertIn("alert: PortScanActive", template)
         self.assertIn("$a.monitoring.enabled", template)
+        # The ingestion path and the Flink job are watched too.
+        self.assertIn("pi_agents_gateway_heartbeat_age_seconds", api_main)
+        self.assertIn("alert: SensorHeartbeatStale", template)
+        flink = (chart / "templates" / "flink.yaml").read_text()
+        self.assertIn("PrometheusReporterFactory", flink)
+        self.assertIn("kind: PodMonitor", flink)
+        self.assertIn("alert: DetectionJobNotRunning", flink)
 
     def test_external_service_credentials_are_not_chart_values(self):
         values = (ROOT / "charts" / "pi-agents" / "values.yaml").read_text()

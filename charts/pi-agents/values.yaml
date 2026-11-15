@@ -73,6 +73,21 @@ flink:
       prefix: flink
       credentialsSecret: rustfs-credentials
   smokeJob: false
+  # Prometheus Operator integration (kube-prometheus-stack): turns on Flink's
+  # Prometheus reporter (port 9249 on the JobManager and TaskManagers) and
+  # renders a PodMonitor plus alerts for a job that is not running, keeps
+  # restarting or fails its checkpoints. Switching it changes the Flink
+  # configuration, so the job restarts once from its last checkpoint.
+  monitoring:
+    enabled: false
+    interval: 30s
+    # Added to the alerts' labels for Alertmanager routing (see
+    # incidents.api.monitoring.alertLabels).
+    alertLabels:
+      topic: security
+    # Restarts / failed checkpoints within 15 minutes that raise an alert.
+    maxRestarts: 3
+    maxFailedCheckpoints: 3
   # Detection job (flink/detection-job); replaces the smoke job when enabled.
   detectionJob:
     enabled: false
@@ -249,6 +264,13 @@ incidents:
         for: 2m
         # Link put in the notification.
         dashboardUrl: https://iot-dashboard.homelab.kacperjarocki.dev/live/
+      # Alert when the sensor's heartbeat (sent every 10 s through Kafka and
+      # the projector) stops arriving: detection is blind while it is stale.
+      # Leave off in environments without a capture sensor.
+      heartbeat:
+        enabled: true
+        staleAfterSeconds: 120
+        for: 5m
 
 # Daily replay of traffic.flows.v2 from another environment's Kafka (prod) into
 # this release's Kafka, so dev has real traffic to test against. Only for dev:

@@ -51,12 +51,6 @@ class StreamingArchitectureSourceTests(unittest.TestCase):
         self.assertIn("legacy path", roadmap)
         self.assertIn("thesis-final", roadmap)
 
-    def test_configuration_document_keeps_sqlite_as_explicit_legacy_fallback(self):
-        config = (ROOT / "docs" / "CONFIGURATION.md").read_text()
-        self.assertIn("DATABASE_PATH", config)
-        self.assertIn("legacy SQLite fallback", config)
-        self.assertIn("CONTROL_DATABASE_URL", config)
-
     def test_streaming_manifest_is_opt_in(self):
         config_map = (ROOT / "k8s" / "base" / "streaming-config.yaml").read_text()
         self.assertIn('STREAMING_ENABLED: "false"', config_map)

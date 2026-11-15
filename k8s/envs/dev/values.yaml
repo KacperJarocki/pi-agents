@@ -41,6 +41,11 @@ rustfs:
 
 flink:
   taskSlots: 1
+  # Same as prod: Flink's Prometheus reporter, a PodMonitor and the job
+  # alerts (not running, restarting, failing checkpoints), scoped to this
+  # namespace. Switches like this one belong here before prod.
+  monitoring:
+    enabled: true
   taskManagerReplicas: 1
   checkpoint:
     backend: longhorn

@@ -63,6 +63,11 @@ saves the list and restores it after a firewall reset or reboot.
 reads it from the optional Secret `incidents.api.gatewayAgentTokenSecret`
 (`gateway-agent-token`, key `token`), the same one the agent reads.
 
+All WebSockets share one PostgreSQL `LISTEN` connection; a notification only
+wakes the sockets, which then read the feed after their cursor. When that
+connection is lost every socket is woken once after the reconnect, so a
+change committed in between is still delivered.
+
 ## Development
 
 ```sh

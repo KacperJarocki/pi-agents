@@ -213,6 +213,9 @@ incidents:
     # gateway-agent base URL for DHCP leases (hostname, IP) on the device
     # overview, e.g. http://gateway-agent:7000. Empty: devices show MAC only.
     gatewayAgentUrl: ""
+    # Secret (key `token`) holding the gateway-agent's bearer token; the same
+    # Secret the gateway-agent reads. Optional: absent means no token is sent.
+    gatewayAgentTokenSecret: gateway-agent-token
     # Lets the device panel block/unblock a device through the gateway-agent
     # (needs gatewayAgentUrl). The API has no authentication: enable only when
     # the dashboard is reachable by trusted users alone.

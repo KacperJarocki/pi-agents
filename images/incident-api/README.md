@@ -57,8 +57,11 @@ Each change carries the transition JSON (`status`, `revision`, horizons,
 `incidents.api.gatewayAgentUrl`, set in prod only), `DEVICE_BLOCKING` (chart
 value `incidents.api.deviceBlocking`, default `false`, on in prod). The API has no
 authentication, so enable blocking only when the dashboard is reachable by
-trusted users alone. A block is an iptables rule on the gateway and lasts until
-the gateway's firewall is reset.
+trusted users alone. A block is an iptables rule on the gateway; the gateway-agent
+saves the list and restores it after a firewall reset or reboot.
+`GATEWAY_AGENT_TOKEN` is the bearer token sent to the gateway-agent; the chart
+reads it from the optional Secret `incidents.api.gatewayAgentTokenSecret`
+(`gateway-agent-token`, key `token`), the same one the agent reads.
 
 ## Development
 

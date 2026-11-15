@@ -162,6 +162,23 @@ class IncidentApiTests(unittest.TestCase):
         resp = self.client.post("/api/v2/devices/02:00:00:00:00:0a/block")
         self.assertEqual(resp.status_code, 403)
 
+    def test_gateway_agent_calls_carry_the_bearer_token(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        seen = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers.get("authorization"))
+            return httpx.Response(200, json={"blocked": []})
+
+        agent = api_main.GatewayAgent("http://gateway-agent:7000", True, transport=httpx.MockTransport(handler))
+        with patch.dict(os.environ, {"GATEWAY_AGENT_TOKEN": "s3cret"}):
+            with TestClient(api_main.create_app(DSN, leases=self.lease_source, agent=agent)) as client:
+                client.get("/api/v2/devices")
+        self.assertEqual(seen, ["Bearer s3cret"])
+
     def test_blocking_goes_through_the_gateway_agent(self):
         import httpx
 

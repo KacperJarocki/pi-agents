@@ -65,6 +65,8 @@ Przy zatrzymaniu kolejność jest odwrócona.
 | `gateway_ip` | str | `192.168.50.1` | Musi być w podsieci, poza zakresem DHCP |
 | `dhcp_range_start` | str | `192.168.50.100` | Musi być w podsieci |
 | `dhcp_range_end` | str | `192.168.50.200` | Musi być >= start |
+| `isolate_clients_from_lan` | bool | `True` | Klienci Wi-Fi nie są routowani do sieci prywatnych (LAN, pody, serwisy) |
+| `lan_allowed_cidrs` | list[str] | `[]` | Wyjątki od izolacji, np. `10.20.20.50/32` dla brokera MQTT; tylko IPv4 |
 | `enabled` | bool | `True` | Jeśli false — zatrzymuje usługi i czyści reguły |
 
 ### Generowany hostapd.conf
@@ -152,7 +154,7 @@ Oba pody montują ten sam katalog hosta (`/var/lib/gateway-agent`), ale pod ró�
 
 ## NAT i iptables
 
-Gateway-agent tworzy **3 własne łańcuchy** iptables:
+Gateway-agent tworzy własne łańcuchy iptables (i dwa w ip6tables):
 
 ### Łańcuchy
 
@@ -161,11 +163,15 @@ Gateway-agent tworzy **3 własne łańcuchy** iptables:
 | `IOT_GATEWAY_NAT` | nat | Reguła MASQUERADE — ruch z podsieci IoT wychodzi na upstream z IP gatewaya |
 | `IOT_GATEWAY_FWD` | filter | ACCEPT forwarding między interfejsem AP a upstream + conntrack RELATED,ESTABLISHED |
 | `IOT_DEVICE_BLOCK` | filter | Per-MAC reguły DROP dla zablokowanych urządzeń |
+| `IOT_GATEWAY_ISOLATE` | filter | Odrzuca ruch klientów Wi-Fi do sieci prywatnych (RFC 1918, link-local, CGNAT), poza własną podsiecią i `lan_allowed_cidrs` |
+| `IOT_GATEWAY_IN` | filter (INPUT) | Klient Wi-Fi dociera na samej bramce tylko do DHCP, DNS i pinga; reszta (API agenta, SSH, kubelet) jest odrzucana |
+| `IOT_GATEWAY_IN6`, `IOT_GATEWAY_FWD6` | filter (ip6tables) | AP nie rozdaje adresów IPv6, więc IPv6 od klientów jest odrzucane poza ICMPv6 |
 
 ### Kolejność ewaluacji w łańcuchu FORWARD
 
 ```
 FORWARD
+   ├── 1. IOT_GATEWAY_ISOLATE ← odcina sieci prywatne (przed regułami klastra)
    ├── 1. IOT_DEVICE_BLOCK  ← sprawdza blokady (pozycja 1, najwyższy priorytet)
    ├── 2. IOT_GATEWAY_FWD   ← pozwala na normalny forwarding
    └── ... (domyślna polityka)
@@ -176,6 +182,11 @@ POSTROUTING (nat)
 
 `IOT_DEVICE_BLOCK` jest wstawiony na **pozycję 1** w łańcuchu FORWARD, więc jest sprawdzany
 **przed** `IOT_GATEWAY_FWD`. Zablokowane urządzenie nigdy nie dotrze do reguły ACCEPT.
+
+`IOT_GATEWAY_ISOLATE` też jest wstawiany na początek FORWARD: reguły K3s/flannel akceptują
+ruch do adresów podów wcześniej niż `IOT_GATEWAY_FWD`, więc izolacja musi być przed nimi.
+Bez niej urządzenie w Wi-Fi ma routing do całego LAN-u, podów i serwisów klastra.
+Ruch między klientami Wi-Fi nie przechodzi przez FORWARD (mostkuje go hostapd).
 
 ### Reguły w IOT_GATEWAY_FWD
 
@@ -198,6 +209,9 @@ iptables -D IOT_DEVICE_BLOCK -m mac --mac-source aa:bb:cc:dd:ee:ff -j DROP
 
 Blokada dotyczy **całego ruchu** urządzenia (nie per-port ani per-protokół). Urządzenie
 pozostaje podłączone do WiFi, ale nie może komunikować się z internetem ani innymi urządzeniami.
+
+Lista zablokowanych adresów jest zapisywana w `$STATE_DIR/blocked_devices.json` i odtwarzana
+przy każdym apply (także przy starcie), więc blokady przeżywają reset firewalla i restart węzła.
 
 ---
 
@@ -249,7 +263,7 @@ Wszystkie endpointy nasłuchują na **porcie 7000**.
 | `POST` | `/validate` | Walidacja konfiguracji WiFi (bez stosowania) | — |
 | `POST` | `/apply` | Zastosowanie nowej konfiguracji WiFi | `ENABLE_APPLY=true` wymagane (403) |
 | `POST` | `/rollback` | Przywrócenie last-known-good | `ENABLE_APPLY=true` wymagane (403) |
-| `POST` | `/block` | Blokowanie urządzenia po MAC | — |
+| `POST` | `/block` | Blokowanie urządzenia po MAC (trwałe) | — |
 | `DELETE` | `/block/{mac}` | Odblokowanie urządzenia | — |
 | `GET` | `/blocked` | Lista zablokowanych adresów MAC | — |
 
@@ -266,6 +280,21 @@ Wszystkie endpointy nasłuchują na **porcie 7000**.
 w overlay `gateway-prod` (plik `gateway-agent-enable-apply.yaml`). Zapobiega przypadkowemu
 zastosowaniu konfiguracji WiFi w środowisku deweloperskim.
 
+`GATEWAY_AGENT_TOKEN` włącza uwierzytelnianie: każdy endpoint poza `/health` wymaga nagłówka
+`Authorization: Bearer <token>` (inaczej `401`). Bez tej zmiennej API jest otwarte dla każdego,
+kto ma dostęp do węzła — agent loguje wtedy ostrzeżenie `api_unauthenticated`. Token trzymaj
+w Secrecie `gateway-agent-token` (klucz `token`), z którego czyta też incident-api:
+
+```bash
+kubectl -n iot-security create secret generic gateway-agent-token \
+  --from-literal=token="$(openssl rand -hex 32)"
+kubectl -n iot-security rollout restart deploy/gateway-agent deploy/pi-agents-incidents-api
+```
+
+`BIND_HOST` ogranicza nasłuch do jednego adresu; manifest podaje IP węzła, więc API nie
+słucha na interfejsie Wi-Fi. Niezależnie od tego łańcuch `IOT_GATEWAY_IN` odcina klientów
+Wi-Fi od wszystkich portów bramki poza DHCP i DNS.
+
 ---
 
 ## Pliki stanu
@@ -280,6 +309,7 @@ Wszystkie pliki stanu są przechowywane w `STATE_DIR` (domyślnie `/data`):
 | `$STATE_DIR/dnsmasq.conf` | Wyrenderowany config dnsmasq |
 | `$STATE_DIR/dnsmasq.leases` | Plik leases DHCP (zarządzany przez dnsmasq) |
 | `$STATE_DIR/last_apply.json` | Status ostatniego apply: `{ok, message, ts}` |
+| `$STATE_DIR/blocked_devices.json` | Zablokowane adresy MAC (odtwarzane przy apply) |
 | `$STATE_DIR/last_known_good/` | Katalog snapshot-u (kopia config + hostapd + dnsmasq) |
 
 ---
@@ -293,6 +323,8 @@ Wszystkie pliki stanu są przechowywane w `STATE_DIR` (domyślnie `/data`):
 | `ENABLE_APPLY` | `false` | Safety gate — musi być `true` do apply/rollback |
 | `AUTO_RESTORE` | `true` | Automatyczne przywracanie konfiguracji przy starcie |
 | `STATE_DIR` | `/data` | Katalog na pliki stanu |
+| `GATEWAY_AGENT_TOKEN` | *(brak)* | Token Bearer wymagany przez API; brak = API bez uwierzytelniania |
+| `BIND_HOST` | `0.0.0.0` | Adres nasłuchu API; w K8s IP węzła (`status.hostIP`) |
 
 ### Wartości produkcyjne (overlay gateway-prod)
 

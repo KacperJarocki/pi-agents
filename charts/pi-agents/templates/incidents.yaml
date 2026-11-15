@@ -111,6 +111,14 @@ spec:
             - name: GATEWAY_AGENT_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- with $a.gatewayAgentTokenSecret }}
+            - name: GATEWAY_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: token
+                  optional: true
+            {{- end }}
             - name: DEVICE_BLOCKING
               value: {{ $a.deviceBlocking | default false | quote }}
             - name: DATABASE_URL

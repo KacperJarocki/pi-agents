@@ -33,6 +33,7 @@ def _paths() -> dict[str, Path]:
         "leases": d / "dnsmasq.leases",
         "last_apply": d / "last_apply.json",
         "lkg": d / "last_known_good",
+        "blocked": d / "blocked_devices.json",
     }
 
 
@@ -119,6 +120,32 @@ class GatewayRuntime:
             )
 
         return clients
+
+    def read_blocked(self) -> list[str]:
+        """Blocked MACs as last saved; they outlive firewall resets and reboots."""
+        try:
+            macs = json.loads(_paths()["blocked"].read_text())
+        except (OSError, ValueError):
+            return []
+        return sorted({str(m).lower() for m in macs}) if isinstance(macs, list) else []
+
+    def save_blocked(self, mac: str, blocked: bool) -> None:
+        macs = set(self.read_blocked())
+        if blocked:
+            macs.add(mac.lower())
+        else:
+            macs.discard(mac.lower())
+        path = _paths()["blocked"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(macs)))
+
+    def restore_blocked(self) -> None:
+        """Puts the saved blocks back after the firewall chains were (re)created."""
+        for mac in self.read_blocked():
+            try:
+                iptables.block_device(mac)
+            except Exception as e:
+                log.error("restore_block_error", mac=mac, error=str(e))
 
     async def apply(self, cfg: WifiConfig) -> tuple[bool, str]:
         async with self._lock:
@@ -208,6 +235,12 @@ class GatewayRuntime:
         iptables.ensure_chains()
         iptables.ensure_jump_rules()
         iptables.ensure_nat_rules(cfg.subnet_cidr, cfg.ap_interface, cfg.upstream_interface)
+        warning = iptables.ensure_client_isolation(
+            cfg.ap_interface, cfg.subnet_cidr, cfg.isolate_clients_from_lan, cfg.lan_allowed_cidrs
+        )
+        if warning:
+            log.warning("client_isolation_incomplete", detail=warning)
+        self.restore_blocked()
 
         # Restart processes.
         await self._stop_processes()

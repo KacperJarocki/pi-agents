@@ -117,7 +117,7 @@ dhcp-option=option:dns-server,<gateway_ip>
 
 ### Format pliku leases
 
-Plik `/data/dnsmasq.leases` (hostPath) jest odczytywany przez collector do identyfikacji urządzeń.
+Plik `/data/dnsmasq.leases` (hostPath) jest odczytywany przez sensor (`sensors/rust-sensor`) do przypisania ruchu do urządzeń po adresie MAC.
 
 Format linii:
 ```
@@ -129,10 +129,10 @@ Przykład:
 1713600000 aa:bb:cc:dd:ee:ff 192.168.50.101 my-phone 01:aa:bb:cc:dd:ee:ff
 ```
 
-### Jak leases trafiają do collectora?
+### Jak leases trafiają do sensora?
 
 ```
-gateway-agent                        collector
+gateway-agent                        rust-sensor
      │                                   │
      │  hostPath: /var/lib/gateway-agent  │
      │  mount:    /data                   │
@@ -326,8 +326,8 @@ Gateway-agent **musi** mieć:
 |---------|-----|------------------|------|
 | hostPath | `/var/lib/gateway-agent` (DirectoryOrCreate) | `/data` | Pliki stanu + leases |
 
-**Uwaga**: Gateway-agent **nie** używa PVC `iot-security-sqlite`. Używa `hostPath`, żeby pliki
-przetrwały restart poda i były dostępne dla collectora (który też montuje ten katalog).
+**Uwaga**: Gateway-agent używa `hostPath`, żeby pliki przetrwały restart poda i były dostępne
+dla sensora (który montuje plik leases tylko do odczytu).
 
 ### Probes
 
@@ -346,7 +346,6 @@ przetrwały restart poda i były dostępne dla collectora (który też montuje t
 
 ## Powiązane dokumenty
 
-- [Collector](COLLECTOR.md) — jak collector czyta leases z gateway-agent
-- [Gateway API](GATEWAY_API.md) — jak API proxy-uje żądania do gateway-agent
-- [Infrastructure](INFRASTRUCTURE.md) — konfiguracja K8s
-- [Data Flow](DATA_FLOW.md) — rola gateway-agent w przepływie danych
+- [Rust sensor](../sensors/rust-sensor/README.md) — jak sensor czyta leases z gateway-agent
+- [Incident API](../images/incident-api/README.md) — jak API pobiera leases i blokuje urządzenia przez gateway-agent
+- [Streaming detection](STREAMING-DETECTION.md) — co dzieje się z ruchem dalej

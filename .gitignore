@@ -10,6 +10,7 @@ __pycache__/
 .mypy_cache/
 .venv/
 .playwright-cli/
+.claude/worktrees/
 
 # Rust build artifacts
 **/target/

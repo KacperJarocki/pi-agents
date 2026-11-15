@@ -6,7 +6,7 @@ The batch SQLite/ML pipeline from the master's thesis (collector, ml-pipeline, g
 
 ## Status
 
-The streaming system is under construction. The active plan is the OpenSpec change `openspec/changes/realtime-sliding-threat-detection/` (`proposal.md`, `design.md`, `tasks.md`); `docs/STREAMING-ROADMAP.md` holds the wider backlog. Until the sensor, Flink job and incident API are deployed there is no detection running.
+The streaming system runs in two environments (dev and prod) with one detection rule, port scan v1. Its thresholds have not yet been validated against the research traffic profiles, and the failure drills are still open (tasks 7.1 and 7.2). The active plan is the OpenSpec change `openspec/changes/realtime-sliding-threat-detection/` (`proposal.md`, `design.md`, `tasks.md`); `docs/STREAMING-ROADMAP.md` holds the wider backlog and `docs/STREAMING-DETECTION.md` explains how detection works.
 
 ## Architecture
 
@@ -26,12 +26,16 @@ gateway Pi                     cluster (non-gateway nodes)
                               └───────────────────────────────────────────────┘
 ```
 
-Planned components are described in `design.md` of the active change. What exists today:
+The design is in `design.md` of the active change. Where things are:
 
 | Path | Purpose |
 |------|---------|
 | `images/gateway-agent/` | Wi-Fi AP controller (hostapd/dnsmasq), FastAPI on port 7000 |
-| `sensors/rust-sensor/` | Rust capture sensor (bounded `FlowTable` core so far) |
+| `sensors/rust-sensor/` | Rust capture sensor: micro-flows, disk spool, Kafka publishing |
+| `flink/detection-job/` | Flink job: rolling 60 s/900 s views and the port-scan rule |
+| `images/incident-projector/` | Projects detections, health and features from Kafka into PostgreSQL |
+| `images/incident-api/` | Incident REST/WebSocket API and the Svelte web UI |
+| `images/flow-replay/` | Copies prod flow events into the dev Kafka |
 | `schemas/events/v2/` | Protobuf event contract (`v1` is frozen) |
 | `charts/pi-agents/` | Helm chart: streaming config, Strimzi Kafka, Flink |
 | `k8s/argocd/` | Argo CD Applications for the operators and `gateway-agent`, plus the `pi-agents` ApplicationSet (one Application per environment) |
@@ -119,4 +123,4 @@ Generate benign IoT-like baseline traffic:
 
 ## Images
 
-Built by `.github/workflows/docker-build.yml` and pushed to `ghcr.io/kacperjarocki/<name>` with tags `latest` and `sha-<8 chars>` (multi-arch on `main`, amd64-only build on PRs). Currently only `gateway-agent`.
+Built by `.github/workflows/docker-build.yml` and pushed to `ghcr.io/kacperjarocki/<name>` with tags `latest` and `sha-<8 chars>` (multi-arch on `main`, amd64-only build on PRs). Images: `gateway-agent`, `rust-sensor`, `flink-detection-job`, `incident-projector`, `incident-api` and `flow-replay`.

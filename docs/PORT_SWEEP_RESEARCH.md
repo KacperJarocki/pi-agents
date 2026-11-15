@@ -1,6 +1,6 @@
 # Port Sweep Research Script
 
-`scripts/port-sweep.py` generates controlled TCP connect-sweep traffic from a device connected to the IoT Wi-Fi. It does not read the API or dashboard; use dashboard timestamps and model panels to measure false positives, false negatives, and reaction time.
+`scripts/port-sweep.py` generates controlled TCP connect-sweep traffic from a device connected to the IoT Wi-Fi. It does not read the API or dashboard; use the incident timestamps on the dashboard's `/live/` page to measure false positives, false negatives, and reaction time.
 
 By default, the main profiles run for a full inference bucket or longer. `positive` runs for 300 seconds, so the one-liner produces sustained sweep traffic instead of a short burst.
 
@@ -18,7 +18,7 @@ python3 research.py
 
 This does not require gateway API access. By default it runs local subnet discovery (`--discover-subnet auto`) and starts the 35-phase `balanced35` plan in the background with a 5-minute gap, randomized probe order, and shuffled phase order.
 
-Run it from the device being evaluated, not from the gateway host, so the collector attributes traffic to the tested device.
+Run it from the device being evaluated, not from the gateway host, so the sensor attributes traffic to the tested device.
 
 ## Profiles
 
@@ -199,12 +199,12 @@ Use `run.json`, `markers.jsonl`, and `summary.json` timestamps as the ground-tru
 
 ## Suggested Measurement Protocol
 
-1. Confirm the tested device has trained models in the dashboard ML status view.
+1. Confirm the tested device is listed on the dashboard's device overview and has no active incident.
 2. Keep benign IoT traffic running in the background.
 3. Run `python3 research.py ...` from the device being evaluated.
 4. Use `artifacts/research-runs/<run-id>/markers.jsonl` to split dashboard readings by phase.
 5. Record whether background normal traffic and the `negative` phase produce false positives.
 6. Record first visible dashboard reaction time for `positive`, `slow`, and `aggressive`.
-7. Compare Isolation Forest, LOF, OCSVM, and Autoencoder scores for the same phase windows.
+7. Compare the 60 s and 900 s horizon values of each incident with the rule thresholds for the same phase windows.
 
-Recommended fields to record from the dashboard: profile, run id, start timestamp, first alert timestamp, alert type, risk delta, model scores, and final TP/FP/FN/TN classification.
+Recommended fields to record from the dashboard: profile, run id, start timestamp, first incident timestamp, rule, severity, horizon values, and final TP/FP/FN/TN classification.

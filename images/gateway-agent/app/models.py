@@ -15,6 +15,12 @@ class WifiConfig(BaseModel):
     dhcp_range_start: str = Field(default="192.168.50.100")
     dhcp_range_end: str = Field(default="192.168.50.200")
 
+    # Wi-Fi clients are routed to the internet only: private networks (the
+    # home LAN, pod and service addresses) are refused, apart from the CIDRs
+    # listed in lan_allowed_cidrs (e.g. an MQTT broker the devices need).
+    isolate_clients_from_lan: bool = True
+    lan_allowed_cidrs: list[str] = Field(default_factory=list, max_length=32)
+
     enabled: bool = True
 
 

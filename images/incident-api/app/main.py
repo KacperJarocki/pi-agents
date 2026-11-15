@@ -13,7 +13,8 @@ gateway-agent reports (hostname, IP). Devices are matched by MAC: a device key
 is `<gateway_id>:<mac>`.
 
 Environment: DATABASE_URL (required), STATIC_DIR (optional pages),
-GATEWAY_AGENT_URL (optional, e.g. http://gateway-agent:7000), DEVICE_BLOCKING
+GATEWAY_AGENT_URL (optional, e.g. http://gateway-agent:7000), GATEWAY_AGENT_TOKEN
+(bearer token the gateway-agent expects, when it has one), DEVICE_BLOCKING
 (`true` lets the UI block devices through the gateway-agent; default off).
 """
 
@@ -77,6 +78,12 @@ def render_metrics(rows: list[dict[str, Any]], total: int) -> str:
 
 def _ms(value: dt.datetime | None) -> int | None:
     return None if value is None else int(value.timestamp() * 1000)
+
+
+def _agent_headers() -> dict[str, str]:
+    """The bearer token for the gateway-agent, when one is configured."""
+    token = os.environ.get("GATEWAY_AGENT_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 class CursorExpired(Exception):
@@ -229,7 +236,7 @@ class Leases:
         self.error: str | None = None if self.base_url else "GATEWAY_AGENT_URL not set"
 
     async def _fetch(self) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with httpx.AsyncClient(timeout=2.0, headers=_agent_headers()) as client:
             resp = await client.get(f"{self.base_url}/status")
             resp.raise_for_status()
             return resp.json().get("connected_clients") or []
@@ -260,8 +267,8 @@ class GatewayAgent:
 
     Off unless DEVICE_BLOCKING=true and GATEWAY_AGENT_URL is set: the API has no
     authentication, so anyone who can open the dashboard could cut a device off.
-    A block is an iptables rule on the gateway; it lasts until the gateway's
-    firewall is reset (e.g. the access point is reapplied or rolled back).
+    A block is an iptables rule on the gateway; the gateway-agent saves the
+    list and restores it after a firewall reset or a reboot.
     """
 
     def __init__(self, base_url: str | None, enabled: bool, transport: httpx.AsyncBaseTransport | None = None):
@@ -272,7 +279,9 @@ class GatewayAgent:
         self.fetched_at = 0.0
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self.base_url, timeout=3.0, transport=self.transport)
+        return httpx.AsyncClient(
+            base_url=self.base_url, timeout=3.0, transport=self.transport, headers=_agent_headers()
+        )
 
     async def blocked(self) -> set[str]:
         """Blocked MACs (lowercase), cached; empty when blocking is off or the agent is down."""

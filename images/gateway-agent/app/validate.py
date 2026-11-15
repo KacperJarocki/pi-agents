@@ -60,6 +60,13 @@ def validate_config(cfg: WifiConfig) -> ValidationResult:
     except Exception as e:
         issues.append(f"invalid dhcp range: {e}")
 
+    for cidr in cfg.lan_allowed_cidrs:
+        try:
+            if ipaddress.ip_network(cidr, strict=True).version != 4:
+                issues.append(f"lan_allowed_cidrs entry {cidr} is not IPv4")
+        except ValueError as e:
+            issues.append(f"invalid lan_allowed_cidrs entry: {e}")
+
     # Hard safety rails for a k8s node: don't ever touch eth0 except as upstream.
     if cfg.ap_interface == "eth0":
         issues.append("refusing to use eth0 as AP interface")

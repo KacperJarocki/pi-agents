@@ -1,8 +1,9 @@
+import hmac
 import os
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from .iptables import block_device, list_blocked, unblock_device
 from .models import (
@@ -37,6 +38,23 @@ def _bool_env(name: str, default: bool) -> bool:
 runtime = GatewayRuntime()
 
 
+def require_token(request: Request) -> None:
+    """Bearer-token check for everything but /health.
+
+    GATEWAY_AGENT_TOKEN unset keeps the API open (as before) and is logged at
+    startup: this API reconfigures the access point and the node's firewall.
+    """
+    token = os.getenv("GATEWAY_AGENT_TOKEN", "")
+    if not token:
+        return
+    supplied = request.headers.get("authorization", "")
+    if not hmac.compare_digest(supplied.encode(), f"Bearer {token}".encode()):
+        raise HTTPException(status_code=401, detail="missing or wrong bearer token")
+
+
+authenticated = [Depends(require_token)]
+
+
 def _active_config() -> dict | None:
     cfg = runtime.read_config()
     if not cfg:
@@ -52,6 +70,9 @@ def _connected_clients() -> list[dict]:
 async def lifespan(app: FastAPI):
     apply_enabled = _bool_env("ENABLE_APPLY", False)
     auto_restore = _bool_env("AUTO_RESTORE", True)
+
+    if not os.getenv("GATEWAY_AGENT_TOKEN"):
+        log.warning("api_unauthenticated", hint="set GATEWAY_AGENT_TOKEN to require a bearer token")
 
     try:
         if apply_enabled and auto_restore:
@@ -78,7 +99,7 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/status", response_model=GatewayStatus)
+@app.get("/status", response_model=GatewayStatus, dependencies=authenticated)
 async def status(
     ap_interface: str = "wlan0",
     upstream_interface: str = "eth0",
@@ -103,12 +124,12 @@ async def status(
     return base
 
 
-@app.post("/validate", response_model=ValidationResult)
+@app.post("/validate", response_model=ValidationResult, dependencies=authenticated)
 async def validate(cfg: WifiConfig):
     return validate_config(cfg)
 
 
-@app.post("/apply", response_model=ApplyResult)
+@app.post("/apply", response_model=ApplyResult, dependencies=authenticated)
 async def apply(cfg: WifiConfig):
     # Safety: default OFF. This prevents bricking the k8s node by mistake.
     if os.getenv("ENABLE_APPLY", "false").lower() != "true":
@@ -122,7 +143,7 @@ async def apply(cfg: WifiConfig):
     return ApplyResult(ok=ok, message=message)
 
 
-@app.post("/rollback", response_model=ApplyResult)
+@app.post("/rollback", response_model=ApplyResult, dependencies=authenticated)
 async def rollback():
     if os.getenv("ENABLE_APPLY", "false").lower() != "true":
         raise HTTPException(status_code=403, detail="rollback disabled (set ENABLE_APPLY=true)")
@@ -130,10 +151,11 @@ async def rollback():
     return ApplyResult(ok=ok, message=message)
 
 
-@app.post("/block", response_model=BlockResult)
+@app.post("/block", response_model=BlockResult, dependencies=authenticated)
 async def block(req: BlockRequest):
     try:
         added = block_device(req.mac)
+        runtime.save_blocked(req.mac, True)
         return BlockResult(
             ok=True, mac=req.mac.lower(), blocked=True, message="blocked" if added else "already blocked"
         )
@@ -144,10 +166,11 @@ async def block(req: BlockRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.delete("/block/{mac}", response_model=BlockResult)
+@app.delete("/block/{mac}", response_model=BlockResult, dependencies=authenticated)
 async def unblock(mac: str):
     try:
         removed = unblock_device(mac)
+        runtime.save_blocked(mac, False)
         return BlockResult(
             ok=True, mac=mac.lower(), blocked=False, message="unblocked" if removed else "was not blocked"
         )
@@ -158,7 +181,7 @@ async def unblock(mac: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/blocked", response_model=BlockedListResponse)
+@app.get("/blocked", response_model=BlockedListResponse, dependencies=authenticated)
 async def blocked():
     macs = list_blocked()
     return BlockedListResponse(blocked=macs)

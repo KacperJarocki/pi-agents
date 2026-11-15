@@ -37,6 +37,21 @@ spec:
               value: "true"
             - name: STATE_DIR
               value: "/data"
+            # Listen on the node IP only, not on the Wi-Fi interface.
+            - name: BIND_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # Bearer token for the API. Create the Secret by hand (never commit it):
+            #   kubectl -n iot-security create secret generic gateway-agent-token \
+            #     --from-literal=token="$(openssl rand -hex 32)"
+            # Without it the API stays open to everything that can reach the node.
+            - name: GATEWAY_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-agent-token
+                  key: token
+                  optional: true
           securityContext:
             privileged: true
             allowPrivilegeEscalation: true

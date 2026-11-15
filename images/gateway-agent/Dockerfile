@@ -25,4 +25,6 @@ RUN python -c "from app.main import app" >/dev/null
 
 EXPOSE 7000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7000"]
+# BIND_HOST limits the API to one address (the manifests pass the node IP, so
+# it does not listen on the Wi-Fi interface or on other host addresses).
+CMD ["sh", "-c", "exec uvicorn app.main:app --host \"${BIND_HOST:-0.0.0.0}\" --port 7000"]

@@ -15,6 +15,10 @@ kafka:
 
 flink:
   taskManagerReplicas: 1
+  # Scrape the JobManager and TaskManagers and alert when the detection job
+  # stops, keeps restarting or fails its checkpoints.
+  monitoring:
+    enabled: true
   jobManager:
     requests:
       cpu: 250m

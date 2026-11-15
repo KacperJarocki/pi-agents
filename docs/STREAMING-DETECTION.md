@@ -75,6 +75,23 @@ Flink metrics (per operator):
 
 Sensor health (loss, unattributed traffic, flow-table evictions, heartbeat) arrives on `traffic.health.v2` from the gateway.
 
+### Is the pipeline itself alive?
+
+A silent pipeline looks the same as a quiet network, so two things are watched (both through the Prometheus Operator, on in prod):
+
+| Alert | Fires when | Source |
+| --- | --- | --- |
+| `SensorHeartbeatStale` | no sensor heartbeat stored for 120 s (for 5 min), or the metric is missing | incident-api `/metrics`: `pi_agents_gateway_heartbeat_age_seconds{gateway_id,component}` |
+| `DetectionJobNotRunning` | no running Flink job for 5 min, or the JobManager is gone | Flink: `flink_jobmanager_numRunningJobs` |
+| `DetectionJobRestarting` | more than 3 restarts in 15 min | Flink: `flink_jobmanager_job_numRestarts` |
+| `DetectionJobCheckpointsFailing` | more than 3 failed checkpoints in 15 min | Flink: `flink_jobmanager_job_numberOfFailedCheckpoints` |
+
+- The sensor sends a heartbeat every 10 s; it travels through Kafka and the incident projector into `gateway_health`. Its age therefore covers the sensor, the brokers and the projector at once. It does **not** cover the Flink job, which is why the job has alerts of its own.
+- incident-api also exports the latest report of every other health kind: `pi_agents_gateway_health_report_count{gateway_id,component,kind}` and `pi_agents_gateway_health_report_age_seconds` (e.g. `kind="SPOOL_LOSS"` with the number of lost events).
+- `flink.monitoring.enabled` switches on Flink's Prometheus reporter (port 9249 on the JobManager and TaskManagers, which also exposes the operator metrics in the table above) and renders a `PodMonitor` and the three job alerts. Enabling it changes the Flink configuration, so the job restarts once from its last checkpoint.
+- `incidents.api.monitoring.heartbeat` holds the threshold; switch it off in an environment without a capture sensor (dev has none and has monitoring off).
+- All four alerts carry the same routing labels as `PortScanActive` (`alertLabels`, `topic: security` by default): a blind detector is a security problem.
+
 ## Alerting (push to ntfy)
 
 The browser UI shows incidents live and (since the header bell) raises a toast,

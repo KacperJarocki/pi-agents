@@ -75,6 +75,38 @@ def render_metrics(rows: list[dict[str, Any]], total: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_pipeline_metrics(rows: list[dict[str, Any]]) -> str:
+    """Prometheus text for the ingestion path, from the `gateway_health` table.
+
+    The sensor sends a heartbeat every 10 s through Kafka and the projector, so
+    its age says whether that whole path is alive: it grows when the sensor,
+    the brokers or the projector stop. The other kinds (loss, unattributed
+    frames, evictions) are exported as their latest reported count and age.
+    """
+    heartbeat = [
+        "# HELP pi_agents_gateway_heartbeat_age_seconds Seconds since the last sensor heartbeat was stored.",
+        "# TYPE pi_agents_gateway_heartbeat_age_seconds gauge",
+    ]
+    counts = [
+        "# HELP pi_agents_gateway_health_report_count Count in the latest health report of this kind.",
+        "# TYPE pi_agents_gateway_health_report_count gauge",
+    ]
+    ages = [
+        "# HELP pi_agents_gateway_health_report_age_seconds Seconds since the latest health report of this kind.",
+        "# TYPE pi_agents_gateway_health_report_age_seconds gauge",
+    ]
+    for r in rows:
+        labels = f'gateway_id="{_metric_label(str(r["gateway_id"]))}",component="{_metric_label(str(r["component"]))}"'
+        age = max(0.0, float(r["age_seconds"]))
+        if r["kind"] == "HEARTBEAT":
+            heartbeat.append(f"pi_agents_gateway_heartbeat_age_seconds{{{labels}}} {age:.0f}")
+        else:
+            labels += f',kind="{_metric_label(str(r["kind"]))}"'
+            counts.append(f"pi_agents_gateway_health_report_count{{{labels}}} {int(r['count'])}")
+            ages.append(f"pi_agents_gateway_health_report_age_seconds{{{labels}}} {age:.0f}")
+    return "\n".join(heartbeat + counts + ages) + "\n"
+
+
 def _ms(value: dt.datetime | None) -> int | None:
     return None if value is None else int(value.timestamp() * 1000)
 
@@ -158,6 +190,16 @@ class Store:
             rows = await cur.fetchall()
         total = sum(int(r["n"]) for r in rows)
         return rows, total
+
+    async def health_ages(self) -> list[dict[str, Any]]:
+        """Latest health report per gateway, component and kind, with its age by the database clock."""
+        async with self.pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT gateway_id, component, kind, count,"
+                " extract(epoch FROM now() - received_at)::float8 AS age_seconds"
+                " FROM gateway_health ORDER BY gateway_id, component, kind"
+            )
+            return await cur.fetchall()
 
     async def device_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Latest views per device/horizon and incident counts per device."""
@@ -401,7 +443,8 @@ def create_app(
     @app.get("/metrics")
     async def metrics():
         rows, total = await store.active_incident_counts()
-        return PlainTextResponse(render_metrics(rows, total), media_type="text/plain; version=0.0.4")
+        text = render_metrics(rows, total) + render_pipeline_metrics(await store.health_ages())
+        return PlainTextResponse(text, media_type="text/plain; version=0.0.4")
 
     @app.get("/api/v2/incidents")
     async def incidents(active: bool = True, limit: int = Query(500, ge=1, le=5000), device: str | None = None):

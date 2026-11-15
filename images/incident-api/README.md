@@ -60,6 +60,11 @@ authentication, so enable blocking only when the dashboard is reachable by
 trusted users alone. A block is an iptables rule on the gateway and lasts until
 the gateway's firewall is reset.
 
+All WebSockets share one PostgreSQL `LISTEN` connection; a notification only
+wakes the sockets, which then read the feed after their cursor. When that
+connection is lost every socket is woken once after the reconnect, so a
+change committed in between is still delivered.
+
 ## Development
 
 ```sh

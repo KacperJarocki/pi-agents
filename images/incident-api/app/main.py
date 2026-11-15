@@ -19,8 +19,10 @@ GATEWAY_AGENT_URL (optional, e.g. http://gateway-agent:7000), DEVICE_BLOCKING
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import datetime as dt
+import logging
 import os
 import pathlib
 import re
@@ -43,6 +45,8 @@ BATCH = 500
 STATIC_DIR = pathlib.Path(os.environ.get("STATIC_DIR", pathlib.Path(__file__).parent / "static"))
 LEASE_CACHE_S = 10
 _SEVERITY_RANK = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+
+log = logging.getLogger("incident-api")
 
 
 def _metric_label(value: str) -> str:
@@ -214,6 +218,92 @@ class Store:
         ]
 
 
+class Subscription:
+    """One WebSocket's view of the shared listener: which channels fired since it last looked."""
+
+    def __init__(self) -> None:
+        self.pending: set[str] = set()
+        self.event = asyncio.Event()
+
+    def wake(self, channel: str) -> None:
+        self.pending.add(channel)
+        self.event.set()
+
+    async def wait(self, timeout: float) -> set[str]:
+        """Channels notified since the last call; empty after `timeout` seconds of silence."""
+        try:
+            await asyncio.wait_for(self.event.wait(), timeout)
+        except TimeoutError:
+            return set()
+        channels, self.pending = self.pending, set()
+        self.event.clear()
+        return channels
+
+
+class Notifications:
+    """One LISTEN connection for all WebSockets, instead of one per browser tab.
+
+    A notification is only a wake-up (clients re-read the feed by cursor), so
+    several are merged per subscriber. After the connection is lost and
+    re-established every subscriber is woken once: whatever committed in
+    between is then picked up by the re-read, so nothing is missed.
+    """
+
+    CHANNELS = (FEED_CHANNEL, HEALTH_CHANNEL)
+
+    def __init__(self, dsn: str):
+        self.dsn = dsn
+        self.subscribers: set[Subscription] = set()
+        self.ready = asyncio.Event()
+        self.task: asyncio.Task | None = None
+        self.reconnects = 0
+
+    def subscribe(self) -> Subscription:
+        subscription = Subscription()
+        self.subscribers.add(subscription)
+        return subscription
+
+    def unsubscribe(self, subscription: Subscription) -> None:
+        self.subscribers.discard(subscription)
+
+    def _wake(self, channel: str) -> None:
+        for subscription in self.subscribers:
+            subscription.wake(channel)
+
+    async def start(self, wait_s: float = 10.0) -> None:
+        self.task = asyncio.create_task(self._run())
+        # Start serving once listening, when the database allows it; if it is
+        # down, serve anyway and catch up through the wake-up on connect.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self.ready.wait(), wait_s)
+
+    async def stop(self) -> None:
+        if self.task is not None:
+            self.task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.task
+
+    async def _run(self) -> None:
+        delay = 0.5
+        while True:
+            try:
+                async with await psycopg.AsyncConnection.connect(self.dsn, autocommit=True) as conn:
+                    for channel in self.CHANNELS:
+                        await conn.execute(f"LISTEN {channel}")
+                    self.ready.set()
+                    delay = 0.5
+                    for channel in self.CHANNELS:
+                        self._wake(channel)
+                    async for note in conn.notifies():
+                        self._wake(note.channel)
+            except (psycopg.Error, OSError) as err:
+                log.warning("notification listener lost (%s); reconnecting in %.1fs", err, delay)
+            self.ready.clear()
+            self.reconnects += 1
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 10)
+
+
 class Leases:
     """DHCP leases from the gateway-agent's /status, cached for a few seconds.
 
@@ -383,14 +473,19 @@ def create_app(
         os.environ.get("GATEWAY_AGENT_URL"), os.environ.get("DEVICE_BLOCKING", "false").lower() == "true"
     )
 
+    notifications = Notifications(store.dsn)
+
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
         await store.pool.open()
+        await notifications.start()
         yield
+        await notifications.stop()
         await store.pool.close()
 
     app = FastAPI(title="pi-agents incident API", lifespan=lifespan)
     app.state.store = store
+    app.state.notifications = notifications
 
     @app.get("/healthz")
     async def healthz():
@@ -468,10 +563,9 @@ def create_app(
     @app.websocket("/ws/v2/incidents")
     async def live(ws: WebSocket, after: int | None = None):
         await ws.accept()
-        # LISTEN before reading anything, so no change slips between catch-up and live.
-        async with await psycopg.AsyncConnection.connect(store.dsn, autocommit=True) as listener:
-            await listener.execute(f"LISTEN {FEED_CHANNEL}")
-            await listener.execute(f"LISTEN {HEALTH_CHANNEL}")
+        # Subscribe before reading anything, so no change slips between catch-up and live.
+        subscription = notifications.subscribe()
+        try:
             await ws.send_json({"type": "health", "gateways": await store.health()})
 
             async def send_snapshot() -> int:
@@ -495,20 +589,19 @@ def create_app(
             last = await send_snapshot() if after is None else await send_changes(after)
             await ws.send_json({"type": "live", "cursor": last})
 
-            try:
-                while True:
-                    woke = False
-                    async for note in listener.notifies(timeout=PING_INTERVAL_S, stop_after=1):
-                        woke = True
-                        if note.channel == FEED_CHANNEL:
-                            last = await send_changes(last)
-                        else:
-                            await ws.send_json({"type": "health", "gateways": await store.health()})
-                    if not woke:
-                        # Keeps proxies from closing an idle socket.
-                        await ws.send_json({"type": "ping", "cursor": last})
-            except (WebSocketDisconnect, RuntimeError):
-                return
+            while True:
+                channels = await subscription.wait(PING_INTERVAL_S)
+                if FEED_CHANNEL in channels:
+                    last = await send_changes(last)
+                if HEALTH_CHANNEL in channels:
+                    await ws.send_json({"type": "health", "gateways": await store.health()})
+                if not channels:
+                    # Keeps proxies from closing an idle socket.
+                    await ws.send_json({"type": "ping", "cursor": last})
+        except (WebSocketDisconnect, RuntimeError):
+            return
+        finally:
+            notifications.unsubscribe(subscription)
 
     # The built UI (images/incident-api/ui): `/` is the device overview and
     # `/live/` the live incidents page; both load the same bundle from

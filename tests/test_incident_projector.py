@@ -123,12 +123,21 @@ class FakeConsumer:
     def __init__(self):
         self.committed = []
         self.fail_next_commit = False
+        self.queued = []
+        self.position = 0
 
-    def commit(self, message, asynchronous):
+    def commit(self, message=None, asynchronous=True):
         if self.fail_next_commit:
             self.fail_next_commit = False
             raise RuntimeError("crash before the offset commit")
-        self.committed.append(message.offset())
+        # Without a message: the position after everything consumed so far.
+        self.committed.append(message.offset() if message is not None else self.position)
+
+    def consume(self, num_messages, timeout):
+        batch, self.queued = self.queued[:num_messages], self.queued[num_messages:]
+        if batch:
+            self.position = batch[-1].offset() + 1
+        return batch
 
     def poll(self, timeout):
         return None
@@ -308,6 +317,85 @@ class IncidentProjectorTests(unittest.TestCase):
         self.assertEqual(p.stats["features"], 1)
         self.assertEqual(self.count("device_features"), 1)
         self.assertEqual(self.count("incident_transitions"), 0)
+
+    def features_batch(self, updates):
+        consumer = FakeConsumer()
+        consumer.queued = [
+            FakeMessage(
+                u.SerializeToString() if u is not None else b"\xff\x00garbage", offset=i, topic="traffic.features.v2"
+            )
+            for i, u in enumerate(updates)
+        ]
+        return consumer
+
+    def test_a_feature_batch_is_one_commit_and_keeps_the_newest_windows(self):
+        import psycopg
+
+        minute = 1_760_486_400_000
+        features = self.features_batch(
+            [
+                feature_update(window_end=minute + 1_000, flows=1.0),
+                feature_update(window_end=minute + 3_000, flows=3.0),
+                feature_update(window_end=minute + 2_000, flows=2.0),  # older, arrives last
+                None,  # undecodable
+                feature_update(window_end=minute + 61_000, flows=9.0),  # the next minute
+                feature_update(horizon=900, window_end=minute + 3_000, flows=30.0),
+                feature_update(device="gw:02:00:00:00:00:0b", window_end=minute + 3_000, flows=7.0),
+            ]
+        )
+        p = projector_module.Projector(
+            FakeConsumer(), lambda: psycopg.connect(DSN, autocommit=True), features_consumer=features
+        )
+        self.assertEqual(p.handle_features(), 7)
+        self.assertEqual(features.committed, [7], "one offset commit for the whole batch")
+        self.assertEqual(p.stats["features"], 6)
+        self.assertEqual(p.stats["malformed"], 1)
+        self.assertEqual(p.stats["feature_rows"], 4, "one write per device, horizon and minute")
+        latest = dict(
+            self.conn.execute(
+                "SELECT device_key || '/' || horizon_seconds, (features->>'flows')::float FROM device_features"
+            ).fetchall()
+        )
+        self.assertEqual(
+            latest,
+            {"gw:02:00:00:00:00:0a/60": 9.0, "gw:02:00:00:00:00:0a/900": 30.0, "gw:02:00:00:00:00:0b/60": 7.0},
+        )
+        history = self.conn.execute(
+            "SELECT (features->>'flows')::float FROM device_feature_history"
+            " WHERE device_key = 'gw:02:00:00:00:00:0a' ORDER BY minute"
+        ).fetchall()
+        self.assertEqual([row[0] for row in history], [3.0, 9.0], "the newest window of each minute")
+        self.assertEqual(p.handle_features(), 0)
+        self.assertEqual(features.committed, [7], "nothing read, nothing committed")
+
+    def test_a_features_backlog_does_not_hold_back_detections(self):
+        import threading
+
+        import psycopg
+
+        minute = 1_760_486_400_000
+        features = self.features_batch([feature_update(window_end=minute + i * 1_000) for i in range(2_000)])
+        primary = FakeConsumer()
+        pending = [FakeMessage(transition().SerializeToString(), offset=0)]
+        stop = threading.Event()
+        rounds = []
+
+        def poll(timeout):
+            rounds.append(len(features.queued))
+            if len(rounds) == 3:
+                stop.set()
+            return pending.pop() if pending else None
+
+        primary.poll = poll
+        p = projector_module.Projector(
+            primary, lambda: psycopg.connect(DSN, autocommit=True), features_consumer=features, feature_batch=100
+        )
+        p.run(stop)
+        self.assertEqual(self.count("incident_transitions"), 1)
+        # The detection was applied on the first round, with the whole backlog
+        # still waiting; each round then takes one batch of features.
+        self.assertEqual(rounds, [2_000, 1_900, 1_800])
+        self.assertEqual(primary.committed, [0])
 
     def test_feed_payload_carries_latency_fields(self):
         db.apply_transition(self.conn, transition())

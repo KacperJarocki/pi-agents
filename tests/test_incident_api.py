@@ -331,6 +331,36 @@ class IncidentApiTests(unittest.TestCase):
             update = self.receive_until(ws, "health")
             self.assertEqual(update["gateways"][0]["count"], 20)
 
+    def listeners(self):
+        """Database sessions that are LISTENing (the API's notification connections)."""
+        return self.conn.execute(
+            "SELECT pid FROM pg_stat_activity WHERE query LIKE 'LISTEN %' AND pid <> pg_backend_pid()"
+        ).fetchall()
+
+    def test_all_websockets_share_one_database_listener(self):
+        with (
+            self.client.websocket_connect("/ws/v2/incidents") as first,
+            self.client.websocket_connect("/ws/v2/incidents") as second,
+        ):
+            for ws in (first, second):
+                self.receive_until(ws, "live")
+            self.assertEqual(len(self.listeners()), 1)
+            self.apply("a", 1)
+            for ws in (first, second):
+                self.assertEqual(self.receive_until(ws, "change")["cursor"], 1)
+        self.assertEqual(self.client.app.state.notifications.subscribers, set())
+
+    def test_a_change_during_a_lost_listener_connection_is_still_delivered(self):
+        with self.client.websocket_connect("/ws/v2/incidents") as ws:
+            self.receive_until(ws, "live")
+            (pid,) = self.listeners()[0]
+            self.conn.execute("SELECT pg_terminate_backend(%s)", (pid,))
+            self.apply("a", 1)  # committed while nobody is listening
+            self.assertEqual(self.receive_until(ws, "change")["cursor"], 1)
+            self.apply("a", 2, status=2)  # and the new connection keeps delivering
+            self.assertEqual(self.receive_until(ws, "change")["cursor"], 2)
+        self.assertGreaterEqual(self.client.app.state.notifications.reconnects, 1)
+
     def test_metrics_exposes_active_incident_gauges(self):
         quiet = self.client.get("/metrics")
         self.assertEqual(quiet.status_code, 200)

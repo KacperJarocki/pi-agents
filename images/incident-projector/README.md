@@ -24,13 +24,20 @@ It also keeps the latest `HealthEvent` per gateway, component and kind
 per device and horizon (`device_features`, from `traffic.features.v2`) for the
 device overview. In both, an older event never replaces a newer one.
 
+Feature updates arrive far more often than detections, so they are read by a
+second consumer (group `<GROUP_ID>-features`). Each batch is reduced to the
+newest window per device, horizon and minute, written in one transaction and
+committed once, so a backlog of features (e.g. after downtime) does not hold
+back incidents. A features group without committed offsets starts at the end
+of the topic: the views are latest-wins and the backlog would only be discarded.
+
 Migrations live in `app/migrations` and run at start (advisory-locked).
 
 ## Configuration
 
 `DATABASE_URL` (required; the CNPG `pi-agents-pg-app` Secret's `uri`),
 `KAFKA_BOOTSTRAP`, `DETECTIONS_TOPIC`, `HEALTH_TOPIC`, `FEATURES_TOPIC`,
-`GROUP_ID`, `HEARTBEAT_FILE`.
+`GROUP_ID`, `FEATURES_GROUP_ID`, `FEATURE_BATCH` (default 500), `HEARTBEAT_FILE`.
 
 ## Development
 

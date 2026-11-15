@@ -4,6 +4,11 @@ For every transition: one database transaction (dedupe, revision-guarded
 upsert, feed row, NOTIFY), then the Kafka offset commit. A crash between the
 two replays the message, which the transition table turns into a no-op.
 
+Feature updates (traffic.features.v2) are far more frequent and only feed the
+device overview, so they have a consumer of their own: a batch is reduced to
+the newest window per device, horizon and minute, written in one transaction
+and committed once. Detections never wait behind a backlog of features.
+
 Environment:
   KAFKA_BOOTSTRAP     Kafka bootstrap servers (default pi-agents-kafka-bootstrap:9092)
   DATABASE_URL        PostgreSQL connection URI (required)
@@ -11,6 +16,8 @@ Environment:
   HEALTH_TOPIC        default traffic.health.v2 (latest per gateway/component/kind)
   FEATURES_TOPIC      default traffic.features.v2 (latest view per device/horizon)
   GROUP_ID            default incident-projector
+  FEATURES_GROUP_ID   default <GROUP_ID>-features
+  FEATURE_BATCH       feature updates per database transaction (default 500)
   HEARTBEAT_FILE      rewritten every loop iteration for the liveness probe
 """
 
@@ -47,7 +54,8 @@ class Message(Protocol):
 
 class Consumer(Protocol):
     def poll(self, timeout: float) -> Message | None: ...
-    def commit(self, message: Message, asynchronous: bool) -> None: ...
+    def consume(self, num_messages: int, timeout: float) -> list[Message]: ...
+    def commit(self, message: Message | None = None, asynchronous: bool = True) -> None: ...
     def close(self) -> None: ...
 
 
@@ -57,18 +65,32 @@ class Projector:
         consumer: Consumer,
         connect: Callable[[], psycopg.Connection],
         *,
+        features_consumer: Consumer | None = None,
+        feature_batch: int = 500,
         prune_every_s: float = 3600,
         clock: Callable[[], float] = time.monotonic,
         heartbeat: pathlib.Path | None = None,
     ):
         self.consumer = consumer
+        # Without one, feature updates are expected on `consumer` and applied singly.
+        self.features_consumer = features_consumer
+        self.feature_batch = feature_batch
+        self.last_heartbeat = 0.0
         self.connect = connect
         self.conn: psycopg.Connection | None = None
         self.prune_every_s = prune_every_s
         self.clock = clock
         self.last_prune = clock()
         self.heartbeat = heartbeat
-        self.stats = {"applied": 0, "duplicates": 0, "malformed": 0, "db_retries": 0, "health": 0, "features": 0}
+        self.stats = {
+            "applied": 0,
+            "duplicates": 0,
+            "malformed": 0,
+            "db_retries": 0,
+            "health": 0,
+            "features": 0,
+            "feature_rows": 0,
+        }
 
     def _db(self) -> psycopg.Connection:
         if self.conn is None or self.conn.closed:
@@ -134,6 +156,48 @@ class Projector:
         self.stats["applied" if cursor is not None else "duplicates"] += 1
         return cursor
 
+    def handle_features(self, timeout: float = 0.0) -> int:
+        """Applies the feature updates that are waiting; returns how many were read.
+
+        Only the newest window per device, horizon and minute can change a
+        row, so the rest of the batch is dropped before touching the database.
+        """
+        if self.features_consumer is None:
+            return 0
+        messages = self.features_consumer.consume(self.feature_batch, timeout)
+        newest: dict[tuple[str, int, int], FeatureUpdate] = {}
+        read = 0
+        for msg in messages:
+            if msg.error():
+                log.warning("kafka error: %s", msg.error())
+                continue
+            read += 1
+            try:
+                update = FeatureUpdate.FromString(msg.value() or b"")
+            except DecodeError:
+                update = None
+            if update is None or not update.envelope.device_key or not update.window_end_unix_millis:
+                self.stats["malformed"] += 1
+                continue
+            self.stats["features"] += 1
+            key = (update.envelope.device_key, update.horizon_seconds, update.window_end_unix_millis // 60_000)
+            kept = newest.get(key)
+            if kept is None or kept.window_end_unix_millis <= update.window_end_unix_millis:
+                newest[key] = update
+        if newest:
+
+            def write(conn: psycopg.Connection) -> None:
+                with conn.transaction():
+                    for update in newest.values():
+                        db.apply_features(conn, update)
+
+            self._with_retry(write)
+            self.stats["feature_rows"] += len(newest)
+        if read:
+            # Positions of everything consumed above, in one commit.
+            self.features_consumer.commit(asynchronous=False)
+        return read
+
     def handle(self, msg: Message) -> int | None:
         """Applies a message, then commits its offset (after the database commit)."""
         cursor = self.apply(msg)
@@ -146,20 +210,27 @@ class Projector:
             history = db.prune_feature_history(self._db())
             log.info("pruned %d feed rows and %d device history rows", removed, history)
             self.last_prune = self.clock()
-        if self.heartbeat is not None:
+        if self.heartbeat is not None and self.clock() - self.last_heartbeat >= 1:
+            self.last_heartbeat = self.clock()
             self.heartbeat.write_text(f"{time.time():.0f} {self.stats}\n")
 
     def run(self, stop: threading.Event) -> None:
         db.migrate(self._db())
+        # With a features consumer the loop alternates between the two, so it
+        # must not sit in one poll while the other topic has work.
+        wait = 1.0 if self.features_consumer is None else 0.2
         while not stop.is_set():
-            msg = self.consumer.poll(1.0)
+            msg = self.consumer.poll(wait)
             if msg is not None:
                 if msg.error():
                     log.warning("kafka error: %s", msg.error())
                 else:
                     self.handle(msg)
+            self.handle_features()
             self.tick()
         self.consumer.close()
+        if self.features_consumer is not None:
+            self.features_consumer.close()
 
 
 def main() -> None:  # pragma: no cover - wiring only
@@ -167,10 +238,12 @@ def main() -> None:  # pragma: no cover - wiring only
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     dsn = os.environ["DATABASE_URL"]
+    bootstrap = os.environ.get("KAFKA_BOOTSTRAP", "pi-agents-kafka-bootstrap:9092")
+    group = os.environ.get("GROUP_ID", "incident-projector")
     consumer = KafkaConsumer(
         {
-            "bootstrap.servers": os.environ.get("KAFKA_BOOTSTRAP", "pi-agents-kafka-bootstrap:9092"),
-            "group.id": os.environ.get("GROUP_ID", "incident-projector"),
+            "bootstrap.servers": bootstrap,
+            "group.id": group,
             "enable.auto.commit": False,
             "auto.offset.reset": "earliest",
             # The Flink detections sink is at-least-once; duplicates are
@@ -178,11 +251,24 @@ def main() -> None:  # pragma: no cover - wiring only
             "isolation.level": "read_uncommitted",
         }
     )
-    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2"), HEALTH_TOPIC, FEATURES_TOPIC])
+    consumer.subscribe([os.environ.get("DETECTIONS_TOPIC", "traffic.detections.v2"), HEALTH_TOPIC])
+    features_consumer = KafkaConsumer(
+        {
+            "bootstrap.servers": bootstrap,
+            "group.id": os.environ.get("FEATURES_GROUP_ID", f"{group}-features"),
+            "enable.auto.commit": False,
+            # Views are latest-wins: a group without offsets (the first start
+            # after this consumer was split off) skips the retained backlog.
+            "auto.offset.reset": "latest",
+        }
+    )
+    features_consumer.subscribe([FEATURES_TOPIC])
     heartbeat = os.environ.get("HEARTBEAT_FILE")
     projector = Projector(
         consumer,
         lambda: psycopg.connect(dsn, autocommit=True),
+        features_consumer=features_consumer,
+        feature_batch=int(os.environ.get("FEATURE_BATCH", "500")),
         heartbeat=pathlib.Path(heartbeat) if heartbeat else None,
     )
     stop = threading.Event()

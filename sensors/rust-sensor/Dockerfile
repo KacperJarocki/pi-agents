@@ -1,6 +1,6 @@
 # Gateway sensor: libpcap capture + librdkafka publishing (features live,kafka).
 # Built natively per architecture (linux/arm64 for the cluster).
-FROM docker.io/library/rust:1.99.1-slim-bookworm AS build
+FROM docker.io/library/rust:1.100.0-slim-bookworm AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential pkg-config libpcap-dev zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*

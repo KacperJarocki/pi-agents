@@ -1,6 +1,6 @@
 # The UI is plain static output, so it builds once on the build platform
 # (no QEMU) and is copied into the arm64/amd64 runtime image.
-FROM --platform=$BUILDPLATFORM docker.io/library/node:26.13.0-bookworm-slim AS ui
+FROM --platform=$BUILDPLATFORM docker.io/library/node:26.13.1-bookworm-slim AS ui
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
